@@ -13,14 +13,14 @@ export function TierBadge({
 
   return (
     <span
-      className="inline-flex items-center gap-3 rounded-xl border px-3 py-2 font-display text-xs font-semibold tracking-wide whitespace-nowrap"
+      className="inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 font-display text-xs font-semibold tracking-wide whitespace-nowrap"
       style={{
         color,
         borderColor: `${color}55`,
         backgroundColor: `${color}14`,
       }}
     >
-      <TierEmblem tier={tier} size={80} />
+      <TierEmblem tier={tier} size={48} />
       {TIER_LABEL[tier]}
       {division && <span className="text-text-muted">{division}</span>}
     </span>
