@@ -1,26 +1,51 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg: #0a0706;
+  --bg-elevated: #120c0b;
+  --surface: #17100f;
+  --surface-hover: #1e1512;
+  --border-hairline: rgba(224, 184, 116, 0.14);
+  --border-hairline-strong: rgba(224, 184, 116, 0.28);
+
+  --gold: #d9a441;
+  --gold-soft: #f0c874;
+  --crimson: #8c1f2b;
+  --crimson-soft: #b23347;
+  --pink: #ef4d94;
+  --pink-soft: #ff7ab3;
+
+  --text-primary: #f5ece0;
+  --text-secondary: #a89184;
+  --text-muted: #6f6259;
+
+  --win: #4ade80;
+  --loss: #ef4d6e;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-bg: var(--bg);
+  --color-bg-elevated: var(--bg-elevated);
+  --color-surface: var(--surface);
+  --color-surface-hover: var(--surface-hover);
+  --color-border-hairline: var(--border-hairline);
+  --color-border-hairline-strong: var(--border-hairline-strong);
+
+  --color-gold: var(--gold);
+  --color-gold-soft: var(--gold-soft);
+  --color-crimson: var(--crimson);
+  --color-crimson-soft: var(--crimson-soft);
+  --color-pink: var(--pink);
+  --color-pink-soft: var(--pink-soft);
+
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+
+  --color-win: var(--win);
+  --color-loss: var(--loss);
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  --font-display: var(--font-rajdhani);
 }

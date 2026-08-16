@@ -64,21 +64,49 @@ elo_score = tier_base + division_offset + lp
 
 ```
 src/
-  app/page.tsx                      # Leaderboard (server component, lee de Supabase)
+  app/page.tsx                      # Ranking: podio top-3 + tabla completa
+  app/reglas/page.tsx               # Página de reglas (contenido placeholder)
   app/admin/page.tsx                # Panel de admin: alta de participantes
   app/api/update-rankings/route.ts  # Endpoint que actualiza snapshots desde la API de Riot
   app/api/participants/route.ts     # Endpoint que da de alta un participante (resuelve puuid)
   app/api/admin/login/route.ts      # Login del panel de admin (setea cookie de sesión)
+  components/                       # Header, Logo, Countdown, PodiumCard, LeaderboardTable, etc.
   lib/elo.ts                        # Cálculo de elo_score
+  lib/leaderboard.ts                # Arma el ranking + racha/±LP a partir del historial de snapshots
   lib/riot.ts                       # Resolución de puuid vía Account-V1
   lib/admin-auth.ts                 # Chequeo de sesión de admin (cookie o Bearer)
   lib/secrets.ts                    # Comparación de secretos en tiempo constante
+  lib/config.ts                     # Nombre del torneo y fecha de fin (para el countdown)
   lib/supabase/client.ts            # Cliente Supabase para el browser
   lib/supabase/server.ts            # Cliente Supabase para Server Components/Actions
   lib/supabase/admin.ts             # Cliente con secret key (jobs server-side)
   types/database.ts                 # Tipos de participants/snapshots
 supabase/migrations/                # SQL del esquema
 ```
+
+## Diseño del Ranking
+
+Look esports oscuro: fondo casi negro, tarjetas con borde sutil, paleta
+rojo oscuro / dorado / rosa (tokens en `src/app/globals.css`, prefijo
+`--color-*`) y tipografía Rajdhani para títulos/números (`font-display`).
+
+- **Logo**: `src/components/Header.tsx` comprueba en el servidor si existe
+  `public/logo.png` (`fs.existsSync`). Si no está, muestra un wordmark
+  estilizado como placeholder — no hay que tocar código, solo copia tu
+  `logo.png` a `public/` y aparece automáticamente en el próximo deploy.
+- **Countdown**: cuenta regresivo hasta `TOURNAMENT_END_DATE` en
+  `src/lib/config.ts` — edita esa fecha con el cierre real del torneo.
+- **Avatares**: no hay foto de perfil en el esquema, así que se generan
+  iniciales con un color determinístico por nombre (`src/lib/avatar.ts`).
+- **Racha / ±LP**: `snapshots` guarda fotos periódicas (tier/LP/wins/losses
+  acumulados), no partidas individuales — no hay forma de reconstruir un
+  historial partida-por-partida real. Por eso "Racha" es una mini-gráfica
+  de tendencia (últimos `elo_score` en una ventana de 7 días) y "±LP" es la
+  suma de subidas/bajadas de `elo_score` entre snapshots consecutivos en esa
+  misma ventana — ambos derivados de datos reales, calculados en
+  `src/lib/leaderboard.ts`.
+- Sin secciones de premios, Blue Shell, Pick'em ni Tier List, tal cual se
+  pidió — solo Ranking y Reglas.
 
 ## Actualizar el leaderboard (`/api/update-rankings`)
 
@@ -152,7 +180,10 @@ curl -X POST https://tu-sitio.vercel.app/api/participants \
 
 ## Pendiente
 
-- UI final del leaderboard (filtros, búsqueda, avatares, etc.).
+- Copiar el logo real a `public/logo.png` (ver "Diseño del Ranking" arriba).
+- Editar el contenido real de `/reglas` (por ahora tiene placeholders).
+- Ajustar `TOURNAMENT_END_DATE` en `src/lib/config.ts` a la fecha real de
+  cierre del torneo.
 
 ## Deploy
 
