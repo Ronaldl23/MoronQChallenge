@@ -19,6 +19,12 @@ export type Participant = {
   riot_tag: string;
   puuid: string;
   region_platform: string;
+  /**
+   * Ícono de invocador actual (Data Dragon). Null hasta que corre el
+   * primer /api/update-rankings para este participante — se actualiza en
+   * cada corrida por si el jugador lo cambia.
+   */
+  profile_icon_id: number | null;
 };
 
 export type Snapshot = {
@@ -38,7 +44,10 @@ export type Database = {
     Tables: {
       participants: {
         Row: Participant;
-        Insert: Omit<Participant, "id"> & { id?: string };
+        Insert: Omit<Participant, "id" | "profile_icon_id"> & {
+          id?: string;
+          profile_icon_id?: number | null;
+        };
         Update: Partial<Omit<Participant, "id">>;
         Relationships: [];
       };

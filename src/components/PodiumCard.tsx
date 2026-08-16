@@ -2,7 +2,7 @@
 
 import { motion } from "motion/react";
 import type { LeaderboardEntry } from "@/lib/leaderboard";
-import { Avatar } from "./Avatar";
+import { ProfileIcon } from "./ProfileIcon";
 import { TierBadge } from "./TierBadge";
 import { TierEmblem } from "./TierEmblem";
 import { WinrateBar } from "./WinrateBar";
@@ -36,7 +36,13 @@ const RANK_STYLE: Record<
   },
 };
 
-export function PodiumCard({ entry }: { entry: LeaderboardEntry }) {
+export function PodiumCard({
+  entry,
+  ddragonVersion,
+}: {
+  entry: LeaderboardEntry;
+  ddragonVersion: string;
+}) {
   const { participant, latest, rank } = entry;
   const total = latest.wins + latest.losses;
   const winPct = total > 0 ? Math.round((latest.wins / total) * 100) : 0;
@@ -69,7 +75,12 @@ export function PodiumCard({ entry }: { entry: LeaderboardEntry }) {
           <span className="font-display text-2xl font-bold text-text-muted">
             #{rank}
           </span>
-          <Avatar name={participant.nombre_display} size={48} />
+          <ProfileIcon
+            name={participant.nombre_display}
+            profileIconId={participant.profile_icon_id}
+            ddragonVersion={ddragonVersion}
+            size={48}
+          />
           <div className="min-w-0">
             <p className="truncate text-lg font-bold text-text-primary">
               {participant.nombre_display}

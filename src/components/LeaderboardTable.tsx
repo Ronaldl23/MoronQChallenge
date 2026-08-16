@@ -2,13 +2,19 @@
 
 import { motion } from "motion/react";
 import type { LeaderboardEntry } from "@/lib/leaderboard";
-import { Avatar } from "./Avatar";
+import { ProfileIcon } from "./ProfileIcon";
 import { TierBadge } from "./TierBadge";
 import { TierEmblem } from "./TierEmblem";
 import { Sparkline } from "./Sparkline";
 import { WinrateBar } from "./WinrateBar";
 
-export function LeaderboardTable({ entries }: { entries: LeaderboardEntry[] }) {
+export function LeaderboardTable({
+  entries,
+  ddragonVersion,
+}: {
+  entries: LeaderboardEntry[];
+  ddragonVersion: string;
+}) {
   return (
     <div className="overflow-x-auto rounded-2xl border border-border-hairline bg-surface">
       <table className="w-full min-w-[720px] border-collapse text-sm">
@@ -39,7 +45,12 @@ export function LeaderboardTable({ entries }: { entries: LeaderboardEntry[] }) {
               </td>
               <td className="px-4 py-3">
                 <div className="flex items-center gap-3">
-                  <Avatar name={entry.participant.nombre_display} size={32} />
+                  <ProfileIcon
+                    name={entry.participant.nombre_display}
+                    profileIconId={entry.participant.profile_icon_id}
+                    ddragonVersion={ddragonVersion}
+                    size={32}
+                  />
                   <div className="min-w-0">
                     <p className="truncate text-[15px] font-bold text-text-primary">
                       {entry.participant.nombre_display}

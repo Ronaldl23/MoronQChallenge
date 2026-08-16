@@ -14,6 +14,10 @@ interface RiotLeagueEntry {
   losses: number;
 }
 
+interface RiotSummoner {
+  profileIconId: number;
+}
+
 const APEX_TIERS = new Set(["MASTER", "GRANDMASTER", "CHALLENGER"]);
 
 function isAuthorized(request: Request): boolean {
@@ -56,8 +60,28 @@ export async function GET(request: Request) {
   }> = [];
 
   for (const participant of participants ?? []) {
+    const platform = participant.region_platform.toLowerCase();
+
+    // Ícono de invocador: best-effort, independiente del resultado de
+    // league-v4 — un jugador unranked igual tiene un ícono que mostrar.
     try {
-      const platform = participant.region_platform.toLowerCase();
+      const summonerRes = await fetch(
+        `https://${platform}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/${participant.puuid}`,
+        { headers: { "X-Riot-Token": riotApiKey }, cache: "no-store" },
+      );
+      if (summonerRes.ok) {
+        const summoner = (await summonerRes.json()) as RiotSummoner;
+        await supabase
+          .from("participants")
+          .update({ profile_icon_id: summoner.profileIconId })
+          .eq("id", participant.id);
+      }
+    } catch {
+      // Si falla, profile_icon_id se queda como estaba y la UI cae de
+      // vuelta a las iniciales — no bloquea la actualización de rango.
+    }
+
+    try {
       const res = await fetch(
         `https://${platform}.api.riotgames.com/lol/league/v4/entries/by-puuid/${participant.puuid}`,
         { headers: { "X-Riot-Token": riotApiKey }, cache: "no-store" },
