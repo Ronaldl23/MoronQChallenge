@@ -1,3 +1,6 @@
+import type { MainRole } from "@/lib/lane";
+export type { MainRole };
+
 export type RankTier =
   | "IRON"
   | "BRONZE"
@@ -31,6 +34,8 @@ export type Participant = {
   opgg_url: string | null;
   /** Si está en partida activa ahora mismo (spectator-v5), refrescado en cada /api/update-rankings. */
   in_game: boolean;
+  /** Línea main fija, definida a mano en /admin al crear el participante. Distinta de la línea jugada partida a partida (esa sale de teamPosition en match-v5). */
+  main_role: MainRole | null;
 };
 
 export type Snapshot = {
@@ -50,11 +55,15 @@ export type Database = {
     Tables: {
       participants: {
         Row: Participant;
-        Insert: Omit<Participant, "id" | "profile_icon_id" | "avatar_url" | "in_game"> & {
+        Insert: Omit<
+          Participant,
+          "id" | "profile_icon_id" | "avatar_url" | "in_game" | "main_role"
+        > & {
           id?: string;
           profile_icon_id?: number | null;
           avatar_url?: string | null;
           in_game?: boolean;
+          main_role?: MainRole | null;
         };
         Update: Partial<Omit<Participant, "id">>;
         Relationships: [];

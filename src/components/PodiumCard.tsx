@@ -2,7 +2,9 @@
 
 import { motion } from "motion/react";
 import type { LeaderboardEntry } from "@/lib/leaderboard";
+import { ROLE_TO_LANE_SLUG } from "@/lib/lane";
 import { OpggButton } from "./OpggButton";
+import { PositionIcon } from "./PositionIcon";
 import { ProfileIcon } from "./ProfileIcon";
 import { TierBadge } from "./TierBadge";
 import { TierEmblem } from "./TierEmblem";
@@ -84,8 +86,11 @@ export function PodiumCard({
             size={48}
           />
           <div className="min-w-0">
-            <p className="truncate text-lg font-bold text-text-primary">
+            <p className="flex items-center gap-1.5 truncate text-lg font-bold text-text-primary">
               {participant.nombre_display}
+              {participant.main_role && (
+                <PositionIcon laneSlug={ROLE_TO_LANE_SLUG[participant.main_role]} size={14} />
+              )}
             </p>
             <p className="truncate text-xs text-text-secondary">
               {participant.riot_game_name}#{participant.riot_tag}

@@ -3,8 +3,10 @@
 import { Fragment, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import type { LeaderboardEntry } from "@/lib/leaderboard";
+import { ROLE_TO_LANE_SLUG } from "@/lib/lane";
 import { MatchHistory } from "./MatchHistory";
 import { OpggButton } from "./OpggButton";
+import { PositionIcon } from "./PositionIcon";
 import { ProfileIcon } from "./ProfileIcon";
 import { TierBadge } from "./TierBadge";
 import { TierEmblem } from "./TierEmblem";
@@ -68,6 +70,12 @@ export function LeaderboardTable({
                   <div className="min-w-0">
                     <p className="flex items-center gap-1.5 truncate text-[15px] font-bold text-text-primary">
                       {entry.participant.nombre_display}
+                      {entry.participant.main_role && (
+                        <PositionIcon
+                          laneSlug={ROLE_TO_LANE_SLUG[entry.participant.main_role]}
+                          size={14}
+                        />
+                      )}
                       <svg
                         viewBox="0 0 20 20"
                         className={`h-3.5 w-3.5 shrink-0 text-text-muted transition-transform duration-200 ${

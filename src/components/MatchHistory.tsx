@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { MatchSummary } from "@/app/api/match-history/route";
+import { PositionIcon } from "./PositionIcon";
 
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -54,26 +55,6 @@ function ChampionIcon({
       height={size}
       className="shrink-0 rounded"
       style={{ width: size, height: size }}
-      loading="lazy"
-      onError={() => setFailed(true)}
-    />
-  );
-}
-
-/** Ícono de línea/posición (Community Dragon). Si no hay laneSlug (ARAM y otros modos sin línea fija) o la imagen falla, no se renderiza nada — nunca rompe el layout. */
-function PositionIcon({ laneSlug }: { laneSlug: string }) {
-  const [failed, setFailed] = useState(false);
-
-  if (failed) return null;
-
-  return (
-    // eslint-disable-next-line @next/next/no-img-element -- CDN externo (Community Dragon), necesita onError
-    <img
-      src={`https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-${laneSlug}.png`}
-      alt=""
-      width={16}
-      height={16}
-      className="h-4 w-4 shrink-0"
       loading="lazy"
       onError={() => setFailed(true)}
     />

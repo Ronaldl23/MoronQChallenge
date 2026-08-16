@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { SUPPORTED_PLATFORMS } from "@/lib/riot";
+import { MAIN_ROLES, MAIN_ROLE_LABEL } from "@/lib/lane";
 
 const initialForm: {
   nombre_display: string;
@@ -9,12 +10,14 @@ const initialForm: {
   riot_tag: string;
   region_platform: string;
   avatar_url: string;
+  main_role: string;
 } = {
   nombre_display: "",
   riot_game_name: "",
   riot_tag: "",
   region_platform: SUPPORTED_PLATFORMS[0],
   avatar_url: "",
+  main_role: "",
 };
 
 type Status =
@@ -117,6 +120,22 @@ export function AddParticipantForm() {
         <span className="text-xs text-zinc-500 dark:text-zinc-400">
           Si lo dejás vacío, se usa el ícono de invocador automático de LoL.
         </span>
+      </label>
+
+      <label className="flex flex-col gap-1 text-sm text-zinc-700 dark:text-zinc-300">
+        Línea main (opcional)
+        <select
+          value={form.main_role}
+          onChange={(event) => setForm({ ...form, main_role: event.target.value })}
+          className="rounded border border-zinc-300 bg-white px-3 py-2 text-black dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+        >
+          <option value="">Sin especificar</option>
+          {MAIN_ROLES.map((role) => (
+            <option key={role} value={role}>
+              {MAIN_ROLE_LABEL[role]}
+            </option>
+          ))}
+        </select>
       </label>
 
       {status.type === "error" && (

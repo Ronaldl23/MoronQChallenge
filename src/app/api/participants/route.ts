@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isAdminAuthenticated } from "@/lib/admin-auth";
 import { buildOpggUrl } from "@/lib/opgg";
+import { MAIN_ROLES, type MainRole } from "@/lib/lane";
 import {
   resolvePuuid,
   RiotAccountNotFoundError,
@@ -31,8 +32,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
   }
 
-  const { nombre_display, riot_game_name, riot_tag, region_platform, avatar_url } = (body ??
-    {}) as Record<string, unknown>;
+  const { nombre_display, riot_game_name, riot_tag, region_platform, avatar_url, main_role } =
+    (body ?? {}) as Record<string, unknown>;
 
   if (
     typeof nombre_display !== "string" ||
@@ -71,6 +72,18 @@ export async function POST(request: Request) {
       );
     }
     avatarUrl = trimmed;
+  }
+
+  let mainRole: MainRole | null = null;
+  if (typeof main_role === "string" && main_role.trim()) {
+    const trimmed = main_role.trim().toUpperCase();
+    if (!MAIN_ROLES.includes(trimmed as MainRole)) {
+      return NextResponse.json(
+        { error: `main_role inválida. Usa una de: ${MAIN_ROLES.join(", ")}` },
+        { status: 400 },
+      );
+    }
+    mainRole = trimmed as MainRole;
   }
 
   let account;
@@ -114,6 +127,7 @@ export async function POST(request: Request) {
       region_platform: platform,
       avatar_url: avatarUrl,
       opgg_url: opggUrl,
+      main_role: mainRole,
     })
     .select()
     .single();

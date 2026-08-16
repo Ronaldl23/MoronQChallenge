@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { platformToContinent } from "@/lib/riot";
+import { ROLE_TO_LANE_SLUG, type MainRole } from "@/lib/lane";
 
 export const dynamic = "force-dynamic";
 
@@ -34,14 +35,6 @@ interface RiotMatch {
     participants: RiotMatchParticipant[];
   };
 }
-
-const TEAM_POSITION_TO_LANE: Record<string, string> = {
-  TOP: "top",
-  JUNGLE: "jungle",
-  MIDDLE: "middle",
-  BOTTOM: "bottom",
-  UTILITY: "utility",
-};
 
 export interface MatchSummary {
   matchId: string;
@@ -227,7 +220,7 @@ export async function GET(request: Request) {
         matchId,
         win: mp.win,
         championName: mp.championName,
-        laneSlug: TEAM_POSITION_TO_LANE[mp.teamPosition] ?? null,
+        laneSlug: ROLE_TO_LANE_SLUG[mp.teamPosition as MainRole] ?? null,
         opponentChampionName: opponent?.championName ?? null,
         kills: mp.kills,
         deaths: mp.deaths,
