@@ -1,20 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 
-type LeaderboardRow = {
-  elo_score: number;
-  tier: string;
-  division: string | null;
-  lp: number;
-  wins: number;
-  losses: number;
-  participants: {
-    nombre_display: string;
-    riot_game_name: string;
-    riot_tag: string;
-  } | null;
-};
-
-async function getLeaderboard(): Promise<LeaderboardRow[]> {
+async function getLeaderboard() {
   const supabase = await createClient();
 
   // Latest snapshot per participant, ranked by elo_score.
@@ -32,7 +18,7 @@ async function getLeaderboard(): Promise<LeaderboardRow[]> {
     return [];
   }
 
-  return (data ?? []) as unknown as LeaderboardRow[];
+  return data ?? [];
 }
 
 export default async function Home() {

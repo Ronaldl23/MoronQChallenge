@@ -64,20 +64,42 @@ elo_score = tier_base + division_offset + lp
 
 ```
 src/
-  app/page.tsx            # Leaderboard (server component, lee de Supabase)
-  lib/elo.ts               # Cálculo de elo_score
-  lib/supabase/client.ts   # Cliente Supabase para el browser
-  lib/supabase/server.ts   # Cliente Supabase para Server Components/Actions
-  lib/supabase/admin.ts    # Cliente con secret key (jobs server-side)
-  types/database.ts        # Tipos de participants/snapshots
-supabase/migrations/       # SQL del esquema
+  app/page.tsx                      # Leaderboard (server component, lee de Supabase)
+  app/api/update-rankings/route.ts  # Endpoint que actualiza snapshots desde la API de Riot
+  lib/elo.ts                        # Cálculo de elo_score
+  lib/supabase/client.ts            # Cliente Supabase para el browser
+  lib/supabase/server.ts            # Cliente Supabase para Server Components/Actions
+  lib/supabase/admin.ts             # Cliente con secret key (jobs server-side)
+  types/database.ts                 # Tipos de participants/snapshots
+supabase/migrations/                # SQL del esquema
 ```
+
+## Actualizar el leaderboard (`/api/update-rankings`)
+
+`GET /api/update-rankings` recorre todos los `participants`, consulta su rank
+actual en la API de Riot (League-V4, por `puuid`) e inserta un nuevo
+`snapshot` por cada uno con su `elo_score` recalculado.
+
+Requiere `RIOT_API_KEY` y `CRON_SECRET` configuradas. Está protegido: sin el
+secreto correcto responde `401 Unauthorized`, porque cada llamada escribe en
+la base de datos y consume tu cuota de la API de Riot. Se invoca así:
+
+```bash
+curl "https://tu-sitio.vercel.app/api/update-rankings?secret=TU_CRON_SECRET"
+# o
+curl -H "Authorization: Bearer TU_CRON_SECRET" https://tu-sitio.vercel.app/api/update-rankings
+```
+
+Asume que `participants.puuid` ya está poblado (el alta de participantes —
+resolver `riot_game_name`/`riot_tag` a `puuid` vía Account-V1 — todavía no
+está implementada).
 
 ## Pendiente
 
-- Fetch a la API de Riot (Account-V1 + League-V4) para poblar `snapshots`.
-- Job/cron que resuelva `puuid` a partir de `riot_game_name`/`riot_tag`,
-  consulte el rank actual y calcule `elo_score` con `calculateEloScore`.
+- Alta de participantes: resolver `riot_game_name`/`riot_tag` a `puuid` vía
+  Account-V1 de Riot y guardarlos en `participants`.
+- Programar `/api/update-rankings` con un cron (p. ej. Vercel Cron) para que
+  corra automáticamente en vez de dispararlo a mano.
 - UI final del leaderboard (filtros, búsqueda, avatares, etc.).
 
 ## Deploy

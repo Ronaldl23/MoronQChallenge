@@ -12,16 +12,16 @@ export type RankTier =
 
 export type RankDivision = "I" | "II" | "III" | "IV";
 
-export interface Participant {
+export type Participant = {
   id: string;
   nombre_display: string;
   riot_game_name: string;
   riot_tag: string;
   puuid: string;
   region_platform: string;
-}
+};
 
-export interface Snapshot {
+export type Snapshot = {
   id: string;
   participant_id: string;
   tier: RankTier;
@@ -31,15 +31,16 @@ export interface Snapshot {
   losses: number;
   elo_score: number;
   created_at: string;
-}
+};
 
-export interface Database {
+export type Database = {
   public: {
     Tables: {
       participants: {
         Row: Participant;
         Insert: Omit<Participant, "id"> & { id?: string };
         Update: Partial<Omit<Participant, "id">>;
+        Relationships: [];
       };
       snapshots: {
         Row: Snapshot;
@@ -49,7 +50,22 @@ export interface Database {
           elo_score: number;
         };
         Update: Partial<Omit<Snapshot, "id">>;
+        Relationships: [
+          {
+            foreignKeyName: "snapshots_participant_id_fkey";
+            columns: ["participant_id"];
+            isOneToOne: false;
+            referencedRelation: "participants";
+            referencedColumns: ["id"];
+          },
+        ];
       };
     };
+    Views: {
+      [_ in never]: never;
+    };
+    Functions: {
+      [_ in never]: never;
+    };
   };
-}
+};
