@@ -81,6 +81,30 @@ export async function GET(request: Request) {
       // vuelta a las iniciales — no bloquea la actualización de rango.
     }
 
+    // Estado en vivo: best-effort, igual que el ícono. 200 = está jugando,
+    // 404 = no está en partida (respuesta normal, no un error). Cualquier
+    // otro status (429, 5xx) no toca in_game: se resuelve en la próxima
+    // corrida en vez de asumir un estado incorrecto.
+    try {
+      const spectatorRes = await fetch(
+        `https://${platform}.api.riotgames.com/lol/spectator/v5/active-games/by-summoner/${participant.puuid}`,
+        { headers: { "X-Riot-Token": riotApiKey }, cache: "no-store" },
+      );
+      if (spectatorRes.ok) {
+        await supabase
+          .from("participants")
+          .update({ in_game: true })
+          .eq("id", participant.id);
+      } else if (spectatorRes.status === 404) {
+        await supabase
+          .from("participants")
+          .update({ in_game: false })
+          .eq("id", participant.id);
+      }
+    } catch {
+      // Red caída, etc — no bloquea el resto del update.
+    }
+
     try {
       const res = await fetch(
         `https://${platform}.api.riotgames.com/lol/league/v4/entries/by-puuid/${participant.puuid}`,

@@ -2,6 +2,7 @@
 
 import { motion } from "motion/react";
 import type { LeaderboardEntry } from "@/lib/leaderboard";
+import { OpggButton } from "./OpggButton";
 import { ProfileIcon } from "./ProfileIcon";
 import { TierBadge } from "./TierBadge";
 import { TierEmblem } from "./TierEmblem";
@@ -77,6 +78,7 @@ export function PodiumCard({
           </span>
           <ProfileIcon
             name={participant.nombre_display}
+            avatarUrl={participant.avatar_url}
             profileIconId={participant.profile_icon_id}
             ddragonVersion={ddragonVersion}
             size={48}
@@ -96,12 +98,15 @@ export function PodiumCard({
           <TierBadge tier={latest.tier} division={latest.division} />
         </div>
 
-        <p className="relative font-display leading-none font-bold text-text-primary">
-          <span className={isLeader ? "text-5xl" : "text-4xl"}>
-            {latest.lp.toLocaleString("es")}
-          </span>{" "}
-          <span className="text-sm font-medium text-text-secondary">LP</span>
-        </p>
+        <div className="relative flex items-center justify-between gap-2">
+          <p className="font-display leading-none font-bold text-text-primary">
+            <span className={isLeader ? "text-5xl" : "text-4xl"}>
+              {latest.lp.toLocaleString("es")}
+            </span>{" "}
+            <span className="text-sm font-medium text-text-secondary">LP</span>
+          </p>
+          <OpggButton opggUrl={participant.opgg_url} inGame={participant.in_game} />
+        </div>
 
         <div className="relative flex flex-col gap-1.5">
           <div className="flex items-center justify-between text-xs text-text-secondary">

@@ -2,6 +2,7 @@
 
 import { motion } from "motion/react";
 import type { LeaderboardEntry } from "@/lib/leaderboard";
+import { OpggButton } from "./OpggButton";
 import { ProfileIcon } from "./ProfileIcon";
 import { TierBadge } from "./TierBadge";
 import { TierEmblem } from "./TierEmblem";
@@ -47,6 +48,7 @@ export function LeaderboardTable({
                 <div className="flex items-center gap-3">
                   <ProfileIcon
                     name={entry.participant.nombre_display}
+                    avatarUrl={entry.participant.avatar_url}
                     profileIconId={entry.participant.profile_icon_id}
                     ddragonVersion={ddragonVersion}
                     size={32}
@@ -86,9 +88,15 @@ export function LeaderboardTable({
                 <Sparkline points={entry.trend} id={entry.participant.id} />
               </td>
               <td className="px-4 py-3 text-right">
-                <div className="flex flex-col items-end gap-0.5 font-display text-xs font-semibold">
-                  <span className="text-win">▲ {entry.lpGained}</span>
-                  <span className="text-loss">▼ {entry.lpLost}</span>
+                <div className="flex items-center justify-end gap-2">
+                  <div className="flex flex-col items-end gap-0.5 font-display text-xs font-semibold">
+                    <span className="text-win">▲ {entry.lpGained}</span>
+                    <span className="text-loss">▼ {entry.lpLost}</span>
+                  </div>
+                  <OpggButton
+                    opggUrl={entry.participant.opgg_url}
+                    inGame={entry.participant.in_game}
+                  />
                 </div>
               </td>
             </motion.tr>

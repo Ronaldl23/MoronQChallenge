@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isAdminAuthenticated } from "@/lib/admin-auth";
+import { buildOpggUrl } from "@/lib/opgg";
 import {
   resolvePuuid,
   RiotAccountNotFoundError,
@@ -30,7 +31,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
   }
 
-  const { nombre_display, riot_game_name, riot_tag, region_platform } = (body ??
+  const { nombre_display, riot_game_name, riot_tag, region_platform, avatar_url } = (body ??
     {}) as Record<string, unknown>;
 
   if (
@@ -60,6 +61,18 @@ export async function POST(request: Request) {
     );
   }
 
+  let avatarUrl: string | null = null;
+  if (typeof avatar_url === "string" && avatar_url.trim()) {
+    const trimmed = avatar_url.trim();
+    if (!/^https?:\/\//i.test(trimmed)) {
+      return NextResponse.json(
+        { error: "avatar_url debe ser una URL http(s) válida" },
+        { status: 400 },
+      );
+    }
+    avatarUrl = trimmed;
+  }
+
   let account;
   try {
     account = await resolvePuuid({
@@ -84,6 +97,12 @@ export async function POST(request: Request) {
     );
   }
 
+  const opggUrl = buildOpggUrl({
+    riotGameName: account.gameName,
+    riotTag: account.tagLine,
+    regionPlatform: platform,
+  });
+
   const supabase = createAdminClient();
   const { data, error } = await supabase
     .from("participants")
@@ -93,6 +112,8 @@ export async function POST(request: Request) {
       riot_tag: account.tagLine,
       puuid: account.puuid,
       region_platform: platform,
+      avatar_url: avatarUrl,
+      opgg_url: opggUrl,
     })
     .select()
     .single();

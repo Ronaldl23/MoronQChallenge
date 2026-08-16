@@ -8,11 +8,13 @@ const initialForm: {
   riot_game_name: string;
   riot_tag: string;
   region_platform: string;
+  avatar_url: string;
 } = {
   nombre_display: "",
   riot_game_name: "",
   riot_tag: "",
   region_platform: SUPPORTED_PLATFORMS[0],
+  avatar_url: "",
 };
 
 type Status =
@@ -101,6 +103,20 @@ export function AddParticipantForm() {
             </option>
           ))}
         </select>
+      </label>
+
+      <label className="flex flex-col gap-1 text-sm text-zinc-700 dark:text-zinc-300">
+        Avatar (opcional)
+        <input
+          type="url"
+          value={form.avatar_url}
+          onChange={(event) => setForm({ ...form, avatar_url: event.target.value })}
+          placeholder="https://ejemplo.com/foto.jpg"
+          className="rounded border border-zinc-300 bg-white px-3 py-2 text-black dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+        />
+        <span className="text-xs text-zinc-500 dark:text-zinc-400">
+          Si lo dejás vacío, se usa el ícono de invocador automático de LoL.
+        </span>
       </label>
 
       {status.type === "error" && (

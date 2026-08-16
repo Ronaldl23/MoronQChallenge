@@ -25,6 +25,12 @@ export type Participant = {
    * cada corrida por si el jugador lo cambia.
    */
   profile_icon_id: number | null;
+  /** Avatar manual opcional, pegado desde /admin. Si está presente, tiene prioridad sobre profile_icon_id. */
+  avatar_url: string | null;
+  /** Link a OP.GG, calculado una sola vez al crear el participante. */
+  opgg_url: string | null;
+  /** Si está en partida activa ahora mismo (spectator-v5), refrescado en cada /api/update-rankings. */
+  in_game: boolean;
 };
 
 export type Snapshot = {
@@ -44,9 +50,11 @@ export type Database = {
     Tables: {
       participants: {
         Row: Participant;
-        Insert: Omit<Participant, "id" | "profile_icon_id"> & {
+        Insert: Omit<Participant, "id" | "profile_icon_id" | "avatar_url" | "in_game"> & {
           id?: string;
           profile_icon_id?: number | null;
+          avatar_url?: string | null;
+          in_game?: boolean;
         };
         Update: Partial<Omit<Participant, "id">>;
         Relationships: [];
