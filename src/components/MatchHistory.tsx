@@ -2,12 +2,30 @@
 
 import { useEffect, useState } from "react";
 import type { MatchSummary } from "@/app/api/match-history/route";
-import { formatRelativeTime } from "@/lib/format";
 
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+/**
+ * Versión compacta de "hace X" (hace 3h, hace 2d) para que quepa en una
+ * sola línea junto a la duración — la versión larga de formatRelativeTime
+ * ("hace 3 horas") no entra en el ancho de esta columna.
+ */
+function formatRelativeShort(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const minutes = Math.floor(diffMs / 60_000);
+
+  if (minutes < 1) return "ahora";
+  if (minutes < 60) return `hace ${minutes}m`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `hace ${hours}h`;
+
+  const days = Math.floor(hours / 24);
+  return `hace ${days}d`;
 }
 
 function ChampionIcon({
@@ -46,7 +64,7 @@ function ItemIcon({ itemId, ddragonVersion }: { itemId: number; ddragonVersion: 
   const [failed, setFailed] = useState(false);
 
   if (failed) {
-    return <div className="h-5 w-5 shrink-0 rounded bg-white/5" />;
+    return <div className="h-[22px] w-[22px] shrink-0 rounded bg-white/5" />;
   }
 
   return (
@@ -54,12 +72,29 @@ function ItemIcon({ itemId, ddragonVersion }: { itemId: number; ddragonVersion: 
     <img
       src={`https://ddragon.leagueoflegends.com/cdn/${ddragonVersion}/img/item/${itemId}.png`}
       alt=""
-      width={20}
-      height={20}
-      className="h-5 w-5 shrink-0 rounded"
+      width={22}
+      height={22}
+      className="h-[22px] w-[22px] shrink-0 rounded"
       loading="lazy"
       onError={() => setFailed(true)}
     />
+  );
+}
+
+/** Grilla fija de 7 slots (6 items + trinket) para que la build ocupe siempre el mismo ancho y las columnas de al lado no bailen entre filas. */
+function ItemBuild({ items, ddragonVersion }: { items: number[]; ddragonVersion: string }) {
+  const slots = Array.from({ length: 7 }, (_, i) => items[i] ?? null);
+
+  return (
+    <div className="grid grid-cols-4 gap-1">
+      {slots.map((itemId, i) =>
+        itemId ? (
+          <ItemIcon key={`${itemId}-${i}`} itemId={itemId} ddragonVersion={ddragonVersion} />
+        ) : (
+          <div key={`empty-${i}`} className="h-[22px] w-[22px] shrink-0 rounded bg-white/5" />
+        ),
+      )}
+    </div>
   );
 }
 
@@ -131,7 +166,7 @@ export function MatchHistory({
   }
 
   return (
-    <div className="flex flex-col divide-y divide-border-hairline px-4 py-2">
+    <div className="flex min-w-[760px] flex-col divide-y divide-border-hairline px-4 py-2">
       {status.matches.map((match) => {
         const kda =
           match.deaths === 0
@@ -139,8 +174,11 @@ export function MatchHistory({
             : (match.kills + match.assists) / match.deaths;
 
         return (
-          <div key={match.matchId} className="flex flex-wrap items-center gap-4 py-2.5 text-sm">
-            <div className="flex w-24 shrink-0 flex-col">
+          <div
+            key={match.matchId}
+            className="grid grid-cols-[104px_88px_140px_100px_1fr] items-center gap-4 py-2.5 text-sm"
+          >
+            <div className="flex flex-col">
               <span
                 className={`font-display text-xs font-bold uppercase ${
                   match.win ? "text-win" : "text-loss"
@@ -148,52 +186,41 @@ export function MatchHistory({
               >
                 {match.win ? "Victoria" : "Derrota"}
               </span>
-              <span className="text-xs text-text-muted">
-                {formatRelativeTime(new Date(match.gameEndTimestamp).toISOString())}
+              <span className="text-xs whitespace-nowrap text-text-muted">
+                {formatDuration(match.durationSeconds)} ·{" "}
+                {formatRelativeShort(new Date(match.gameEndTimestamp).toISOString())}
               </span>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
               <ChampionIcon championName={match.championName} ddragonVersion={ddragonVersion} />
-              <span className="text-text-primary">{match.championName}</span>
-            </div>
-
-            {match.opponentChampionName && (
-              <div className="flex items-center gap-1.5 text-text-secondary">
-                <span className="text-xs">vs</span>
-                <ChampionIcon
-                  championName={match.opponentChampionName}
-                  ddragonVersion={ddragonVersion}
-                  size={24}
-                />
-              </div>
-            )}
-
-            <div className="flex w-28 shrink-0 flex-col">
-              <span className="font-semibold text-text-primary">
-                {match.kills}/{match.deaths}/{match.assists}
-              </span>
-              <span className="text-xs text-text-secondary">
-                {kda === null ? "KDA perfecto" : `${kda.toFixed(2)} KDA`}
-              </span>
-            </div>
-
-            <div className="flex w-[168px] shrink-0 flex-wrap gap-1">
-              {match.items.length > 0 ? (
-                match.items.map((itemId, i) => (
-                  <ItemIcon key={`${itemId}-${i}`} itemId={itemId} ddragonVersion={ddragonVersion} />
-                ))
-              ) : (
-                <span className="text-xs text-text-muted">Sin build</span>
+              {match.opponentChampionName && (
+                <>
+                  <span className="text-[10px] text-text-muted">vs</span>
+                  <ChampionIcon
+                    championName={match.opponentChampionName}
+                    ddragonVersion={ddragonVersion}
+                    size={24}
+                  />
+                </>
               )}
             </div>
 
-            <span className="w-14 shrink-0 text-xs text-text-secondary">
-              {formatDuration(match.durationSeconds)}
-            </span>
+            <div className="flex flex-col items-center text-center">
+              <span className="font-semibold text-text-primary">
+                {match.kills} / <span className="text-loss">{match.deaths}</span> /{" "}
+                {match.assists}
+              </span>
+              <span className="text-xs whitespace-nowrap text-text-secondary">
+                {kda === null ? "Perfecto" : `${kda.toFixed(1)} KDA`} · {match.killParticipationPct}
+                % KP · {match.cs} CS
+              </span>
+            </div>
+
+            <ItemBuild items={match.items} ddragonVersion={ddragonVersion} />
 
             <span
-              className={`ml-auto shrink-0 text-xs font-semibold ${
+              className={`justify-self-end text-sm font-semibold ${
                 match.lpChange === null
                   ? "text-text-muted"
                   : match.lpChange > 0

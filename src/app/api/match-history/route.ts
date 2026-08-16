@@ -16,6 +16,8 @@ interface RiotMatchParticipant {
   assists: number;
   teamId: number;
   teamPosition: string;
+  totalMinionsKilled: number;
+  neutralMinionsKilled: number;
   item0: number;
   item1: number;
   item2: number;
@@ -41,6 +43,9 @@ export interface MatchSummary {
   kills: number;
   deaths: number;
   assists: number;
+  cs: number;
+  /** % de los kills del equipo en los que participó (kills + assists propios / kills totales del equipo). */
+  killParticipationPct: number;
   items: number[];
   durationSeconds: number;
   gameEndTimestamp: number;
@@ -198,6 +203,12 @@ export async function GET(request: Request) {
         (id) => id !== 0,
       );
 
+      const teamKills = match.info.participants
+        .filter((p) => p.teamId === mp.teamId)
+        .reduce((sum, p) => sum + p.kills, 0);
+      const killParticipationPct =
+        teamKills > 0 ? Math.round(((mp.kills + mp.assists) / teamKills) * 100) : 0;
+
       matches.push({
         matchId,
         win: mp.win,
@@ -206,6 +217,8 @@ export async function GET(request: Request) {
         kills: mp.kills,
         deaths: mp.deaths,
         assists: mp.assists,
+        cs: mp.totalMinionsKilled + mp.neutralMinionsKilled,
+        killParticipationPct,
         items,
         durationSeconds: match.info.gameDuration,
         gameEndTimestamp: match.info.gameEndTimestamp,
