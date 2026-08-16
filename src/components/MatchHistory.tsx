@@ -166,7 +166,7 @@ export function MatchHistory({
   }
 
   return (
-    <div className="flex min-w-[760px] flex-col divide-y divide-border-hairline px-4 py-2">
+    <div className="flex w-fit flex-col divide-y divide-border-hairline px-4 py-2">
       {status.matches.map((match) => {
         const kda =
           match.deaths === 0
@@ -174,11 +174,8 @@ export function MatchHistory({
             : (match.kills + match.assists) / match.deaths;
 
         return (
-          <div
-            key={match.matchId}
-            className="grid grid-cols-[104px_88px_140px_100px_1fr] items-center gap-4 py-2.5 text-sm"
-          >
-            <div className="flex flex-col">
+          <div key={match.matchId} className="flex items-center gap-3 py-2 text-sm">
+            <div className="flex w-[76px] shrink-0 flex-col">
               <span
                 className={`font-display text-xs font-bold uppercase ${
                   match.win ? "text-win" : "text-loss"
@@ -192,7 +189,7 @@ export function MatchHistory({
               </span>
             </div>
 
-            <div className="flex items-center gap-1">
+            <div className="flex w-[72px] shrink-0 items-center gap-1">
               <ChampionIcon championName={match.championName} ddragonVersion={ddragonVersion} />
               {match.opponentChampionName && (
                 <>
@@ -206,12 +203,12 @@ export function MatchHistory({
               )}
             </div>
 
-            <div className="flex flex-col items-center text-center">
-              <span className="font-semibold text-text-primary">
+            <div className="flex shrink-0 items-baseline gap-2 whitespace-nowrap">
+              <span className="w-[64px] shrink-0 font-semibold text-text-primary">
                 {match.kills} / <span className="text-loss">{match.deaths}</span> /{" "}
                 {match.assists}
               </span>
-              <span className="text-xs whitespace-nowrap text-text-secondary">
+              <span className="text-xs text-text-secondary">
                 {kda === null ? "Perfecto" : `${kda.toFixed(1)} KDA`} · {match.killParticipationPct}
                 % KP · {match.cs} CS
               </span>
@@ -220,7 +217,7 @@ export function MatchHistory({
             <ItemBuild items={match.items} ddragonVersion={ddragonVersion} />
 
             <span
-              className={`justify-self-end text-sm font-semibold ${
+              className={`w-[70px] shrink-0 text-right text-sm font-semibold whitespace-nowrap ${
                 match.lpChange === null
                   ? "text-text-muted"
                   : match.lpChange > 0
@@ -234,7 +231,7 @@ export function MatchHistory({
               }
             >
               {match.lpChange === null
-                ? "—"
+                ? "— LP"
                 : `${match.lpChange > 0 ? "+" : ""}${match.lpChange} LP`}
             </span>
           </div>

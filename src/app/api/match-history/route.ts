@@ -77,11 +77,15 @@ function correlateLpChanges(
   const result = new Map<string, number>();
   if (snapshots.length < 2) return result;
 
+  // Comparar como epoch numérico, no como string: Postgres puede devolver
+  // created_at con offset "+00:00" en vez del "Z" que arma toISOString(),
+  // y una comparación de strings entre esos dos formatos no es confiable.
+  const snapshotTimes = snapshots.map((s) => new Date(s.created_at).getTime());
+
   // matchId -> índice del primer snapshot tomado en o después de que terminó esa partida.
   const bracketOf = new Map<string, number>();
   for (const { matchId, gameEndTimestamp } of matches) {
-    const gameEndIso = new Date(gameEndTimestamp).toISOString();
-    const nextIdx = snapshots.findIndex((s) => s.created_at >= gameEndIso);
+    const nextIdx = snapshotTimes.findIndex((t) => t >= gameEndTimestamp);
     if (nextIdx <= 0) continue; // sin snapshot "antes" o "después" disponible todavía
     bracketOf.set(matchId, nextIdx);
   }
