@@ -10,7 +10,7 @@ export function FixedLogo() {
     <Link
       href="/"
       aria-label="MoronQChallenge — Inicio"
-      className="fixed top-4 left-6 z-50 rounded-2xl bg-bg-elevated/90 p-2 shadow-lg shadow-black/40 backdrop-blur-sm md:left-[max(1.5rem,calc((100vw-72rem)/2+1.5rem))]"
+      className="fixed top-2 left-2 z-50 md:left-[max(0.5rem,calc((100vw-72rem)/2+0.5rem))]"
     >
       <Logo hasLogo={hasLogo} />
     </Link>
