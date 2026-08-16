@@ -1,3 +1,6 @@
+"use client";
+
+import { motion } from "motion/react";
 import type { LeaderboardEntry } from "@/lib/leaderboard";
 import { Avatar } from "./Avatar";
 import { TierBadge } from "./TierBadge";
@@ -19,9 +22,11 @@ export function LeaderboardTable({ entries }: { entries: LeaderboardEntry[] }) {
         </thead>
         <tbody>
           {entries.map((entry) => (
-            <tr
+            <motion.tr
               key={entry.participant.id}
-              className="border-b border-border-hairline last:border-0 hover:bg-surface-hover"
+              layout
+              transition={{ layout: { duration: 0.4, ease: "easeInOut" } }}
+              className="border-b border-border-hairline transition-colors duration-150 last:border-0 hover:bg-surface-hover"
             >
               <td className="px-4 py-3 font-display font-semibold text-text-secondary">
                 {entry.rank}
@@ -30,7 +35,7 @@ export function LeaderboardTable({ entries }: { entries: LeaderboardEntry[] }) {
                 <div className="flex items-center gap-3">
                   <Avatar name={entry.participant.nombre_display} size={32} />
                   <div className="min-w-0">
-                    <p className="truncate font-medium text-text-primary">
+                    <p className="truncate text-[15px] font-bold text-text-primary">
                       {entry.participant.nombre_display}
                     </p>
                     <p className="truncate text-xs text-text-secondary">
@@ -43,7 +48,7 @@ export function LeaderboardTable({ entries }: { entries: LeaderboardEntry[] }) {
               <td className="px-4 py-3">
                 <div className="flex items-center gap-2">
                   <TierBadge tier={entry.latest.tier} division={entry.latest.division} />
-                  <span className="font-display font-semibold text-text-primary">
+                  <span className="font-display text-base font-bold text-text-primary">
                     {entry.latest.lp.toLocaleString("es")} LP
                   </span>
                 </div>
@@ -52,7 +57,7 @@ export function LeaderboardTable({ entries }: { entries: LeaderboardEntry[] }) {
                 {entry.latest.wins}V - {entry.latest.losses}D
               </td>
               <td className="px-4 py-3">
-                <Sparkline points={entry.trend} />
+                <Sparkline points={entry.trend} id={entry.participant.id} />
               </td>
               <td className="px-4 py-3 text-right">
                 <div className="flex flex-col items-end gap-0.5 font-display text-xs font-semibold">
@@ -60,7 +65,7 @@ export function LeaderboardTable({ entries }: { entries: LeaderboardEntry[] }) {
                   <span className="text-loss">▼ {entry.lpLost}</span>
                 </div>
               </td>
-            </tr>
+            </motion.tr>
           ))}
         </tbody>
       </table>

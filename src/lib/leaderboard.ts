@@ -27,7 +27,13 @@ export interface LeaderboardEntry {
 const TREND_WINDOW_DAYS = 7;
 const MAX_TREND_POINTS = 12;
 
-export async function getLeaderboard(limit = 50): Promise<LeaderboardEntry[]> {
+export interface Leaderboard {
+  entries: LeaderboardEntry[];
+  /** created_at del snapshot más reciente de todo el leaderboard, para el indicador "actualizado hace X". */
+  lastUpdated: string | null;
+}
+
+export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
   const supabase = await createClient();
 
   const { data: participants, error: participantsError } = await supabase
@@ -36,11 +42,11 @@ export async function getLeaderboard(limit = 50): Promise<LeaderboardEntry[]> {
 
   if (participantsError) {
     console.error("Failed to load participants:", participantsError.message);
-    return [];
+    return { entries: [], lastUpdated: null };
   }
 
   if (!participants || participants.length === 0) {
-    return [];
+    return { entries: [], lastUpdated: null };
   }
 
   const windowStart = new Date(
@@ -59,14 +65,18 @@ export async function getLeaderboard(limit = 50): Promise<LeaderboardEntry[]> {
 
   if (snapshotsError) {
     console.error("Failed to load snapshots:", snapshotsError.message);
-    return [];
+    return { entries: [], lastUpdated: null };
   }
 
   const historyByParticipant = new Map<string, Snapshot[]>();
+  let lastUpdated: string | null = null;
   for (const snapshot of snapshots ?? []) {
     const history = historyByParticipant.get(snapshot.participant_id) ?? [];
     history.push(snapshot);
     historyByParticipant.set(snapshot.participant_id, history);
+    if (!lastUpdated || snapshot.created_at > lastUpdated) {
+      lastUpdated = snapshot.created_at;
+    }
   }
 
   const entries: Omit<LeaderboardEntry, "rank">[] = [];
@@ -97,5 +107,8 @@ export async function getLeaderboard(limit = 50): Promise<LeaderboardEntry[]> {
 
   entries.sort((a, b) => b.latest.elo_score - a.latest.elo_score);
 
-  return entries.slice(0, limit).map((entry, i) => ({ ...entry, rank: i + 1 }));
+  return {
+    entries: entries.slice(0, limit).map((entry, i) => ({ ...entry, rank: i + 1 })),
+    lastUpdated,
+  };
 }

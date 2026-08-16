@@ -1,25 +1,31 @@
 import { getLeaderboard } from "@/lib/leaderboard";
 import { Header } from "@/components/Header";
 import { FixedLogo } from "@/components/FixedLogo";
+import { AutoRefresh } from "@/components/AutoRefresh";
+import { LastUpdated } from "@/components/LastUpdated";
 import { PodiumCard } from "@/components/PodiumCard";
 import { LeaderboardTable } from "@/components/LeaderboardTable";
 
 export default async function Home() {
-  const entries = await getLeaderboard();
+  const { entries, lastUpdated } = await getLeaderboard();
   const podium = entries.slice(0, 3);
 
   return (
     <div className="flex min-h-screen flex-col">
       <FixedLogo />
       <Header />
+      <AutoRefresh />
       <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-8 px-6 pt-44 pb-10">
-        <div>
-          <h1 className="font-display text-3xl font-bold tracking-tight text-text-primary">
-            Ranking
-          </h1>
-          <p className="mt-1 text-sm text-text-secondary">
-            Leaderboard SoloQ de la comunidad, actualizado automáticamente.
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="font-display text-3xl font-bold tracking-tight text-text-primary">
+              Ranking
+            </h1>
+            <p className="mt-1 text-sm text-text-secondary">
+              Leaderboard SoloQ de la comunidad, actualizado automáticamente.
+            </p>
+          </div>
+          <LastUpdated iso={lastUpdated} />
         </div>
 
         {entries.length === 0 ? (
