@@ -16,9 +16,13 @@ export function Header() {
           <Logo hasLogo={hasLogo} />
         </Link>
 
-        <NavLinks />
-
         <Countdown endDate={TOURNAMENT_END_DATE} />
+      </div>
+
+      <div className="border-t border-border-hairline">
+        <div className="mx-auto w-full max-w-6xl px-6 py-3">
+          <NavLinks />
+        </div>
       </div>
     </header>
   );
