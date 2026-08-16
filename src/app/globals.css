@@ -14,6 +14,8 @@
   --crimson-soft: #b23347;
   --pink: #ef4d94;
   --pink-soft: #ff7ab3;
+  --silver: #bcc4cc;
+  --bronze: #c1793f;
 
   --text-primary: #f5ece0;
   --text-secondary: #a89184;
@@ -37,6 +39,8 @@
   --color-crimson-soft: var(--crimson-soft);
   --color-pink: var(--pink);
   --color-pink-soft: var(--pink-soft);
+  --color-silver: var(--silver);
+  --color-bronze: var(--bronze);
 
   --color-text-primary: var(--text-primary);
   --color-text-secondary: var(--text-secondary);

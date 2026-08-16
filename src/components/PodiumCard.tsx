@@ -3,11 +3,18 @@ import { Avatar } from "./Avatar";
 import { TierBadge } from "./TierBadge";
 import { WinrateBar } from "./WinrateBar";
 
+const PODIUM_BADGE: Record<number, { label: string; className: string }> = {
+  1: { label: "Líder", className: "bg-gold text-bg" },
+  2: { label: "2do Lugar", className: "bg-silver text-bg" },
+  3: { label: "3er Lugar", className: "bg-bronze text-white" },
+};
+
 export function PodiumCard({ entry }: { entry: LeaderboardEntry }) {
   const { participant, latest, rank } = entry;
   const total = latest.wins + latest.losses;
   const winPct = total > 0 ? Math.round((latest.wins / total) * 100) : 0;
   const isLeader = rank === 1;
+  const badge = PODIUM_BADGE[rank];
 
   return (
     <div
@@ -17,9 +24,11 @@ export function PodiumCard({ entry }: { entry: LeaderboardEntry }) {
           : "border-border-hairline"
       }`}
     >
-      {isLeader && (
-        <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-gold px-3 py-1 font-display text-xs font-bold tracking-wider text-bg uppercase">
-          Líder
+      {badge && (
+        <span
+          className={`absolute -top-3 left-1/2 -translate-x-1/2 rounded-full px-3 py-1 font-display text-xs font-bold tracking-wider uppercase ${badge.className}`}
+        >
+          {badge.label}
         </span>
       )}
 
