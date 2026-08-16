@@ -30,7 +30,7 @@ export function TierEmblem({ tier, size = 16 }: { tier: RankTier; size?: number 
   return (
     // eslint-disable-next-line @next/next/no-img-element -- CDN externo (Community Dragon), necesita onError
     <img
-      src={`https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/default/assets/ranked-emblems/emblem-${EMBLEM_SLUG[tier]}.png`}
+      src={`https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/ranked-emblem/emblem-${EMBLEM_SLUG[tier]}.png`}
       alt=""
       width={size}
       height={size}
