@@ -1,7 +1,9 @@
 "use client";
 
-import { motion } from "motion/react";
+import { Fragment, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import type { LeaderboardEntry } from "@/lib/leaderboard";
+import { MatchHistory } from "./MatchHistory";
 import { OpggButton } from "./OpggButton";
 import { ProfileIcon } from "./ProfileIcon";
 import { TierBadge } from "./TierBadge";
@@ -16,6 +18,8 @@ export function LeaderboardTable({
   entries: LeaderboardEntry[];
   ddragonVersion: string;
 }) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
   return (
     <div className="overflow-x-auto rounded-2xl border border-border-hairline bg-surface">
       <table className="w-full min-w-[720px] border-collapse text-sm">
@@ -33,10 +37,11 @@ export function LeaderboardTable({
           {entries.map((entry) => {
             const total = entry.latest.wins + entry.latest.losses;
             const winPct = total > 0 ? Math.round((entry.latest.wins / total) * 100) : 0;
+            const isExpanded = expandedId === entry.participant.id;
 
             return (
+            <Fragment key={entry.participant.id}>
             <motion.tr
-              key={entry.participant.id}
               layout
               transition={{ layout: { duration: 0.4, ease: "easeInOut" } }}
               className="border-b border-border-hairline transition-colors duration-150 last:border-0 hover:bg-surface-hover"
@@ -45,7 +50,14 @@ export function LeaderboardTable({
                 {entry.rank}
               </td>
               <td className="px-4 py-3">
-                <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setExpandedId(isExpanded ? null : entry.participant.id)
+                  }
+                  aria-expanded={isExpanded}
+                  className="flex w-full items-center gap-3 text-left"
+                >
                   <ProfileIcon
                     name={entry.participant.nombre_display}
                     avatarUrl={entry.participant.avatar_url}
@@ -54,15 +66,24 @@ export function LeaderboardTable({
                     size={32}
                   />
                   <div className="min-w-0">
-                    <p className="truncate text-[15px] font-bold text-text-primary">
+                    <p className="flex items-center gap-1.5 truncate text-[15px] font-bold text-text-primary">
                       {entry.participant.nombre_display}
+                      <svg
+                        viewBox="0 0 20 20"
+                        className={`h-3.5 w-3.5 shrink-0 text-text-muted transition-transform duration-200 ${
+                          isExpanded ? "rotate-180" : ""
+                        }`}
+                        fill="currentColor"
+                      >
+                        <path d="M5.25 7.5l4.75 5 4.75-5H5.25z" />
+                      </svg>
                     </p>
                     <p className="truncate text-xs text-text-secondary">
                       {entry.participant.riot_game_name}#
                       {entry.participant.riot_tag}
                     </p>
                   </div>
-                </div>
+                </button>
               </td>
               <td className="px-4 py-3">
                 <div className="flex items-center gap-3">
@@ -100,6 +121,27 @@ export function LeaderboardTable({
                 </div>
               </td>
             </motion.tr>
+            <AnimatePresence>
+              {isExpanded && (
+                <tr>
+                  <td colSpan={6} className="p-0">
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.25, ease: "easeInOut" }}
+                      className="overflow-hidden border-b border-border-hairline bg-bg-elevated last:border-0"
+                    >
+                      <MatchHistory
+                        participantId={entry.participant.id}
+                        ddragonVersion={ddragonVersion}
+                      />
+                    </motion.div>
+                  </td>
+                </tr>
+              )}
+            </AnimatePresence>
+            </Fragment>
             );
           })}
         </tbody>

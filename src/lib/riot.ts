@@ -26,6 +26,14 @@ export const SUPPORTED_PLATFORMS = Object.keys(
   PLATFORM_TO_CONTINENT,
 ) as (keyof typeof PLATFORM_TO_CONTINENT)[];
 
+/** Cluster regional (americas/asia/europe/sea) para endpoints routeados por continente, como Match-V5. */
+export function platformToContinent(regionPlatform: string): string | null {
+  return (
+    PLATFORM_TO_CONTINENT[regionPlatform.toUpperCase() as keyof typeof PLATFORM_TO_CONTINENT] ??
+    null
+  );
+}
+
 export class RiotAccountNotFoundError extends Error {}
 
 export class RiotApiError extends Error {
@@ -54,8 +62,7 @@ export async function resolvePuuid({
   regionPlatform: string;
   apiKey: string;
 }): Promise<RiotAccount> {
-  const continent =
-    PLATFORM_TO_CONTINENT[regionPlatform as keyof typeof PLATFORM_TO_CONTINENT];
+  const continent = platformToContinent(regionPlatform);
 
   if (!continent) {
     throw new RiotApiError(`region_platform desconocida: ${regionPlatform}`, 400);
