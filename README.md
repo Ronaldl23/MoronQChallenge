@@ -98,13 +98,22 @@ rojo oscuro / dorado / rosa (tokens en `src/app/globals.css`, prefijo
   `src/lib/config.ts` — edita esa fecha con el cierre real del torneo.
 - **Avatares**: no hay foto de perfil en el esquema, así que se generan
   iniciales con un color determinístico por nombre (`src/lib/avatar.ts`).
+- **LP mostrado**: siempre es `snapshots.lp`, el `leaguePoints` real que
+  devuelve Riot (0-100 en tiers normales, 500+/1000+ tal cual en
+  Maestro/Gran Maestro/Retador). `elo_score` es solo la clave interna de
+  orden (para poder comparar entre tiers distintos) — nunca se muestra en
+  pantalla. El tier/división (`TierBadge`) siempre va pegado al número de
+  LP para que no se lea de forma aislada.
 - **Racha / ±LP**: `snapshots` guarda fotos periódicas (tier/LP/wins/losses
   acumulados), no partidas individuales — no hay forma de reconstruir un
-  historial partida-por-partida real. Por eso "Racha" es una mini-gráfica
-  de tendencia (últimos `elo_score` en una ventana de 7 días) y "±LP" es la
-  suma de subidas/bajadas de `elo_score` entre snapshots consecutivos en esa
-  misma ventana — ambos derivados de datos reales, calculados en
-  `src/lib/leaderboard.ts`.
+  historial partida-por-partida real. "Racha" es una mini-gráfica de
+  tendencia (últimos `elo_score` en una ventana de 7 días — se usa
+  `elo_score` ahí porque es comparable entre tiers y no rompe la línea al
+  ascender/descender). "±LP" es la suma de subidas/bajadas del `lp` real
+  entre snapshots consecutivos **del mismo tier/división** en esa misma
+  ventana; los saltos de tier se excluyen a propósito porque el LP se
+  resetea al ascender o descender, así que compararlo crudo no tiene
+  sentido. Todo esto se calcula en `src/lib/leaderboard.ts`.
 - Sin secciones de premios, Blue Shell, Pick'em ni Tier List, tal cual se
   pidió — solo Ranking y Reglas.
 

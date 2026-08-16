@@ -5,11 +5,22 @@ export interface LeaderboardEntry {
   rank: number;
   participant: Participant;
   latest: Snapshot;
-  /** Suma de subidas de elo_score entre snapshots consecutivos (ventana de 7 días). */
+  /**
+   * Suma de subidas del LP real entre snapshots consecutivos del MISMO
+   * tier/división (ventana de 7 días). Los saltos de tier/división se
+   * excluyen a propósito: el LP se resetea al subir o bajar, así que
+   * comparar el lp crudo entre snapshots de tiers distintos no tiene
+   * sentido (mostraría una "caída" enorme al ascender, por ejemplo).
+   */
   lpGained: number;
-  /** Suma de bajadas de elo_score entre snapshots consecutivos (ventana de 7 días), como número positivo. */
+  /** Igual que lpGained pero para bajadas, como número positivo. */
   lpLost: number;
-  /** elo_score de los últimos snapshots (más viejo → más nuevo), para la mini-gráfica de tendencia. */
+  /**
+   * elo_score de los últimos snapshots (más viejo → más nuevo), solo para
+   * la mini-gráfica de tendencia (la forma de la línea, sin números). Se
+   * usa elo_score aquí — no lp — porque es comparable a través de cambios
+   * de tier, y por eso no "rompe" la línea en cada ascenso/descenso.
+   */
   trend: number[];
 }
 
@@ -69,7 +80,12 @@ export async function getLeaderboard(limit = 50): Promise<LeaderboardEntry[]> {
     let lpGained = 0;
     let lpLost = 0;
     for (let i = 1; i < history.length; i++) {
-      const delta = history[i].elo_score - history[i - 1].elo_score;
+      const prev = history[i - 1];
+      const curr = history[i];
+      if (prev.tier !== curr.tier || prev.division !== curr.division) {
+        continue; // El LP se resetea al cambiar de tier/división: no es comparable.
+      }
+      const delta = curr.lp - prev.lp;
       if (delta > 0) lpGained += delta;
       else lpLost += Math.abs(delta);
     }

@@ -11,7 +11,7 @@ export function LeaderboardTable({ entries }: { entries: LeaderboardEntry[] }) {
           <tr className="border-b border-border-hairline text-left text-xs tracking-wider text-text-secondary uppercase">
             <th className="px-4 py-3 font-medium">#</th>
             <th className="px-4 py-3 font-medium">Jugador</th>
-            <th className="px-4 py-3 font-medium">Elo</th>
+            <th className="px-4 py-3 font-medium">Rango</th>
             <th className="px-4 py-3 font-medium">V / D</th>
             <th className="px-4 py-3 font-medium">Racha</th>
             <th className="px-4 py-3 text-right font-medium">±LP</th>
@@ -44,7 +44,7 @@ export function LeaderboardTable({ entries }: { entries: LeaderboardEntry[] }) {
                 <div className="flex items-center gap-2">
                   <TierBadge tier={entry.latest.tier} division={entry.latest.division} />
                   <span className="font-display font-semibold text-text-primary">
-                    {entry.latest.elo_score.toLocaleString("es")}
+                    {entry.latest.lp.toLocaleString("es")} LP
                   </span>
                 </div>
               </td>

@@ -41,7 +41,7 @@ export function PodiumCard({ entry }: { entry: LeaderboardEntry }) {
       <TierBadge tier={latest.tier} division={latest.division} />
 
       <p className="font-display text-3xl font-bold text-text-primary">
-        {latest.elo_score.toLocaleString("es")}{" "}
+        {latest.lp.toLocaleString("es")}{" "}
         <span className="text-sm font-medium text-text-secondary">LP</span>
       </p>
 
