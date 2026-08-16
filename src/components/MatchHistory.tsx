@@ -60,6 +60,26 @@ function ChampionIcon({
   );
 }
 
+/** Ícono de línea/posición (Community Dragon). Si no hay laneSlug (ARAM y otros modos sin línea fija) o la imagen falla, no se renderiza nada — nunca rompe el layout. */
+function PositionIcon({ laneSlug }: { laneSlug: string }) {
+  const [failed, setFailed] = useState(false);
+
+  if (failed) return null;
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- CDN externo (Community Dragon), necesita onError
+    <img
+      src={`https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-clash/global/default/assets/images/position-selector/positions/icon-position-${laneSlug}.png`}
+      alt=""
+      width={16}
+      height={16}
+      className="h-4 w-4 shrink-0"
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 function ItemIcon({ itemId, ddragonVersion }: { itemId: number; ddragonVersion: string }) {
   const [failed, setFailed] = useState(false);
 
@@ -193,7 +213,14 @@ export function MatchHistory({
             </div>
 
             <div className="flex w-[86px] shrink-0 items-center gap-1.5">
-              <ChampionIcon championName={match.championName} ddragonVersion={ddragonVersion} size={38} />
+              <div className="relative shrink-0">
+                <ChampionIcon championName={match.championName} ddragonVersion={ddragonVersion} size={38} />
+                {match.laneSlug && (
+                  <div className="absolute -right-1 -bottom-1 flex h-4 w-4 items-center justify-center rounded-full bg-bg ring-1 ring-border-hairline">
+                    <PositionIcon laneSlug={match.laneSlug} />
+                  </div>
+                )}
+              </div>
               {match.opponentChampionName && (
                 <>
                   <span className="text-[10px] text-text-muted">vs</span>

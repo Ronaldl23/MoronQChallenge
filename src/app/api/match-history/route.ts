@@ -35,10 +35,20 @@ interface RiotMatch {
   };
 }
 
+const TEAM_POSITION_TO_LANE: Record<string, string> = {
+  TOP: "top",
+  JUNGLE: "jungle",
+  MIDDLE: "middle",
+  BOTTOM: "bottom",
+  UTILITY: "utility",
+};
+
 export interface MatchSummary {
   matchId: string;
   win: boolean;
   championName: string;
+  /** Slug para el ícono de posición de Community Dragon. Null si Riot no la reportó (ARAM y otros modos sin línea fija). */
+  laneSlug: string | null;
   opponentChampionName: string | null;
   kills: number;
   deaths: number;
@@ -217,6 +227,7 @@ export async function GET(request: Request) {
         matchId,
         win: mp.win,
         championName: mp.championName,
+        laneSlug: TEAM_POSITION_TO_LANE[mp.teamPosition] ?? null,
         opponentChampionName: opponent?.championName ?? null,
         kills: mp.kills,
         deaths: mp.deaths,
