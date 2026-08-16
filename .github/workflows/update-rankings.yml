@@ -19,7 +19,7 @@ jobs:
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           # Replace with your real Vercel domain.
-          SITE_URL: https://mi-sitio.vercel.app
+          SITE_URL: https://moron-q-challenge.vercel.app
         run: |
           curl --fail-with-body --show-error --silent \
             --max-time 120 \
