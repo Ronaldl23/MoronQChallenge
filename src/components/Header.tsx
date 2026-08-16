@@ -10,7 +10,7 @@ export function Header() {
   const hasLogo = existsSync(join(process.cwd(), "public", "logo.png"));
 
   return (
-    <header className="border-b border-border-hairline bg-bg-elevated">
+    <header className="sticky top-0 z-50 border-b border-border-hairline bg-bg-elevated/95 shadow-lg shadow-black/30 backdrop-blur-sm">
       <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-4">
         <Link href="/" className="flex items-center gap-3">
           <Logo hasLogo={hasLogo} />
