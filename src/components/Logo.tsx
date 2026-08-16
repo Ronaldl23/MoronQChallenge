@@ -1,7 +1,7 @@
 export function Logo({ hasLogo }: { hasLogo: boolean }) {
   if (hasLogo) {
     // eslint-disable-next-line @next/next/no-img-element -- aspect ratio del logo real es variable
-    return <img src="/logo.png" alt="MoronQChallenge" className="h-20 w-auto" />;
+    return <img src="/logo.png" alt="MoronQChallenge" className="h-40 w-auto" />;
   }
 
   return (

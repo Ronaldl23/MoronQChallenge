@@ -13,7 +13,7 @@ export function Header() {
             alto, para que la fila se mantenga compacta) así el texto de
             Ranking/Reglas no arranca tapado por el logo.
           */}
-          <div aria-hidden className="w-16 shrink-0 sm:w-20" />
+          <div aria-hidden className="w-32 shrink-0 sm:w-40" />
           <NavLinks />
         </div>
 
