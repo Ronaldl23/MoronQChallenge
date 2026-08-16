@@ -53,3 +53,30 @@
   --font-mono: var(--font-geist-mono);
   --font-display: var(--font-rajdhani);
 }
+
+/*
+ * Fondo de toda la página: la imagen de marca con un overlay oscuro encima
+ * (mismo gradiente plano dos veces, apilado sobre la imagen) para que el
+ * texto y las tarjetas sigan siendo perfectamente legibles. La posición
+ * horizontal (78%) mantiene la mascota a la vista incluso cuando "cover"
+ * recorta mucho el ancho en pantallas angostas (el detalle de la imagen
+ * está corrido hacia la derecha, no centrado).
+ */
+.site-bg {
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(rgba(10, 7, 6, 0.86), rgba(10, 7, 6, 0.86)),
+    url("/background.jpg");
+  background-repeat: no-repeat;
+  background-position: 78% 30%;
+  background-size: cover;
+}
+
+@media (min-width: 768px) {
+  .site-bg {
+    /* Efecto parallax sutil en pantallas grandes; en mobile se deja en
+       scroll normal porque background-attachment: fixed es poco confiable
+       en navegadores móviles (especialmente iOS Safari). */
+    background-attachment: fixed;
+  }
+}

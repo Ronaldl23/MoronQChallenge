@@ -1,5 +1,6 @@
 import { getLeaderboard } from "@/lib/leaderboard";
 import { Header } from "@/components/Header";
+import { FixedLogo } from "@/components/FixedLogo";
 import { PodiumCard } from "@/components/PodiumCard";
 import { LeaderboardTable } from "@/components/LeaderboardTable";
 
@@ -8,7 +9,8 @@ export default async function Home() {
   const podium = entries.slice(0, 3);
 
   return (
-    <div className="flex min-h-screen flex-col bg-bg">
+    <div className="flex min-h-screen flex-col">
+      <FixedLogo />
       <Header />
       <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-8 px-6 py-10">
         <div>

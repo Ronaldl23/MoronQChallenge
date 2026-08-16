@@ -1,20 +1,19 @@
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-import Link from "next/link";
-import { Logo } from "./Logo";
 import { NavLinks } from "./NavLinks";
 import { Countdown } from "./Countdown";
 import { TOURNAMENT_END_DATE } from "@/lib/config";
 
 export function Header() {
-  const hasLogo = existsSync(join(process.cwd(), "public", "logo.png"));
-
   return (
-    <header className="sticky top-0 z-50 border-b border-border-hairline bg-bg-elevated/95 shadow-lg shadow-black/30 backdrop-blur-sm">
+    <header className="border-b border-border-hairline bg-bg-elevated">
       <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-4">
-        <Link href="/" className="flex items-center gap-3">
-          <Logo hasLogo={hasLogo} />
-        </Link>
+        {/*
+          El logo real vive en <FixedLogo>, con position: fixed, para que
+          quede pegado en su lugar mientras el resto del header (esto,
+          countdown + nav) se desplaza normalmente con la página. Este
+          espaciador invisible ocupa el mismo lugar en el flujo normal para
+          que el countdown no se mueva y la fila mantenga su altura.
+        */}
+        <div aria-hidden className="h-40 w-40 shrink-0" />
 
         <Countdown endDate={TOURNAMENT_END_DATE} />
       </div>

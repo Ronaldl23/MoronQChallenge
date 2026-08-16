@@ -1,8 +1,10 @@
 import { Header } from "@/components/Header";
+import { FixedLogo } from "@/components/FixedLogo";
 
 export default function ReglasPage() {
   return (
-    <div className="flex min-h-screen flex-col bg-bg">
+    <div className="flex min-h-screen flex-col">
+      <FixedLogo />
       <Header />
       <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-6 py-10">
         <h1 className="font-display text-3xl font-bold tracking-tight text-text-primary">
