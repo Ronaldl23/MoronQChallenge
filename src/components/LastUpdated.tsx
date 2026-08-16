@@ -1,22 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-
-function formatRelative(iso: string): string {
-  const diffMs = Date.now() - new Date(iso).getTime();
-  const minutes = Math.floor(diffMs / 60_000);
-
-  if (minutes < 1) return "hace instantes";
-  if (minutes === 1) return "hace 1 minuto";
-  if (minutes < 60) return `hace ${minutes} minutos`;
-
-  const hours = Math.floor(minutes / 60);
-  if (hours === 1) return "hace 1 hora";
-  if (hours < 24) return `hace ${hours} horas`;
-
-  const days = Math.floor(hours / 24);
-  return days === 1 ? "hace 1 día" : `hace ${days} días`;
-}
+import { formatRelativeTime } from "@/lib/format";
 
 export function LastUpdated({ iso }: { iso: string | null }) {
   // null en server y en el primer render del cliente por igual — el texto
@@ -29,8 +14,8 @@ export function LastUpdated({ iso }: { iso: string | null }) {
 
     // Defiere el primer cálculo fuera del cuerpo síncrono del efecto (evita
     // el warning de setState-en-efecto) sin esperar los 30s del intervalo.
-    const immediate = setTimeout(() => setLabel(formatRelative(iso)), 0);
-    const id = setInterval(() => setLabel(formatRelative(iso)), 30_000);
+    const immediate = setTimeout(() => setLabel(formatRelativeTime(iso)), 0);
+    const id = setInterval(() => setLabel(formatRelativeTime(iso)), 30_000);
     return () => {
       clearTimeout(immediate);
       clearInterval(id);

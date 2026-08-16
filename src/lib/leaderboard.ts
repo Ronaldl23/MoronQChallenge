@@ -16,16 +16,21 @@ export interface LeaderboardEntry {
   /** Igual que lpGained pero para bajadas, como número positivo. */
   lpLost: number;
   /**
-   * elo_score de los últimos snapshots (más viejo → más nuevo), solo para
-   * la mini-gráfica de tendencia (la forma de la línea, sin números). Se
-   * usa elo_score aquí — no lp — porque es comparable a través de cambios
-   * de tier, y por eso no "rompe" la línea en cada ascenso/descenso.
+   * Swing acumulado de LP de las últimas partidas con cambio real de LP
+   * (más vieja → más nueva), arrancando en 0 — no elo_score crudo por
+   * snapshot. Cada paso es un delta de LP entre dos snapshots consecutivos
+   * del MISMO tier/división (mismo criterio que lpGained/lpLost); los
+   * pares sin cambio de LP (nadie jugó entre esas dos corridas del cron)
+   * se descartan para que la línea refleje partidas, no simples muestreos
+   * cada 15 min. Sube en verde si viene ganando LP, baja en rojo si lo
+   * viene perdiendo — así la mini-gráfica es un "cómo viene la cuenta
+   * ahora mismo" real, no solo la forma del elo_score.
    */
   trend: number[];
 }
 
 const TREND_WINDOW_DAYS = 7;
-const MAX_TREND_POINTS = 12;
+const MAX_TREND_GAMES = 10;
 
 export interface Leaderboard {
   entries: LeaderboardEntry[];
@@ -89,6 +94,7 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
 
     let lpGained = 0;
     let lpLost = 0;
+    const gameDeltas: number[] = [];
     for (let i = 1; i < history.length; i++) {
       const prev = history[i - 1];
       const curr = history[i];
@@ -98,9 +104,12 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
       const delta = curr.lp - prev.lp;
       if (delta > 0) lpGained += delta;
       else lpLost += Math.abs(delta);
+      if (delta !== 0) gameDeltas.push(delta);
     }
 
-    const trend = history.slice(-MAX_TREND_POINTS).map((s) => s.elo_score);
+    const trend = gameDeltas
+      .slice(-MAX_TREND_GAMES)
+      .reduce<number[]>((acc, delta) => [...acc, acc[acc.length - 1] + delta], [0]);
 
     entries.push({ participant, latest, lpGained, lpLost, trend });
   }

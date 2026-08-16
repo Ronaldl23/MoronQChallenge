@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { MatchSummary } from "@/app/api/match-history/route";
+import { formatRelativeTime } from "@/lib/format";
 
 function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -12,14 +13,18 @@ function formatDuration(seconds: number): string {
 function ChampionIcon({
   championName,
   ddragonVersion,
+  size = 32,
 }: {
   championName: string;
   ddragonVersion: string;
+  size?: number;
 }) {
   const [failed, setFailed] = useState(false);
 
   if (failed) {
-    return <div className="h-8 w-8 shrink-0 rounded bg-white/10" />;
+    return (
+      <div className="shrink-0 rounded bg-white/10" style={{ width: size, height: size }} />
+    );
   }
 
   return (
@@ -27,9 +32,31 @@ function ChampionIcon({
     <img
       src={`https://ddragon.leagueoflegends.com/cdn/${ddragonVersion}/img/champion/${championName}.png`}
       alt=""
-      width={32}
-      height={32}
-      className="h-8 w-8 shrink-0 rounded"
+      width={size}
+      height={size}
+      className="shrink-0 rounded"
+      style={{ width: size, height: size }}
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
+function ItemIcon({ itemId, ddragonVersion }: { itemId: number; ddragonVersion: string }) {
+  const [failed, setFailed] = useState(false);
+
+  if (failed) {
+    return <div className="h-5 w-5 shrink-0 rounded bg-white/5" />;
+  }
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- CDN externo (Data Dragon), necesita onError
+    <img
+      src={`https://ddragon.leagueoflegends.com/cdn/${ddragonVersion}/img/item/${itemId}.png`}
+      alt=""
+      width={20}
+      height={20}
+      className="h-5 w-5 shrink-0 rounded"
       loading="lazy"
       onError={() => setFailed(true)}
     />
@@ -112,19 +139,35 @@ export function MatchHistory({
             : (match.kills + match.assists) / match.deaths;
 
         return (
-          <div key={match.matchId} className="flex flex-wrap items-center gap-4 py-2 text-sm">
-            <span
-              className={`w-16 shrink-0 font-display text-xs font-bold uppercase ${
-                match.win ? "text-win" : "text-loss"
-              }`}
-            >
-              {match.win ? "Victoria" : "Derrota"}
-            </span>
-
-            <div className="flex w-36 shrink-0 items-center gap-2">
-              <ChampionIcon championName={match.championName} ddragonVersion={ddragonVersion} />
-              <span className="truncate text-text-primary">{match.championName}</span>
+          <div key={match.matchId} className="flex flex-wrap items-center gap-4 py-2.5 text-sm">
+            <div className="flex w-24 shrink-0 flex-col">
+              <span
+                className={`font-display text-xs font-bold uppercase ${
+                  match.win ? "text-win" : "text-loss"
+                }`}
+              >
+                {match.win ? "Victoria" : "Derrota"}
+              </span>
+              <span className="text-xs text-text-muted">
+                {formatRelativeTime(new Date(match.gameEndTimestamp).toISOString())}
+              </span>
             </div>
+
+            <div className="flex items-center gap-2">
+              <ChampionIcon championName={match.championName} ddragonVersion={ddragonVersion} />
+              <span className="text-text-primary">{match.championName}</span>
+            </div>
+
+            {match.opponentChampionName && (
+              <div className="flex items-center gap-1.5 text-text-secondary">
+                <span className="text-xs">vs</span>
+                <ChampionIcon
+                  championName={match.opponentChampionName}
+                  ddragonVersion={ddragonVersion}
+                  size={24}
+                />
+              </div>
+            )}
 
             <div className="flex w-28 shrink-0 flex-col">
               <span className="font-semibold text-text-primary">
@@ -135,13 +178,33 @@ export function MatchHistory({
               </span>
             </div>
 
+            <div className="flex w-[168px] shrink-0 flex-wrap gap-1">
+              {match.items.length > 0 ? (
+                match.items.map((itemId, i) => (
+                  <ItemIcon key={`${itemId}-${i}`} itemId={itemId} ddragonVersion={ddragonVersion} />
+                ))
+              ) : (
+                <span className="text-xs text-text-muted">Sin build</span>
+              )}
+            </div>
+
             <span className="w-14 shrink-0 text-xs text-text-secondary">
               {formatDuration(match.durationSeconds)}
             </span>
 
             <span
-              className="ml-auto shrink-0 text-xs text-text-muted"
-              title="Riot no expone el LP ganado o perdido por partida en su API pública"
+              className={`ml-auto shrink-0 text-xs font-semibold ${
+                match.lpChange === null
+                  ? "text-text-muted"
+                  : match.lpChange > 0
+                    ? "text-win"
+                    : "text-loss"
+              }`}
+              title={
+                match.lpChange === null
+                  ? "No se pudo estimar el LP de esta partida (Riot no lo expone; puede haber más de una partida entre dos capturas de rango, o un cambio de división en el medio)"
+                  : "Estimado cruzando la hora de la partida con nuestro historial de rango, no es un valor oficial de Riot"
+              }
             >
               {match.lpChange === null
                 ? "—"

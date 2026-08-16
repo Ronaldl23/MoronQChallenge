@@ -14,11 +14,21 @@ interface RiotMatchParticipant {
   kills: number;
   deaths: number;
   assists: number;
+  teamId: number;
+  teamPosition: string;
+  item0: number;
+  item1: number;
+  item2: number;
+  item3: number;
+  item4: number;
+  item5: number;
+  item6: number;
 }
 
 interface RiotMatch {
   info: {
     gameDuration: number;
+    gameEndTimestamp: number;
     participants: RiotMatchParticipant[];
   };
 }
@@ -27,17 +37,68 @@ export interface MatchSummary {
   matchId: string;
   win: boolean;
   championName: string;
+  opponentChampionName: string | null;
   kills: number;
   deaths: number;
   assists: number;
+  items: number[];
   durationSeconds: number;
+  gameEndTimestamp: number;
   /**
-   * El LP ganado/perdido no viene en match-v5 — Riot no expone LP por
-   * partida en ningún endpoint público. Se deja el campo para el día que
-   * haya una forma confiable de calcularlo; por ahora siempre es null y la
-   * UI lo muestra como "—".
+   * El LP ganado/perdido no viene en match-v5 — Riot no lo expone por
+   * partida en ningún campo. Se estima cruzando la hora de fin de la
+   * partida contra nuestro propio historial de snapshots (el cron corre
+   * cada 15 min): si hay un snapshot justo antes y otro justo después,
+   * ambos del mismo tier/división, y esta es la ÚNICA partida que cae en
+   * ese hueco, la diferencia de LP entre esos dos snapshots es ese
+   * partido. Si hubo más de una partida en el mismo hueco de 15 min, o
+   * cambió de tier/división en el medio, no se puede saber cuál se llevó
+   * qué — se deja null en vez de adivinar.
    */
   lpChange: number | null;
+}
+
+interface SnapshotRow {
+  tier: string;
+  division: string | null;
+  lp: number;
+  created_at: string;
+}
+
+function correlateLpChanges(
+  matches: { matchId: string; gameEndTimestamp: number }[],
+  snapshots: SnapshotRow[],
+): Map<string, number> {
+  const result = new Map<string, number>();
+  if (snapshots.length < 2) return result;
+
+  // matchId -> índice del primer snapshot tomado en o después de que terminó esa partida.
+  const bracketOf = new Map<string, number>();
+  for (const { matchId, gameEndTimestamp } of matches) {
+    const gameEndIso = new Date(gameEndTimestamp).toISOString();
+    const nextIdx = snapshots.findIndex((s) => s.created_at >= gameEndIso);
+    if (nextIdx <= 0) continue; // sin snapshot "antes" o "después" disponible todavía
+    bracketOf.set(matchId, nextIdx);
+  }
+
+  // Si dos o más partidas caen en el mismo hueco entre snapshots, no hay
+  // forma de repartir el delta entre ellas — se descartan todas del grupo.
+  const countByBracket = new Map<number, number>();
+  for (const idx of bracketOf.values()) {
+    countByBracket.set(idx, (countByBracket.get(idx) ?? 0) + 1);
+  }
+
+  for (const [matchId, idx] of bracketOf) {
+    if (countByBracket.get(idx) !== 1) continue;
+
+    const next = snapshots[idx];
+    const prev = snapshots[idx - 1];
+    if (prev.tier !== next.tier || prev.division !== next.division) continue;
+
+    result.set(matchId, next.lp - prev.lp);
+  }
+
+  return result;
 }
 
 /**
@@ -107,7 +168,7 @@ export async function GET(request: Request) {
     );
   }
 
-  const matches: MatchSummary[] = [];
+  const matches: Omit<MatchSummary, "lpChange">[] = [];
 
   for (const matchId of matchIds) {
     try {
@@ -127,15 +188,27 @@ export async function GET(request: Request) {
       const mp = match.info.participants.find((p) => p.puuid === participant.puuid);
       if (!mp) continue;
 
+      const opponent = mp.teamPosition
+        ? match.info.participants.find(
+            (p) => p.teamId !== mp.teamId && p.teamPosition === mp.teamPosition,
+          )
+        : undefined;
+
+      const items = [mp.item0, mp.item1, mp.item2, mp.item3, mp.item4, mp.item5, mp.item6].filter(
+        (id) => id !== 0,
+      );
+
       matches.push({
         matchId,
         win: mp.win,
         championName: mp.championName,
+        opponentChampionName: opponent?.championName ?? null,
         kills: mp.kills,
         deaths: mp.deaths,
         assists: mp.assists,
+        items,
         durationSeconds: match.info.gameDuration,
-        lpChange: null,
+        gameEndTimestamp: match.info.gameEndTimestamp,
       });
     } catch {
       // Una partida individual falló al traerse — se omite, no rompe el resto.
@@ -145,5 +218,27 @@ export async function GET(request: Request) {
     await new Promise((resolve) => setTimeout(resolve, 60));
   }
 
-  return NextResponse.json({ matches });
+  let lpChanges = new Map<string, number>();
+  if (matches.length > 0) {
+    const oldestGameEnd = Math.min(...matches.map((m) => m.gameEndTimestamp));
+    const snapshotsSince = new Date(oldestGameEnd - 30 * 60 * 1000).toISOString();
+
+    const { data: snapshots } = await supabase
+      .from("snapshots")
+      .select("tier, division, lp, created_at")
+      .eq("participant_id", participantId)
+      .gte("created_at", snapshotsSince)
+      .order("created_at", { ascending: true });
+
+    if (snapshots) {
+      lpChanges = correlateLpChanges(matches, snapshots);
+    }
+  }
+
+  const withLp: MatchSummary[] = matches.map((match) => ({
+    ...match,
+    lpChange: lpChanges.get(match.matchId) ?? null,
+  }));
+
+  return NextResponse.json({ matches: withLp });
 }
