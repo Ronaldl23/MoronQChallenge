@@ -28,16 +28,6 @@ export default async function Home() {
               Ranking
             </h1>
             <p className="mt-1 flex items-center gap-2 text-sm text-text-secondary">
-              <a
-                href={FACEBOOK_GROUP_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label="Únete al grupo de Facebook Morón of Legends"
-                className="shrink-0 opacity-90 transition-opacity hover:opacity-100"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element -- ícono estático local, no necesita optimización de next/image */}
-                <img src="/facebook%20icono.webp" alt="" width={20} height={20} className="rounded" />
-              </a>
               <span>
                 Recuerda seguir la comunidad de Facebook{" "}
                 <a
@@ -50,6 +40,16 @@ export default async function Home() {
                 </a>{" "}
                 y disfrutar de los memes.
               </span>
+              <a
+                href={FACEBOOK_GROUP_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Únete al grupo de Facebook Morón of Legends"
+                className="shrink-0 opacity-90 transition-opacity hover:opacity-100"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element -- ícono estático local, no necesita optimización de next/image */}
+                <img src="/facebook%20icono.webp" alt="" width={20} height={20} className="rounded" />
+              </a>
             </p>
           </div>
           <LastUpdated iso={lastUpdated} />
