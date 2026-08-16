@@ -68,7 +68,7 @@ src/
   lib/elo.ts               # Cálculo de elo_score
   lib/supabase/client.ts   # Cliente Supabase para el browser
   lib/supabase/server.ts   # Cliente Supabase para Server Components/Actions
-  lib/supabase/admin.ts    # Cliente con service role (jobs server-side)
+  lib/supabase/admin.ts    # Cliente con secret key (jobs server-side)
   types/database.ts        # Tipos de participants/snapshots
 supabase/migrations/       # SQL del esquema
 ```
