@@ -1,0 +1,27 @@
+name: Update Rankings
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+# If a run is still in flight when the next one fires, queue it instead of
+# running two ingestions (and two rounds of DB writes) in parallel.
+concurrency:
+  group: update-rankings
+  cancel-in-progress: false
+
+jobs:
+  update-rankings:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /api/update-rankings
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          # Replace with your real Vercel domain.
+          SITE_URL: https://mi-sitio.vercel.app
+        run: |
+          curl --fail-with-body --show-error --silent \
+            --max-time 120 \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${SITE_URL}/api/update-rankings"

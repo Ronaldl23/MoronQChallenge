@@ -96,6 +96,27 @@ curl "https://tu-sitio.vercel.app/api/update-rankings?secret=TU_CRON_SECRET"
 curl -H "Authorization: Bearer TU_CRON_SECRET" https://tu-sitio.vercel.app/api/update-rankings
 ```
 
+### Automatizarlo cada 15 minutos con GitHub Actions
+
+`.github/workflows/update-rankings.yml` llama a este endpoint cada 15
+minutos vía `cron`, y se puede disparar a mano desde la pestaña Actions
+(`workflow_dispatch`). Usa `curl --fail-with-body`, así que si el endpoint
+responde un error HTTP el step falla y el run queda en rojo en la pestaña
+Actions — con el cuerpo de la respuesta impreso en el log para que veas qué
+pasó. `concurrency` evita que dos corridas se pisen si una tarda más de 15
+minutos.
+
+Setup:
+
+1. Edita `SITE_URL` en el workflow con el dominio real de tu deploy en
+   Vercel (por defecto dice `https://mi-sitio.vercel.app`).
+2. En GitHub: **Settings → Secrets and variables → Actions → New repository
+   secret**, nombre **`CRON_SECRET`**, mismo valor que configuraste en
+   Vercel para `CRON_SECRET`.
+3. GitHub notifica por email (a quien tenga watch en el repo) cuando un
+   workflow programado falla, así que te enteras sin tener que revisar la
+   pestaña Actions manualmente.
+
 ## Panel de admin y alta de participantes (`/admin`)
 
 `/admin` muestra un formulario protegido para agregar participantes. Al
@@ -131,8 +152,6 @@ curl -X POST https://tu-sitio.vercel.app/api/participants \
 
 ## Pendiente
 
-- Programar `/api/update-rankings` con un cron (p. ej. Vercel Cron) para que
-  corra automáticamente en vez de dispararlo a mano.
 - UI final del leaderboard (filtros, búsqueda, avatares, etc.).
 
 ## Deploy
