@@ -5,6 +5,7 @@ import type { LeaderboardEntry } from "@/lib/leaderboard";
 import { Avatar } from "./Avatar";
 import { TierBadge } from "./TierBadge";
 import { Sparkline } from "./Sparkline";
+import { WinrateBar } from "./WinrateBar";
 
 export function LeaderboardTable({ entries }: { entries: LeaderboardEntry[] }) {
   return (
@@ -21,7 +22,11 @@ export function LeaderboardTable({ entries }: { entries: LeaderboardEntry[] }) {
           </tr>
         </thead>
         <tbody>
-          {entries.map((entry) => (
+          {entries.map((entry) => {
+            const total = entry.latest.wins + entry.latest.losses;
+            const winPct = total > 0 ? Math.round((entry.latest.wins / total) * 100) : 0;
+
+            return (
             <motion.tr
               key={entry.participant.id}
               layout
@@ -53,8 +58,16 @@ export function LeaderboardTable({ entries }: { entries: LeaderboardEntry[] }) {
                   </span>
                 </div>
               </td>
-              <td className="px-4 py-3 whitespace-nowrap text-text-secondary">
-                {entry.latest.wins}V - {entry.latest.losses}D
+              <td className="px-4 py-3">
+                <div className="flex w-28 flex-col gap-1.5">
+                  <div className="flex items-center justify-between text-xs whitespace-nowrap text-text-secondary">
+                    <span>{winPct}%</span>
+                    <span>
+                      {entry.latest.wins}V - {entry.latest.losses}D
+                    </span>
+                  </div>
+                  <WinrateBar wins={entry.latest.wins} losses={entry.latest.losses} />
+                </div>
               </td>
               <td className="px-4 py-3">
                 <Sparkline points={entry.trend} id={entry.participant.id} />
@@ -66,7 +79,8 @@ export function LeaderboardTable({ entries }: { entries: LeaderboardEntry[] }) {
                 </div>
               </td>
             </motion.tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </div>

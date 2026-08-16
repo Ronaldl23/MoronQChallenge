@@ -1,4 +1,5 @@
 import { TIER_COLOR, TIER_LABEL } from "@/lib/tiers";
+import { TierEmblem } from "./TierEmblem";
 import type { RankDivision, RankTier } from "@/types/database";
 
 export function TierBadge({
@@ -19,6 +20,7 @@ export function TierBadge({
         backgroundColor: `${color}14`,
       }}
     >
+      <TierEmblem tier={tier} size={16} />
       {TIER_LABEL[tier]}
       {division && <span className="text-text-muted">{division}</span>}
     </span>
