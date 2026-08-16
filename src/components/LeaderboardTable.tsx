@@ -4,6 +4,7 @@ import { motion } from "motion/react";
 import type { LeaderboardEntry } from "@/lib/leaderboard";
 import { Avatar } from "./Avatar";
 import { TierBadge } from "./TierBadge";
+import { TierEmblem } from "./TierEmblem";
 import { Sparkline } from "./Sparkline";
 import { WinrateBar } from "./WinrateBar";
 
@@ -51,7 +52,8 @@ export function LeaderboardTable({ entries }: { entries: LeaderboardEntry[] }) {
                 </div>
               </td>
               <td className="px-4 py-3">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-3">
+                  <TierEmblem tier={entry.latest.tier} size={80} />
                   <TierBadge tier={entry.latest.tier} division={entry.latest.division} />
                   <span className="font-display text-base font-bold text-text-primary">
                     {entry.latest.lp.toLocaleString("es")} LP

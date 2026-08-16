@@ -4,6 +4,7 @@ import { motion } from "motion/react";
 import type { LeaderboardEntry } from "@/lib/leaderboard";
 import { Avatar } from "./Avatar";
 import { TierBadge } from "./TierBadge";
+import { TierEmblem } from "./TierEmblem";
 import { WinrateBar } from "./WinrateBar";
 
 const RANK_STYLE: Record<
@@ -79,7 +80,8 @@ export function PodiumCard({ entry }: { entry: LeaderboardEntry }) {
           </div>
         </div>
 
-        <div className="relative">
+        <div className="relative flex items-center gap-3">
+          <TierEmblem tier={latest.tier} size={80} />
           <TierBadge tier={latest.tier} division={latest.division} />
         </div>
 
