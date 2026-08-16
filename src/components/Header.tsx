@@ -5,18 +5,14 @@ import { TOURNAMENT_END_DATE } from "@/lib/config";
 export function Header() {
   return (
     <header className="border-b border-border-hairline bg-bg-elevated">
-      <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-3">
-        <div className="flex items-center gap-6">
-          {/*
-            El logo real vive en <FixedLogo>, con position: fixed, flotando
-            por encima. Este espaciador invisible solo reserva ancho (no
-            alto, para que la fila se mantenga compacta) así el texto de
-            Ranking/Reglas no arranca tapado por el logo.
-          */}
-          <div aria-hidden className="w-32 shrink-0 sm:w-40" />
-          <NavLinks />
-        </div>
-
+      {/*
+        pl reserva el espacio horizontal que ocupa <FixedLogo> (fixed,
+        flotando por encima) para que NI el nav NI el countdown arranquen
+        tapados por el logo — en mobile el logo va de x:0-200px, en sm+ de
+        x:100-300px.
+      */}
+      <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-4 py-3 pr-6 pl-[212px] sm:pl-[336px]">
+        <NavLinks />
         <Countdown endDate={TOURNAMENT_END_DATE} />
       </div>
     </header>
