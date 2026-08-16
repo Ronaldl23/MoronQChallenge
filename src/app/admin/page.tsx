@@ -1,0 +1,28 @@
+import { isAdminAuthenticated } from "@/lib/admin-auth";
+import { AdminLoginForm } from "./AdminLoginForm";
+import { AddParticipantForm } from "./AddParticipantForm";
+
+export const dynamic = "force-dynamic";
+
+export default async function AdminPage() {
+  const authenticated = await isAdminAuthenticated();
+
+  return (
+    <div className="min-h-screen bg-zinc-50 px-6 py-16 font-sans dark:bg-black">
+      <main className="mx-auto flex w-full max-w-md flex-col gap-8">
+        <header>
+          <h1 className="text-2xl font-semibold tracking-tight text-black dark:text-zinc-50">
+            Admin — MoronQChallenge
+          </h1>
+          <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+            {authenticated
+              ? "Agrega un nuevo participante. El puuid se resuelve automáticamente desde la API de Riot."
+              : "Ingresa la contraseña de administrador para continuar."}
+          </p>
+        </header>
+
+        {authenticated ? <AddParticipantForm /> : <AdminLoginForm />}
+      </main>
+    </div>
+  );
+}

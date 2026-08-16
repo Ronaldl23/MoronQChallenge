@@ -65,8 +65,14 @@ elo_score = tier_base + division_offset + lp
 ```
 src/
   app/page.tsx                      # Leaderboard (server component, lee de Supabase)
+  app/admin/page.tsx                # Panel de admin: alta de participantes
   app/api/update-rankings/route.ts  # Endpoint que actualiza snapshots desde la API de Riot
+  app/api/participants/route.ts     # Endpoint que da de alta un participante (resuelve puuid)
+  app/api/admin/login/route.ts      # Login del panel de admin (setea cookie de sesión)
   lib/elo.ts                        # Cálculo de elo_score
+  lib/riot.ts                       # Resolución de puuid vía Account-V1
+  lib/admin-auth.ts                 # Chequeo de sesión de admin (cookie o Bearer)
+  lib/secrets.ts                    # Comparación de secretos en tiempo constante
   lib/supabase/client.ts            # Cliente Supabase para el browser
   lib/supabase/server.ts            # Cliente Supabase para Server Components/Actions
   lib/supabase/admin.ts             # Cliente con secret key (jobs server-side)
@@ -90,14 +96,41 @@ curl "https://tu-sitio.vercel.app/api/update-rankings?secret=TU_CRON_SECRET"
 curl -H "Authorization: Bearer TU_CRON_SECRET" https://tu-sitio.vercel.app/api/update-rankings
 ```
 
-Asume que `participants.puuid` ya está poblado (el alta de participantes —
-resolver `riot_game_name`/`riot_tag` a `puuid` vía Account-V1 — todavía no
-está implementada).
+## Panel de admin y alta de participantes (`/admin`)
+
+`/admin` muestra un formulario protegido para agregar participantes. Al
+enviarlo, llama a `POST /api/participants`, que:
+
+1. Resuelve el `puuid` vía Account-V1 de Riot (`by-riot-id`, ruteado por
+   continente — `americas`/`europe`/`asia`/`sea` según el `region_platform`).
+2. Si el Riot ID no existe, responde `404` con un mensaje claro (no revienta).
+3. Inserta el nuevo participante en `participants` con el `puuid` ya resuelto.
+
+Requiere `RIOT_API_KEY` (la misma que usa `/api/update-rankings`) y
+`ADMIN_SECRET`.
+
+**Por qué `ADMIN_SECRET` y no `CRON_SECRET`:** `CRON_SECRET` protege un
+disparador automatizado sin sesión (un cron externo pegándole a la URL).
+`ADMIN_SECRET` protege una sesión interactiva de una persona (tú, cargando
+participantes a mano) — son superficies de riesgo distintas y conviene poder
+rotar una sin afectar la otra.
+
+**Cómo entrar:** abre `https://tu-sitio.vercel.app/admin`, ingresa la
+contraseña (el valor de `ADMIN_SECRET`). Al validarse, se setea una cookie
+httpOnly de sesión (dura 8 horas) y se muestra el formulario: nombre para
+mostrar, Riot game name, Riot tag y región. El endpoint también acepta
+`Authorization: Bearer TU_ADMIN_SECRET` por si quieres darlo de alta por
+`curl` en vez de por el formulario:
+
+```bash
+curl -X POST https://tu-sitio.vercel.app/api/participants \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer TU_ADMIN_SECRET" \
+  -d '{"nombre_display":"Fulano","riot_game_name":"Faker","riot_tag":"KR1","region_platform":"KR"}'
+```
 
 ## Pendiente
 
-- Alta de participantes: resolver `riot_game_name`/`riot_tag` a `puuid` vía
-  Account-V1 de Riot y guardarlos en `participants`.
 - Programar `/api/update-rankings` con un cron (p. ej. Vercel Cron) para que
   corra automáticamente en vez de dispararlo a mano.
 - UI final del leaderboard (filtros, búsqueda, avatares, etc.).
