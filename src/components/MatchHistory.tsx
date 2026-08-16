@@ -64,7 +64,7 @@ function ItemIcon({ itemId, ddragonVersion }: { itemId: number; ddragonVersion: 
   const [failed, setFailed] = useState(false);
 
   if (failed) {
-    return <div className="h-[22px] w-[22px] shrink-0 rounded bg-white/5" />;
+    return <div className="h-7 w-7 shrink-0 rounded bg-white/5" />;
   }
 
   return (
@@ -72,9 +72,9 @@ function ItemIcon({ itemId, ddragonVersion }: { itemId: number; ddragonVersion: 
     <img
       src={`https://ddragon.leagueoflegends.com/cdn/${ddragonVersion}/img/item/${itemId}.png`}
       alt=""
-      width={22}
-      height={22}
-      className="h-[22px] w-[22px] shrink-0 rounded"
+      width={28}
+      height={28}
+      className="h-7 w-7 shrink-0 rounded"
       loading="lazy"
       onError={() => setFailed(true)}
     />
@@ -86,12 +86,12 @@ function ItemBuild({ items, ddragonVersion }: { items: number[]; ddragonVersion:
   const slots = Array.from({ length: 7 }, (_, i) => items[i] ?? null);
 
   return (
-    <div className="grid grid-cols-4 gap-1">
+    <div className="grid shrink-0 grid-cols-4 gap-1.5">
       {slots.map((itemId, i) =>
         itemId ? (
           <ItemIcon key={`${itemId}-${i}`} itemId={itemId} ddragonVersion={ddragonVersion} />
         ) : (
-          <div key={`empty-${i}`} className="h-[22px] w-[22px] shrink-0 rounded bg-white/5" />
+          <div key={`empty-${i}`} className="h-7 w-7 shrink-0 rounded bg-white/5" />
         ),
       )}
     </div>
@@ -166,7 +166,7 @@ export function MatchHistory({
   }
 
   return (
-    <div className="flex w-fit flex-col divide-y divide-border-hairline px-4 py-2">
+    <div className="flex flex-col divide-y divide-border-hairline px-4 py-2">
       {status.matches.map((match) => {
         const kda =
           match.deaths === 0
@@ -174,8 +174,11 @@ export function MatchHistory({
             : (match.kills + match.assists) / match.deaths;
 
         return (
-          <div key={match.matchId} className="flex items-center gap-3 py-2 text-sm">
-            <div className="flex w-[76px] shrink-0 flex-col">
+          <div
+            key={match.matchId}
+            className="flex w-full items-center justify-between gap-4 py-2.5 text-sm"
+          >
+            <div className="flex w-[84px] shrink-0 flex-col">
               <span
                 className={`font-display text-xs font-bold uppercase ${
                   match.win ? "text-win" : "text-loss"
@@ -189,26 +192,26 @@ export function MatchHistory({
               </span>
             </div>
 
-            <div className="flex w-[72px] shrink-0 items-center gap-1">
-              <ChampionIcon championName={match.championName} ddragonVersion={ddragonVersion} />
+            <div className="flex w-[86px] shrink-0 items-center gap-1.5">
+              <ChampionIcon championName={match.championName} ddragonVersion={ddragonVersion} size={38} />
               {match.opponentChampionName && (
                 <>
                   <span className="text-[10px] text-text-muted">vs</span>
                   <ChampionIcon
                     championName={match.opponentChampionName}
                     ddragonVersion={ddragonVersion}
-                    size={24}
+                    size={30}
                   />
                 </>
               )}
             </div>
 
-            <div className="flex shrink-0 items-baseline gap-2 whitespace-nowrap">
-              <span className="w-[64px] shrink-0 font-semibold text-text-primary">
+            <div className="flex w-[220px] shrink-0 items-baseline gap-2">
+              <span className="shrink-0 font-semibold whitespace-nowrap text-text-primary">
                 {match.kills} / <span className="text-loss">{match.deaths}</span> /{" "}
                 {match.assists}
               </span>
-              <span className="text-xs text-text-secondary">
+              <span className="text-xs whitespace-nowrap text-text-secondary">
                 {kda === null ? "Perfecto" : `${kda.toFixed(1)} KDA`} · {match.killParticipationPct}
                 % KP · {match.cs} CS
               </span>
@@ -217,7 +220,7 @@ export function MatchHistory({
             <ItemBuild items={match.items} ddragonVersion={ddragonVersion} />
 
             <span
-              className={`w-[70px] shrink-0 text-right text-sm font-semibold whitespace-nowrap ${
+              className={`w-[76px] shrink-0 text-right text-base font-semibold whitespace-nowrap ${
                 match.lpChange === null
                   ? "text-text-muted"
                   : match.lpChange > 0
