@@ -1,13 +1,12 @@
 import { getAuthenticatedParticipantId } from "@/lib/player-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getChampionList, type Champion } from "@/lib/champions";
-import { DAILY_RECEIVE_LIMIT, hoursAgoIso } from "@/lib/mango-launch";
+import { DAILY_RECEIVE_LIMIT, hoursAgoIso, resolveAssignedPunishment } from "@/lib/mango-launch";
 import { QUEST_TARGETS } from "@/lib/quests";
 import { Header } from "@/components/Header";
 import { FixedLogo } from "@/components/FixedLogo";
 import { PlayerLoginForm } from "./PlayerLoginForm";
 import { InventoryPanel } from "./InventoryPanel";
-import { MangoNotifications } from "./MangoNotifications";
 import type { LaunchTarget } from "./LaunchModal";
 
 export const dynamic = "force-dynamic";
@@ -86,6 +85,10 @@ export default async function JugadorPage() {
     current: questByType.get("kda_streak")?.current_progress ?? 0,
     target: questByType.get("kda_streak")?.target ?? QUEST_TARGETS.kda_streak,
   };
+  const deathlessWin = {
+    current: questByType.get("deathless_win")?.current_progress ?? 0,
+    target: questByType.get("deathless_win")?.target ?? QUEST_TARGETS.deathless_win,
+  };
 
   const others = othersResult.data ?? [];
   const { data: recentPenalties } = await supabase
@@ -127,16 +130,13 @@ export default async function JugadorPage() {
         pendingPenalties.map((p) => p.mango_id),
       );
     const championIdByMangoId = new Map((pendingMangos ?? []).map((m) => [m.id, m.champion_assigned]));
-    pendingChampionNames = pendingPenalties.map((p) => {
-      const championId = championIdByMangoId.get(p.mango_id) ?? null;
-      return championId ? (championById.get(championId)?.name ?? championId) : "un campeón";
-    });
+    pendingChampionNames = pendingPenalties.map(
+      (p) => resolveAssignedPunishment(championIdByMangoId.get(p.mango_id) ?? null, championById).name,
+    );
   }
 
   return (
     <PageShell subtitle="Sesión iniciada.">
-      <MangoNotifications />
-
       {pendingChampionNames.length > 0 && (
         <section className="flex flex-col gap-2 rounded-2xl border border-loss/50 bg-surface p-6">
           <p className="font-display text-base font-bold text-loss">
@@ -165,6 +165,7 @@ export default async function JugadorPage() {
         mangos={mangos}
         winStreak={winStreak}
         kdaStreak={kdaStreak}
+        deathlessWin={deathlessWin}
         otherParticipants={otherParticipants}
         champions={champions}
       />

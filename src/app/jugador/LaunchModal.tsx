@@ -2,14 +2,28 @@
 
 import { useRef, useState } from "react";
 import type { Champion } from "@/lib/champions";
+import { SUPPORT_ASSIGNMENT, SUPPORT_ICON_URL } from "@/lib/mango-launch";
 import { RouletteStrip, type RouletteItem } from "@/components/RouletteStrip";
 
 const BOUNCE_ITEM: RouletteItem = {
   key: "bounce",
   label: "MANGO DEVUELTO",
   iconUrl: "/MangoAngry.png",
-  special: true,
+  variant: "bounce",
 };
+
+const SUPPORT_ITEM: RouletteItem = {
+  key: "support",
+  label: "Support",
+  iconUrl: SUPPORT_ICON_URL,
+  variant: "support",
+};
+
+/** El id pseudo-campeón "SUPPORT" que devuelve el servidor (ver toStoredAssignment en el endpoint) necesita el anillo dorado de SUPPORT_ITEM, no el genérico. */
+function championToRouletteItem(champion: Champion): RouletteItem {
+  if (champion.id === SUPPORT_ASSIGNMENT) return SUPPORT_ITEM;
+  return { key: champion.id, label: champion.name, iconUrl: champion.iconUrl };
+}
 
 type Step =
   | { phase: "select" }
@@ -49,14 +63,23 @@ export function LaunchModal({
   // forzar el useEffect de RouletteStrip, sin llamar nada impuro acá.
   const spinCounterRef = useRef(0);
 
-  const pool: RouletteItem[] = champions.map((c) => ({
+  const championItems: RouletteItem[] = champions.map((c) => ({
     key: c.id,
     label: c.name,
     iconUrl: c.iconUrl,
   }));
+  // Support pesa 20% real (vs. ~0.4% de un campeón puntual): unas cuantas
+  // copias más en el pool visual para que se sienta acorde, aunque el
+  // resultado real ya lo decidió el servidor — esto es solo relleno.
+  const poolWithSupport: RouletteItem[] = [
+    ...championItems,
+    SUPPORT_ITEM,
+    SUPPORT_ITEM,
+    SUPPORT_ITEM,
+    SUPPORT_ITEM,
+  ];
   // Marcador de rebote intercalado, solo para la PRIMERA ruleta (el "10%").
-  const poolWithBounce: RouletteItem[] =
-    pool.length > 0 ? [...pool, BOUNCE_ITEM, BOUNCE_ITEM] : [BOUNCE_ITEM];
+  const poolWithBounceAndSupport: RouletteItem[] = [...poolWithSupport, BOUNCE_ITEM, BOUNCE_ITEM];
 
   async function handleSelectTarget(targetId: string) {
     setStep({ phase: "launching" });
@@ -78,9 +101,7 @@ export function LaunchModal({
     const targetName = body.targetNombreDisplay as string;
     pendingRef.current = { bounced, champion, targetName };
 
-    const resultItem: RouletteItem = bounced
-      ? BOUNCE_ITEM
-      : { key: champion.id, label: champion.name, iconUrl: champion.iconUrl };
+    const resultItem: RouletteItem = bounced ? BOUNCE_ITEM : championToRouletteItem(champion);
     spinCounterRef.current += 1;
     setStep({ phase: "spinning", result: resultItem, spinToken: spinCounterRef.current });
   }
@@ -99,11 +120,7 @@ export function LaunchModal({
   function handleContinueAfterBounceReveal() {
     const pending = pendingRef.current;
     if (!pending) return;
-    const resultItem: RouletteItem = {
-      key: pending.champion.id,
-      label: pending.champion.name,
-      iconUrl: pending.champion.iconUrl,
-    };
+    const resultItem = championToRouletteItem(pending.champion);
     spinCounterRef.current += 1;
     setStep({ phase: "spinning-bounce", result: resultItem, spinToken: spinCounterRef.current });
   }
@@ -179,7 +196,7 @@ export function LaunchModal({
             </h3>
             <RouletteStrip
               key={step.spinToken}
-              pool={poolWithBounce}
+              pool={poolWithBounceAndSupport}
               result={step.result}
               onSettle={handleFirstSettle}
             />
@@ -236,7 +253,7 @@ export function LaunchModal({
             </h3>
             <RouletteStrip
               key={step.spinToken}
-              pool={pool}
+              pool={poolWithSupport}
               result={step.result}
               onSettle={handleBounceSettle}
             />

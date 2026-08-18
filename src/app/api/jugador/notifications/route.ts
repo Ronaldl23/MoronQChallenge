@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAuthenticatedParticipantId } from "@/lib/player-auth";
 import { getChampionList, type Champion } from "@/lib/champions";
+import { resolveAssignedPunishment } from "@/lib/mango-launch";
 
 export const dynamic = "force-dynamic";
 
@@ -58,11 +59,11 @@ export async function GET() {
 
   const notifications: MangoNotification[] = pending.map((p) => {
     const championId = championIdByMangoId.get(p.mango_id) ?? null;
-    const champion = championId ? championById.get(championId) : undefined;
+    const resolved = resolveAssignedPunishment(championId, championById);
     return {
       id: p.id,
-      championName: champion?.name ?? championId ?? "un campeón",
-      championIconUrl: champion?.iconUrl ?? null,
+      championName: resolved.name,
+      championIconUrl: resolved.iconUrl,
     };
   });
 

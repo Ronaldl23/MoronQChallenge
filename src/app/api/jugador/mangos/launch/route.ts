@@ -2,7 +2,15 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAuthenticatedParticipantId } from "@/lib/player-auth";
 import { getChampionList } from "@/lib/champions";
-import { rollBounce, pickRandomChampion, DAILY_RECEIVE_LIMIT, hoursAgoIso } from "@/lib/mango-launch";
+import {
+  rollFirstOutcome,
+  rollPenaltyOutcome,
+  DAILY_RECEIVE_LIMIT,
+  hoursAgoIso,
+  SUPPORT_ASSIGNMENT,
+  SUPPORT_ICON_URL,
+  type PunishmentOutcome,
+} from "@/lib/mango-launch";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +18,25 @@ interface ChampionResult {
   id: string;
   name: string;
   iconUrl: string;
+}
+
+/**
+ * `champion_assigned` a guardar en la fila de `mangos` y el objeto
+ * champion-like a devolverle al cliente para el reveal — mismo shape tanto
+ * para Support como para un campeón puntual, así el frontend no necesita
+ * distinguir los dos casos (ver LaunchModal.tsx).
+ */
+function toStoredAssignment(outcome: PunishmentOutcome): {
+  championAssigned: string;
+  result: ChampionResult;
+} {
+  if (outcome.kind === "support") {
+    return {
+      championAssigned: SUPPORT_ASSIGNMENT,
+      result: { id: SUPPORT_ASSIGNMENT, name: "Support", iconUrl: SUPPORT_ICON_URL },
+    };
+  }
+  return { championAssigned: outcome.champion.id, result: outcome.champion };
 }
 
 export async function POST(request: Request) {
@@ -100,17 +127,17 @@ export async function POST(request: Request) {
     );
   }
 
-  const bounced = rollBounce();
+  const outcome = rollFirstOutcome(champions);
 
-  if (!bounced) {
-    const champion = pickRandomChampion(champions);
+  if (outcome.kind !== "bounce") {
+    const { championAssigned, result } = toStoredAssignment(outcome);
 
     const { error: updateError } = await supabase
       .from("mangos")
       .update({
         status: "sent",
         sent_by_participant_id: participantId,
-        champion_assigned: champion.id,
+        champion_assigned: championAssigned,
       })
       .eq("id", mango.id);
     if (updateError) {
@@ -125,7 +152,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: penaltyError.message }, { status: 500 });
     }
 
-    const result: ChampionResult = champion;
     return NextResponse.json({
       bounced: false,
       champion: result,
@@ -141,8 +167,11 @@ export async function POST(request: Request) {
   // lanzó originalmente. No cuenta contra el cupo de inventario de nadie
   // (nace directo en status='sent') ni contra el límite diario del
   // lanzador original — es una consecuencia automática de SU lanzamiento,
-  // no un blanco nuevo que alguien eligió a propósito.
-  const bounceChampion = pickRandomChampion(champions);
+  // no un blanco nuevo que alguien eligió a propósito. Sin balde de rebote
+  // acá (rollPenaltyOutcome): un rebote no puede volver a rebotar.
+  const bounceOutcome = rollPenaltyOutcome(champions);
+  const { championAssigned: bounceAssigned, result: bounceResult } =
+    toStoredAssignment(bounceOutcome);
 
   const { data: bounceMango, error: bounceMangoError } = await supabase
     .from("mangos")
@@ -150,7 +179,7 @@ export async function POST(request: Request) {
       owner_participant_id: target_participant_id,
       status: "sent",
       sent_by_participant_id: target_participant_id,
-      champion_assigned: bounceChampion.id,
+      champion_assigned: bounceAssigned,
     })
     .select()
     .single();
@@ -170,10 +199,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: bouncePenaltyError.message }, { status: 500 });
   }
 
-  const result: ChampionResult = bounceChampion;
   return NextResponse.json({
     bounced: true,
-    champion: result,
+    champion: bounceResult,
     targetNombreDisplay: target.nombre_display,
   });
 }

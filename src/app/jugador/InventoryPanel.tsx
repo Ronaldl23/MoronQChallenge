@@ -20,12 +20,14 @@ export function InventoryPanel({
   mangos,
   winStreak,
   kdaStreak,
+  deathlessWin,
   otherParticipants,
   champions,
 }: {
   mangos: InventoryMango[];
   winStreak: QuestProgressView;
   kdaStreak: QuestProgressView;
+  deathlessWin: QuestProgressView;
   otherParticipants: LaunchTarget[];
   champions: Champion[];
 }) {
@@ -67,6 +69,11 @@ export function InventoryPanel({
             label="Racha de KDA 4+"
             current={kdaStreak.current}
             target={kdaStreak.target}
+          />
+          <QuestBar
+            label="Victoria sin morir"
+            current={deathlessWin.current}
+            target={deathlessWin.target}
           />
         </div>
       </section>

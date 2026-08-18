@@ -22,26 +22,27 @@ function assertEqual(actual, expected, label) {
   }
 }
 
-// KDA por defecto DELIBERADAMENTE bajo (< 4) en ambos helpers, para que los
-// casos de win_streak "puro" no completen kda_streak de arrastre — los casos
-// que necesitan buen KDA lo piden explícito (ver match()).
+// KDA por defecto DELIBERADAMENTE bajo (< 4) y muertes > 0 en ambos helpers,
+// para que los casos de win_streak "puro" no completen kda_streak ni
+// deathless_win de arrastre — los casos que necesitan buen KDA o 0 muertes
+// lo piden explícito (ver match()).
 function win(id, kills = 3, deaths = 5, assists = 1) {
-  return { matchId: id, win: true, kda: calculateKda({ kills, deaths, assists }) };
+  return { matchId: id, win: true, kda: calculateKda({ kills, deaths, assists }), deaths };
 }
 function loss(id, kills = 1, deaths = 5, assists = 1) {
-  return { matchId: id, win: false, kda: calculateKda({ kills, deaths, assists }) };
+  return { matchId: id, win: false, kda: calculateKda({ kills, deaths, assists }), deaths };
 }
-function match(id, { win: w, kda }) {
-  return { matchId: id, win: w, kda };
+function match(id, { win: w, kda, deaths = 1 }) {
+  return { matchId: id, win: w, kda, deaths };
 }
 
-const ZERO = { win_streak: 0, kda_streak: 0 };
+const ZERO = { win_streak: 0, kda_streak: 0, deathless_win: 0 };
 
 // --- 1. Racha de 5 victorias seguidas -> 1 mango, progreso vuelve a 0 ---
 {
   const matches = ["m1", "m2", "m3", "m4", "m5"].map((id) => win(id));
   const result = processNewMatches({ progress: ZERO, matches, mangoCount: 0 });
-  assertEqual(result.progress, { win_streak: 0, kda_streak: 0 }, "5 wins: progreso resetea a 0");
+  assertEqual(result.progress, ZERO, "5 wins: progreso resetea a 0");
   assertEqual(
     result.grants,
     [{ matchId: "m5", quest_type: "win_streak" }],
@@ -166,7 +167,7 @@ const ZERO = { win_streak: 0, kda_streak: 0 };
 
 // --- 10. Se libera cupo entre corridas (progreso ya en el target, sin partidas nuevas esta vez) -> se otorga al toque ---
 {
-  const stuckProgress = { win_streak: QUEST_TARGETS.win_streak, kda_streak: 0 };
+  const stuckProgress = { win_streak: QUEST_TARGETS.win_streak, kda_streak: 0, deathless_win: 0 };
   const result = processNewMatches({ progress: stuckProgress, matches: [], mangoCount: MAX_MANGO_INVENTORY - 1 });
   assertEqual(
     result.grants,
@@ -214,6 +215,94 @@ const ZERO = { win_streak: 0, kda_streak: 0 };
     QUEST_TARGETS.win_streak,
     "20 wins: tras i15 el tope ya está lleno, así que i16..i20 (5 wins más) dejan win_streak pegado en 5, no se pierden ni se resetean",
   );
+}
+
+// --- 14. Victoria con 0 muertes -> mango inmediato (target=1, no es racha) ---
+{
+  const seq = [match("j1", { win: true, kda: 10, deaths: 0 })];
+  const result = processNewMatches({ progress: ZERO, matches: seq, mangoCount: 0 });
+  assertEqual(
+    result.grants,
+    [{ matchId: "j1", quest_type: "deathless_win" }],
+    "1 victoria con 0 muertes: se otorga el mango en esa misma partida",
+  );
+  assertEqual(result.progress.deathless_win, 0, "victoria sin morir: progreso vuelve a 0 tras otorgarse");
+  assertEqual(result.mangoCount, 1, "victoria sin morir: mangoCount sube a 1");
+}
+
+// --- 15. Victoria CON muertes -> no cuenta, aunque el KDA sea altísimo ---
+{
+  const seq = [match("k1", { win: true, kda: 20, deaths: 1 })];
+  const result = processNewMatches({ progress: ZERO, matches: seq, mangoCount: 0 });
+  assertEqual(result.grants, [], "victoria con 1 muerte (KDA alto igual): no otorga deathless_win");
+  assertEqual(result.progress.deathless_win, 0, "victoria con 1 muerte: progreso sigue en 0");
+}
+
+// --- 16. Derrota con 0 muertes -> no cuenta (hace falta GANAR, no alcanza con no morir) ---
+{
+  const seq = [match("l1", { win: false, kda: 10, deaths: 0 })];
+  const result = processNewMatches({ progress: ZERO, matches: seq, mangoCount: 0 });
+  assertEqual(result.grants, [], "derrota con 0 muertes: no otorga deathless_win, hace falta ganar");
+  assertEqual(result.progress.deathless_win, 0, "derrota sin morir: progreso sigue en 0");
+}
+
+// --- 17. Varias victorias sin morir en la misma corrida -> un mango por cada una (no es racha, no hay que encadenarlas) ---
+{
+  const seq = [
+    match("n1", { win: true, kda: 10, deaths: 0 }),
+    win("n2"), // victoria normal, con muertes -> no interrumpe nada, deathless_win no es racha
+    match("n3", { win: true, kda: 8, deaths: 0 }),
+  ];
+  const result = processNewMatches({ progress: ZERO, matches: seq, mangoCount: 0 });
+  assertEqual(
+    result.grants.filter((g) => g.quest_type === "deathless_win"),
+    [
+      { matchId: "n1", quest_type: "deathless_win" },
+      { matchId: "n3", quest_type: "deathless_win" },
+    ],
+    "2 victorias sin morir en la misma corrida (con una partida normal en el medio): 2 mangos, uno por cada una",
+  );
+}
+
+// --- 18. CASO LÍMITE: cupo lleno -> deathless_win también queda pegado en el target esperando espacio ---
+{
+  const seq = [
+    match("o1", { win: true, kda: 10, deaths: 0 }),
+    match("o2", { win: true, kda: 10, deaths: 0 }),
+  ];
+  const result = processNewMatches({ progress: ZERO, matches: seq, mangoCount: MAX_MANGO_INVENTORY });
+  assertEqual(
+    result.grants.filter((g) => g.quest_type === "deathless_win"),
+    [],
+    "cupo lleno: ninguna de las 2 victorias sin morir otorga mango",
+  );
+  assertEqual(
+    result.progress.deathless_win,
+    QUEST_TARGETS.deathless_win,
+    "cupo lleno: deathless_win queda pegado en el target (1), esperando espacio como las otras dos quests",
+  );
+}
+
+// --- 19. Una misma partida completa las TRES quests a la vez (5ta victoria de la racha, con KDA alto y 0 muertes) ---
+{
+  const seq = [
+    match("p1", { win: true, kda: 10, deaths: 1 }),
+    match("p2", { win: true, kda: 10, deaths: 1 }),
+    match("p3", { win: true, kda: 10, deaths: 1 }),
+    match("p4", { win: true, kda: 10, deaths: 1 }),
+    match("p5", { win: true, kda: 10, deaths: 0 }), // completa win_streak, kda_streak Y deathless_win
+  ];
+  const result = processNewMatches({ progress: ZERO, matches: seq, mangoCount: 0 });
+  assertEqual(
+    result.grants,
+    [
+      { matchId: "p5", quest_type: "win_streak" },
+      { matchId: "p5", quest_type: "kda_streak" },
+      { matchId: "p5", quest_type: "deathless_win" },
+    ],
+    "p5 completa las 3 quests a la vez: 3 mangos otorgados en la misma partida",
+  );
+  assertEqual(result.mangoCount, 3, "3 quests completas a la vez: mangoCount sube en 3, justo al tope");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

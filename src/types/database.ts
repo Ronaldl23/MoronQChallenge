@@ -55,7 +55,7 @@ export type Mango = {
   created_at: string;
 };
 
-export type QuestType = "win_streak" | "kda_streak";
+export type QuestType = "win_streak" | "kda_streak" | "deathless_win";
 
 export type QuestProgress = {
   id: string;

@@ -6,9 +6,14 @@ export interface RouletteItem {
   key: string;
   label: string;
   iconUrl: string;
-  /** Estilo distinto (usado para el marcador de "MANGO DEVUELTO"). */
-  special?: boolean;
+  /** Estilo distinto para marcadores especiales — "bounce" (MANGO DEVUELTO) y "support" (castigo Support). */
+  variant?: "bounce" | "support";
 }
+
+const VARIANT_RING: Record<NonNullable<RouletteItem["variant"]>, string> = {
+  bounce: "ring-2 ring-loss",
+  support: "ring-2 ring-gold",
+};
 
 const ITEM_WIDTH = 96;
 const VISIBLE_ITEMS = 5;
@@ -152,7 +157,7 @@ export function RouletteStrip({
               width={56}
               height={56}
               className={`h-14 w-14 rounded-lg object-cover ${
-                item.special ? "ring-2 ring-loss" : "ring-1 ring-border-hairline"
+                item.variant ? VARIANT_RING[item.variant] : "ring-1 ring-border-hairline"
               }`}
             />
             <span className="max-w-[88px] truncate text-center text-[10px] text-text-secondary">

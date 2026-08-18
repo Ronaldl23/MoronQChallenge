@@ -2,7 +2,13 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { calculateEloScore } from "@/lib/elo";
-import { calculateKda, processNewMatches, QUEST_TARGETS, type MatchOutcome } from "@/lib/quests";
+import {
+  calculateKda,
+  processNewMatches,
+  QUEST_TARGETS,
+  QUEST_TYPES,
+  type MatchOutcome,
+} from "@/lib/quests";
 import { platformToContinent } from "@/lib/riot";
 import type { Database, QuestProgress, QuestType, RankDivision, RankTier } from "@/types/database";
 
@@ -180,10 +186,18 @@ async function processParticipantQuests({
   const continent = platformToContinent(participant.region_platform);
   if (!continent) return;
 
-  const [winRow, kdaRow] = await Promise.all([
-    getOrCreateQuestProgress(supabase, participant.id, "win_streak"),
-    getOrCreateQuestProgress(supabase, participant.id, "kda_streak"),
-  ]);
+  const questRows = new Map<QuestType, QuestProgress>(
+    await Promise.all(
+      QUEST_TYPES.map(
+        async (questType) =>
+          [questType, await getOrCreateQuestProgress(supabase, participant.id, questType)] as const,
+      ),
+    ),
+  );
+  // Todas las quests siempre se persisten con el mismo last_processed_match_id
+  // (se procesan juntas, de la misma lista, en cada corrida) — la del primer
+  // tipo es la referencia, pero en teoría nunca deberían divergir entre sí.
+  const referenceRow = questRows.get(QUEST_TYPES[0])!;
 
   const idsRes = await riotFetch(
     `https://${continent}.api.riotgames.com/lol/match/v5/matches/by-puuid/${participant.puuid}/ids?start=0&count=${MATCH_HISTORY_WINDOW}&queue=${RANKED_SOLO_QUEUE_ID}`,
@@ -193,10 +207,7 @@ async function processParticipantQuests({
   if (!idsRes.ok) return; // best-effort — se reintenta en la próxima corrida
 
   const recentIds = (await idsRes.json()) as string[];
-  // Ambas quests siempre se persisten con el mismo last_processed_match_id
-  // (se procesan juntas, de la misma lista, en cada corrida) — winRow es la
-  // referencia, pero en teoría nunca deberían divergir de kdaRow.
-  const newMatchIds = findNewMatchIds(recentIds, winRow.last_processed_match_id).slice(
+  const newMatchIds = findNewMatchIds(recentIds, referenceRow.last_processed_match_id).slice(
     0,
     MAX_NEW_MATCHES_PER_RUN,
   );
@@ -225,6 +236,7 @@ async function processParticipantQuests({
       matchId,
       win: mp.win,
       kda: calculateKda({ kills: mp.kills, deaths: mp.deaths, assists: mp.assists }),
+      deaths: mp.deaths,
     });
   }
 
@@ -232,33 +244,31 @@ async function processParticipantQuests({
 
   const mangoCount = await countMangoInventory(supabase, participant.id);
 
+  const progress = Object.fromEntries(
+    QUEST_TYPES.map((questType) => [questType, questRows.get(questType)!.current_progress]),
+  ) as Record<QuestType, number>;
+
   const result = processNewMatches({
-    progress: { win_streak: winRow.current_progress, kda_streak: kdaRow.current_progress },
+    progress,
     matches: outcomes,
     mangoCount,
   });
 
-  const lastProcessedMatchId = result.lastProcessedMatchId ?? winRow.last_processed_match_id;
+  const lastProcessedMatchId = result.lastProcessedMatchId ?? referenceRow.last_processed_match_id;
   const updatedAt = new Date().toISOString();
 
-  await Promise.all([
-    supabase
-      .from("quest_progress")
-      .update({
-        current_progress: result.progress.win_streak,
-        last_processed_match_id: lastProcessedMatchId,
-        updated_at: updatedAt,
-      })
-      .eq("id", winRow.id),
-    supabase
-      .from("quest_progress")
-      .update({
-        current_progress: result.progress.kda_streak,
-        last_processed_match_id: lastProcessedMatchId,
-        updated_at: updatedAt,
-      })
-      .eq("id", kdaRow.id),
-  ]);
+  await Promise.all(
+    QUEST_TYPES.map((questType) =>
+      supabase
+        .from("quest_progress")
+        .update({
+          current_progress: result.progress[questType],
+          last_processed_match_id: lastProcessedMatchId,
+          updated_at: updatedAt,
+        })
+        .eq("id", questRows.get(questType)!.id),
+    ),
+  );
 
   if (result.grants.length > 0) {
     const { error: mangoInsertError } = await supabase.from("mangos").insert(
