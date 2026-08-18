@@ -3,7 +3,10 @@
 import { motion } from "motion/react";
 import type { LeaderboardEntry } from "@/lib/leaderboard";
 import { ROLE_TO_LANE_SLUG } from "@/lib/lane";
+import { DisqualifiedBadge } from "./DisqualifiedBadge";
+import { MangoCountBadge } from "./MangoCountBadge";
 import { OpggButton } from "./OpggButton";
+import { PenaltyIndicator } from "./PenaltyIndicator";
 import { PositionIcon } from "./PositionIcon";
 import { ProfileIcon } from "./ProfileIcon";
 import { TierBadge } from "./TierBadge";
@@ -78,15 +81,20 @@ export function PodiumCard({
           <span className="font-display text-2xl font-bold text-text-muted">
             #{rank}
           </span>
-          <ProfileIcon
-            name={participant.nombre_display}
-            avatarUrl={participant.avatar_url}
-            profileIconId={participant.profile_icon_id}
-            ddragonVersion={ddragonVersion}
-            size={48}
-          />
+          <div className="relative shrink-0">
+            <ProfileIcon
+              name={participant.nombre_display}
+              avatarUrl={participant.avatar_url}
+              profileIconId={participant.profile_icon_id}
+              ddragonVersion={ddragonVersion}
+              size={48}
+            />
+            {entry.isDisqualified && <DisqualifiedBadge />}
+          </div>
           <div className="min-w-0">
-            <p className="flex items-center gap-1.5 truncate text-lg font-bold text-text-primary">
+            <p
+              className={`flex items-center gap-1.5 truncate text-lg font-bold ${entry.isDisqualified ? "text-text-muted" : "text-text-primary"}`}
+            >
               {participant.nombre_display}
               {participant.main_role && (
                 <PositionIcon laneSlug={ROLE_TO_LANE_SLUG[participant.main_role]} size={14} />
@@ -110,7 +118,11 @@ export function PodiumCard({
             </span>{" "}
             <span className="text-sm font-medium text-text-secondary">LP</span>
           </p>
-          <OpggButton opggUrl={participant.opgg_url} inGame={participant.in_game} />
+          <div className="flex shrink-0 items-center gap-2">
+            <PenaltyIndicator penalties={entry.pendingPenalties} />
+            <MangoCountBadge count={entry.mangoCount} />
+            <OpggButton opggUrl={participant.opgg_url} inGame={participant.in_game} />
+          </div>
         </div>
 
         <div className="relative flex flex-col gap-1.5">

@@ -1,13 +1,29 @@
 import { createClient } from "@/lib/supabase/server";
+import { getChampionList, type Champion } from "@/lib/champions";
+import { resolveAssignedPunishment } from "@/lib/mango-launch";
 import type { Participant, Snapshot } from "@/types/database";
 
 /** login_code no viaja acá — el leaderboard público nunca lo selecciona (ver getLeaderboard). */
 type PublicParticipant = Omit<Participant, "login_code">;
 
+/** Un castigo pendiente o en revisión, en formato listo para mostrar (Fase 5) — mismo shape que el banner de /jugador. */
+export interface PendingPenaltySummary {
+  id: string;
+  championName: string;
+  championIconUrl: string | null;
+  senderName: string;
+}
+
 export interface LeaderboardEntry {
   rank: number;
   participant: PublicParticipant;
   latest: Snapshot;
+  /** status 'pending' o 'flagged_for_review' — castigos que todavía no se resolvieron. */
+  pendingPenalties: PendingPenaltySummary[];
+  /** mangos en inventario propio (status='in_inventory'), sin lanzar todavía. */
+  mangoCount: number;
+  /** true si tiene AL MENOS UN penalty_progress en status='disqualified' (confirmado por el admin). */
+  isDisqualified: boolean;
   /**
    * Suma de subidas del LP real entre snapshots consecutivos del MISMO
    * tier/división (ventana de 7 días). Los saltos de tier/división se
@@ -111,6 +127,86 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
     }
   }
 
+  // --- Sistema de Mangos (Fase 5): castigos pendientes, inventario y
+  // descalificación — best-effort, un error acá no debe tumbar todo el
+  // leaderboard (a diferencia de participants/snapshots, esto es
+  // informativo, no el dato central de la página).
+  const participantIds = participants.map((p) => p.id);
+
+  const [penaltyRowsRes, inventoryRes] = await Promise.all([
+    supabase
+      .from("penalty_progress")
+      .select("id, participant_id, mango_id, status")
+      .in("participant_id", participantIds)
+      .in("status", ["pending", "flagged_for_review", "disqualified"]),
+    supabase
+      .from("mangos")
+      .select("owner_participant_id")
+      .eq("status", "in_inventory")
+      .in("owner_participant_id", participantIds),
+  ]);
+
+  if (penaltyRowsRes.error) {
+    console.error("Failed to load penalty_progress:", penaltyRowsRes.error.message);
+  }
+  if (inventoryRes.error) {
+    console.error("Failed to load mango inventory:", inventoryRes.error.message);
+  }
+
+  const mangoCountByParticipant = new Map<string, number>();
+  for (const row of inventoryRes.data ?? []) {
+    mangoCountByParticipant.set(
+      row.owner_participant_id,
+      (mangoCountByParticipant.get(row.owner_participant_id) ?? 0) + 1,
+    );
+  }
+
+  const penaltyRows = penaltyRowsRes.data ?? [];
+  const disqualifiedParticipantIds = new Set(
+    penaltyRows.filter((r) => r.status === "disqualified").map((r) => r.participant_id),
+  );
+  const activePenaltyRows = penaltyRows.filter(
+    (r) => r.status === "pending" || r.status === "flagged_for_review",
+  );
+
+  const pendingByParticipant = new Map<string, PendingPenaltySummary[]>();
+  if (activePenaltyRows.length > 0) {
+    const { data: mangoDetails } = await supabase
+      .from("mangos")
+      .select("id, champion_assigned, sent_by_participant_id")
+      .in(
+        "id",
+        activePenaltyRows.map((r) => r.mango_id),
+      );
+    const mangoById = new Map((mangoDetails ?? []).map((m) => [m.id, m]));
+    // Ya tenemos a TODOS los participantes cargados arriba — alcanza para
+    // resolver el nombre del remitente, no hace falta una query aparte.
+    const nameById = new Map(participants.map((p) => [p.id, p.nombre_display]));
+
+    let champions: Champion[] = [];
+    try {
+      champions = await getChampionList();
+    } catch {
+      // Sin campeones se cae al id crudo dentro de resolveAssignedPunishment.
+    }
+    const championById = new Map(champions.map((c) => [c.id, c]));
+
+    for (const row of activePenaltyRows) {
+      const mango = mangoById.get(row.mango_id);
+      const resolved = resolveAssignedPunishment(mango?.champion_assigned ?? null, championById);
+      const senderName =
+        (mango?.sent_by_participant_id && nameById.get(mango.sent_by_participant_id)) || "Alguien";
+      const list = pendingByParticipant.get(row.participant_id) ?? [];
+      list.push({
+        id: row.id,
+        championName: resolved.name,
+        championIconUrl: resolved.iconUrl,
+        senderName,
+      });
+      pendingByParticipant.set(row.participant_id, list);
+    }
+  }
+
   const entries: Omit<LeaderboardEntry, "rank">[] = [];
 
   for (const participant of participants) {
@@ -138,7 +234,16 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
       .slice(-MAX_TREND_GAMES)
       .reduce<number[]>((acc, delta) => [...acc, acc[acc.length - 1] + delta], [0]);
 
-    entries.push({ participant, latest, lpGained, lpLost, trend });
+    entries.push({
+      participant,
+      latest,
+      lpGained,
+      lpLost,
+      trend,
+      pendingPenalties: pendingByParticipant.get(participant.id) ?? [],
+      mangoCount: mangoCountByParticipant.get(participant.id) ?? 0,
+      isDisqualified: disqualifiedParticipantIds.has(participant.id),
+    });
   }
 
   entries.sort((a, b) => b.latest.elo_score - a.latest.elo_score);

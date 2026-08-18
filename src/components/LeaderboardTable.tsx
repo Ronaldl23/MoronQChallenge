@@ -4,8 +4,11 @@ import { Fragment, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import type { LeaderboardEntry } from "@/lib/leaderboard";
 import { ROLE_TO_LANE_SLUG } from "@/lib/lane";
+import { DisqualifiedBadge } from "./DisqualifiedBadge";
+import { MangoCountBadge } from "./MangoCountBadge";
 import { MatchHistory } from "./MatchHistory";
 import { OpggButton } from "./OpggButton";
+import { PenaltyIndicator } from "./PenaltyIndicator";
 import { PositionIcon } from "./PositionIcon";
 import { ProfileIcon } from "./ProfileIcon";
 import { TierBadge } from "./TierBadge";
@@ -67,15 +70,20 @@ export function LeaderboardTable({
                   aria-expanded={isExpanded}
                   className="flex w-full items-center gap-3 text-left"
                 >
-                  <ProfileIcon
-                    name={entry.participant.nombre_display}
-                    avatarUrl={entry.participant.avatar_url}
-                    profileIconId={entry.participant.profile_icon_id}
-                    ddragonVersion={ddragonVersion}
-                    size={32}
-                  />
+                  <div className="relative shrink-0">
+                    <ProfileIcon
+                      name={entry.participant.nombre_display}
+                      avatarUrl={entry.participant.avatar_url}
+                      profileIconId={entry.participant.profile_icon_id}
+                      ddragonVersion={ddragonVersion}
+                      size={32}
+                    />
+                    {entry.isDisqualified && <DisqualifiedBadge />}
+                  </div>
                   <div className="min-w-0">
-                    <p className="flex items-center gap-1.5 truncate text-[15px] font-bold text-text-primary">
+                    <p
+                      className={`flex items-center gap-1.5 truncate text-[15px] font-bold ${entry.isDisqualified ? "text-text-muted" : "text-text-primary"}`}
+                    >
                       {entry.participant.nombre_display}
                       {entry.participant.main_role && (
                         <PositionIcon
@@ -142,6 +150,8 @@ export function LeaderboardTable({
                     <span className="text-win">▲ {entry.lpGained}</span>
                     <span className="text-loss">▼ {entry.lpLost}</span>
                   </div>
+                  <PenaltyIndicator penalties={entry.pendingPenalties} />
+                  <MangoCountBadge count={entry.mangoCount} />
                   <OpggButton
                     opggUrl={entry.participant.opgg_url}
                     inGame={entry.participant.in_game}

@@ -1,0 +1,25 @@
+import type { PendingPenaltySummary } from "@/lib/leaderboard";
+
+/**
+ * Ícono "Castigos" del leaderboard (Fase 5) — visible solo si hay al menos
+ * un castigo pendiente o en revisión. El detalle (campeón/Support + quién
+ * lo envió) va en el `title` nativo del navegador, mismo patrón de tooltip
+ * que ya usa el resto del sitio (ver MatchHistory/LastUpdated) — no hay un
+ * componente de tooltip custom en este código.
+ */
+export function PenaltyIndicator({ penalties }: { penalties: PendingPenaltySummary[] }) {
+  if (penalties.length === 0) return null;
+
+  const title = penalties.map((p) => `${p.senderName} le envió: ${p.championName}`).join("\n");
+
+  return (
+    <span
+      title={title}
+      className="inline-flex shrink-0 items-center"
+      aria-label={`${penalties.length} ${penalties.length === 1 ? "castigo pendiente" : "castigos pendientes"}`}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element -- asset local */}
+      <img src="/Peligro.png" alt="" className="h-5 w-5 object-contain" />
+    </span>
+  );
+}
