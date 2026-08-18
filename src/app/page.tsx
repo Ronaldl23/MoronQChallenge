@@ -1,5 +1,13 @@
 import { getLeaderboard } from "@/lib/leaderboard";
 import { getDataDragonVersion } from "@/lib/ddragon";
+
+/**
+ * El uso de cookies() (vía el cliente de Supabase) ya vuelve esta página
+ * dinámica implícitamente, pero se declara explícito — igual que en
+ * todas las rutas /api de este proyecto — para no depender de detección
+ * implícita si el código de arriba cambia algún día.
+ */
+export const dynamic = "force-dynamic";
 import { Header } from "@/components/Header";
 import { FixedLogo } from "@/components/FixedLogo";
 import { AutoRefresh } from "@/components/AutoRefresh";
