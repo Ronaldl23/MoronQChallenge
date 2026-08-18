@@ -14,7 +14,7 @@ export default function ReglasPage() {
     <div className="flex min-h-screen flex-col">
       <FixedLogo />
       <Header />
-      <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-6 pt-44 pb-10">
+      <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-6 pt-6 pb-10 sm:pt-44">
         <h1 className="font-display text-3xl font-bold tracking-tight text-text-primary">
           Reglas
         </h1>

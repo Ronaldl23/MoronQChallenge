@@ -10,7 +10,14 @@ export function FixedLogo() {
     <Link
       href="/"
       aria-label="MoronQChallenge — Inicio"
-      className="fixed top-2 left-0 z-50 sm:left-[100px]"
+      /*
+       * En mobile el logo va en flujo normal (NO fixed): a 200px de alto
+       * flotando fijo sobre el scroll, tapaba filas de la tabla al bajar
+       * (nada lo empujaba, se quedaba plantado en top:8px del viewport
+       * pase lo que pase). En sm+ sigue fixed, sin tocar nada del diseño
+       * de desktop.
+       */
+      className="relative z-50 block w-fit sm:fixed sm:top-2 sm:left-[100px]"
     >
       <Logo hasLogo={hasLogo} />
     </Link>
