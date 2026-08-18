@@ -6,10 +6,9 @@ import { usePathname } from "next/navigation";
 const LINKS = [
   { href: "/", label: "Ranking" },
   { href: "/reglas", label: "Reglas" },
-  { href: "/jugador", label: "Login" },
 ];
 
-export function NavLinks() {
+export function NavLinks({ isPlayerLoggedIn }: { isPlayerLoggedIn: boolean }) {
   const pathname = usePathname();
 
   return (
@@ -30,6 +29,19 @@ export function NavLinks() {
           </Link>
         );
       })}
+      {/* /jugador ya muestra el contenido correcto según la sesión (login o
+          inventario) — acá solo cambia el texto para que el botón adelante
+          qué te vas a encontrar al clickearlo. */}
+      <Link
+        href="/jugador"
+        className={
+          pathname === "/jugador"
+            ? "text-gold"
+            : "text-text-secondary transition-colors hover:text-text-primary"
+        }
+      >
+        {isPlayerLoggedIn ? "Inventario" : "Login"}
+      </Link>
     </nav>
   );
 }

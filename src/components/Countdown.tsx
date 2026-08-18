@@ -22,18 +22,21 @@ function getRemaining(target: number): Remaining {
   };
 }
 
-export function Countdown({ endDate }: { endDate: string }) {
+export function Countdown({ targetDate }: { targetDate: string }) {
   // Empieza en null en server y cliente por igual, y solo calcula la hora
   // real dentro de useEffect — evita un mismatch de hidratación por reloj.
   const [remaining, setRemaining] = useState<Remaining | null>(null);
 
   useEffect(() => {
-    const target = new Date(endDate).getTime();
+    // new Date() de un ISO con sufijo "Z" siempre se interpreta como UTC —
+    // Date.now() también es UTC internamente, así que la resta no depende
+    // de la zona horaria del navegador.
+    const target = new Date(targetDate).getTime();
     // El primer tick llega al segundo — evita un setState síncrono dentro
     // del efecto (y de paso no compite con el valor que ya viene del SSR).
     const id = setInterval(() => setRemaining(getRemaining(target)), 1000);
     return () => clearInterval(id);
-  }, [endDate]);
+  }, [targetDate]);
 
   if (!remaining) {
     return <div className="h-5 w-56 rounded bg-surface" />;
@@ -41,8 +44,8 @@ export function Countdown({ endDate }: { endDate: string }) {
 
   if (remaining.ended) {
     return (
-      <span className="font-display text-sm font-semibold text-pink">
-        El torneo terminó
+      <span className="font-display text-sm font-semibold text-win">
+        ¡El torneo ya empezó!
       </span>
     );
   }
@@ -50,7 +53,7 @@ export function Countdown({ endDate }: { endDate: string }) {
   return (
     <div className="flex items-center gap-2 font-display text-sm tracking-wide">
       <span className="hidden text-text-secondary sm:inline">
-        EL TORNEO TERMINA EN
+        EL TORNEO EMPIEZA EN
       </span>
       <div className="flex items-center gap-1 font-semibold">
         <TimeUnit value={remaining.days} label="d" />
