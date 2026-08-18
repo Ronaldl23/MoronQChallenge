@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getChampionList, type Champion } from "@/lib/champions";
 import { DAILY_RECEIVE_LIMIT, hoursAgoIso, resolveAssignedPunishment } from "@/lib/mango-launch";
 import { QUEST_TARGETS } from "@/lib/quests";
+import { PENALTY_GAME_LIMIT } from "@/lib/penalty";
 import { Header } from "@/components/Header";
 import { FixedLogo } from "@/components/FixedLogo";
 import { PlayerLoginForm } from "./PlayerLoginForm";
@@ -47,15 +48,17 @@ export default async function JugadorPage() {
         .select("quest_type, current_progress, target")
         .eq("participant_id", participantId),
       supabase.from("participants").select("id, nombre_display").neq("id", participantId),
-      // "Pendiente" = no descalificado — la Fase 4 (detectar si cumplió el
-      // castigo) todavía no existe, así que por ahora TODO lo no descalificado
-      // cuenta como pendiente. No tiene relación con `seen` (esto es para el
-      // banner, no para las notificaciones).
+      // Solo status='pending': todavía dentro de las 3 partidas para
+      // cumplirlo (Fase 4). 'flagged_for_review'/'disqualified'/'pardoned'
+      // ya salieron de la ventana de cumplimiento (avisados por toast en su
+      // momento, no por este banner) y 'completed' ya no es un pendiente.
+      // No tiene relación con `seen` (esto es para el banner, no para las
+      // notificaciones).
       supabase
         .from("penalty_progress")
-        .select("id, mango_id")
+        .select("id, mango_id, games_without_compliance")
         .eq("participant_id", participantId)
-        .eq("disqualified", false)
+        .eq("status", "pending")
         .order("created_at", { ascending: false }),
     ]);
 
@@ -120,7 +123,12 @@ export default async function JugadorPage() {
   const championById = new Map(champions.map((c) => [c.id, c]));
 
   const pendingPenalties = pendingPenaltiesResult.data ?? [];
-  let pendingPunishments: { name: string; iconUrl: string | null; senderName: string }[] = [];
+  let pendingPunishments: {
+    name: string;
+    iconUrl: string | null;
+    senderName: string;
+    gamesWithoutCompliance: number;
+  }[] = [];
   if (pendingPenalties.length > 0) {
     const { data: pendingMangos } = await supabase
       .from("mangos")
@@ -145,7 +153,7 @@ export default async function JugadorPage() {
       const senderName =
         (mango?.sent_by_participant_id && senderNameById.get(mango.sent_by_participant_id)) ||
         "Alguien";
-      return { ...resolved, senderName };
+      return { ...resolved, senderName, gamesWithoutCompliance: p.games_without_compliance };
     });
   }
 
@@ -158,21 +166,27 @@ export default async function JugadorPage() {
             {pendingPunishments.length === 1 ? "castigo pendiente" : "castigos pendientes"} por
             cumplir
           </p>
-          <ul className="flex flex-wrap gap-2">
+          <ul className="flex flex-col gap-2">
             {pendingPunishments.map((punishment, i) => (
               <li
                 key={`${punishment.name}-${i}`}
-                className="flex items-center gap-2 rounded-full border border-loss/40 bg-bg-elevated py-1 pr-3 pl-1 text-sm font-medium text-text-primary"
+                className="flex items-center gap-3 rounded-xl border border-loss/40 bg-bg-elevated px-3 py-2 text-sm font-medium text-text-primary"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element -- CDN externo (Data Dragon / Community Dragon) */}
                 <img
                   src={punishment.iconUrl ?? "/MangoAngry.png"}
                   alt=""
-                  className="h-6 w-6 shrink-0 rounded-full object-cover"
+                  className="h-8 w-8 shrink-0 rounded-full object-cover"
                 />
-                <span>
-                  <span className="text-text-secondary">{punishment.senderName} te envió:</span>{" "}
-                  {punishment.name}
+                <span className="flex flex-col">
+                  <span>
+                    <span className="text-text-secondary">{punishment.senderName} te envió:</span>{" "}
+                    {punishment.name}
+                  </span>
+                  <span className="text-xs text-text-muted">
+                    Llevas {punishment.gamesWithoutCompliance} de {PENALTY_GAME_LIMIT} partidas sin
+                    cumplir este castigo
+                  </span>
                 </span>
               </li>
             ))}

@@ -9,6 +9,7 @@ import {
   QUEST_TYPES,
   type MatchOutcome,
 } from "@/lib/quests";
+import { processPenaltyMatches, type PenaltyMatchOutcome, type PendingPenalty } from "@/lib/penalty";
 import { platformToContinent } from "@/lib/riot";
 import type { Database, QuestProgress, QuestType, RankDivision, RankTier } from "@/types/database";
 
@@ -98,10 +99,18 @@ interface RiotMatchParticipant {
   kills: number;
   deaths: number;
   assists: number;
+  /** Id de campeón (Data Dragon, ej. "Ahri") — para el chequeo de cumplimiento de castigos (Fase 4). */
+  championName: string;
+  /** "TOP" | "JUNGLE" | "MIDDLE" | "BOTTOM" | "UTILITY" — ídem, para el castigo "Support". */
+  teamPosition: string;
 }
 
 interface RiotMatchDetail {
-  info: { participants: RiotMatchParticipant[] };
+  info: {
+    participants: RiotMatchParticipant[];
+    /** Epoch ms — para no contar contra un castigo partidas jugadas antes de que se asignara (Fase 4). */
+    gameEndTimestamp: number;
+  };
 }
 
 async function getOrCreateQuestProgress(
@@ -214,6 +223,9 @@ async function processParticipantQuests({
   if (newMatchIds.length === 0) return;
 
   const outcomes: MatchOutcome[] = [];
+  // Misma partida, mismo fetch — Fase 4 (cumplimiento de castigos) reusa
+  // esto en vez de pedirle a Riot el detalle de las mismas partidas de nuevo.
+  const penaltyMatches: PenaltyMatchOutcome[] = [];
   for (const matchId of newMatchIds) {
     const matchRes = await riotFetch(
       `https://${continent}.api.riotgames.com/lol/match/v5/matches/${matchId}`,
@@ -238,9 +250,17 @@ async function processParticipantQuests({
       kda: calculateKda({ kills: mp.kills, deaths: mp.deaths, assists: mp.assists }),
       deaths: mp.deaths,
     });
+    penaltyMatches.push({
+      matchId,
+      playedAt: new Date(match.info.gameEndTimestamp).toISOString(),
+      championPlayed: mp.championName,
+      teamPosition: mp.teamPosition,
+    });
   }
 
   if (outcomes.length === 0) return;
+
+  await processParticipantPenalties({ supabase, participantId: participant.id, penaltyMatches });
 
   const mangoCount = await countMangoInventory(supabase, participant.id);
 
@@ -279,6 +299,79 @@ async function processParticipantQuests({
     );
     if (mangoInsertError) throw mangoInsertError;
   }
+}
+
+/**
+ * Fase 4: cumplimiento de castigos. Revisa TODOS los penalty_progress en
+ * estado 'pending' de este participante contra las mismas partidas ranked
+ * nuevas que ya bajó processParticipantQuests (ver comentario en el loop de
+ * arriba) — cada partida cuenta simultáneamente para todos los castigos
+ * pendientes, así que una sola corrida puede completar más de uno a la vez.
+ * Llamado desde adentro del mismo try/catch que envuelve
+ * processParticipantQuests: un error acá tampoco debe afectar al resto de
+ * la actualización.
+ */
+async function processParticipantPenalties({
+  supabase,
+  participantId,
+  penaltyMatches,
+}: {
+  supabase: SupabaseClient<Database>;
+  participantId: string;
+  penaltyMatches: PenaltyMatchOutcome[];
+}): Promise<void> {
+  const { data: pendingRows, error: pendingError } = await supabase
+    .from("penalty_progress")
+    .select("id, mango_id, games_without_compliance, created_at")
+    .eq("participant_id", participantId)
+    .eq("status", "pending");
+  if (pendingError) throw pendingError;
+  if (!pendingRows || pendingRows.length === 0) return;
+
+  const { data: mangoRows, error: mangoError } = await supabase
+    .from("mangos")
+    .select("id, champion_assigned")
+    .in(
+      "id",
+      pendingRows.map((row) => row.mango_id),
+    );
+  if (mangoError) throw mangoError;
+  const championAssignedByMangoId = new Map((mangoRows ?? []).map((m) => [m.id, m.champion_assigned]));
+
+  const penalties: PendingPenalty[] = pendingRows.flatMap((row) => {
+    const championAssigned = championAssignedByMangoId.get(row.mango_id);
+    // No debería pasar para un mango con status='sent' (siempre se le asigna
+    // un castigo al lanzarlo), pero sin campeón/rol asignado no hay nada
+    // que evaluar — se salta en vez de romper el resto de la corrida.
+    if (!championAssigned) return [];
+    return [
+      {
+        id: row.id,
+        championAssigned,
+        gamesWithoutCompliance: row.games_without_compliance,
+        // Normalizado a ISO completo (mismo formato que playedAt abajo) para
+        // que la comparación lexicográfica en processPenaltyMatches sea
+        // válida — timestamptz de Supabase no siempre viene en ese formato.
+        createdAt: new Date(row.created_at).toISOString(),
+      },
+    ];
+  });
+  if (penalties.length === 0) return;
+
+  const updates = processPenaltyMatches({ penalties, matches: penaltyMatches });
+
+  await Promise.all(
+    updates.map((update) =>
+      supabase
+        .from("penalty_progress")
+        .update({
+          games_without_compliance: update.gamesWithoutCompliance,
+          status: update.status,
+          completed: update.status === "completed",
+        })
+        .eq("id", update.id),
+    ),
+  );
 }
 
 function isAuthorized(request: Request): boolean {

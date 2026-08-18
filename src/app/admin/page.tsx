@@ -1,6 +1,7 @@
 import { isAdminAuthenticated } from "@/lib/admin-auth";
 import { AdminLoginForm } from "./AdminLoginForm";
 import { AddParticipantForm } from "./AddParticipantForm";
+import { PenaltyReviewPanel } from "./PenaltyReviewPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +10,7 @@ export default async function AdminPage() {
 
   return (
     <div className="min-h-screen bg-zinc-50 px-6 py-16 font-sans dark:bg-black">
-      <main className="mx-auto flex w-full max-w-md flex-col gap-8">
+      <main className={`mx-auto flex w-full flex-col gap-8 ${authenticated ? "max-w-2xl" : "max-w-md"}`}>
         <header>
           <h1 className="text-2xl font-semibold tracking-tight text-black dark:text-zinc-50">
             Admin — MoronQChallenge
@@ -22,6 +23,7 @@ export default async function AdminPage() {
         </header>
 
         {authenticated ? <AddParticipantForm /> : <AdminLoginForm />}
+        {authenticated && <PenaltyReviewPanel />}
       </main>
     </div>
   );

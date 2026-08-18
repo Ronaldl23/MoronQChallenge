@@ -67,15 +67,23 @@ export type QuestProgress = {
   updated_at: string;
 };
 
+export type PenaltyStatus = "pending" | "completed" | "flagged_for_review" | "disqualified" | "pardoned";
+
 export type PenaltyProgress = {
   id: string;
   participant_id: string;
   mango_id: string;
   games_without_compliance: number;
+  /** @deprecated Nunca se escribe en código nuevo — `status` es la fuente de verdad desde la Fase 4. Queda en la tabla por compatibilidad. */
   disqualified: boolean;
   created_at: string;
   /** Si el jugador ya vio el toast de "te llegó un Mango" para este castigo — no tiene relación con si lo cumplió. */
   seen: boolean;
+  status: PenaltyStatus;
+  /** true una vez que status pasó a 'completed' (se mantiene true, es terminal). */
+  completed: boolean;
+  /** Igual que `seen` pero para el aviso de "no cumpliste a tiempo, está en revisión" — evento separado, con su propio flag de "ya se lo mostré". */
+  flagged_seen: boolean;
 };
 
 export type Snapshot = {
@@ -183,13 +191,23 @@ export type Database = {
         Row: PenaltyProgress;
         Insert: Omit<
           PenaltyProgress,
-          "id" | "created_at" | "games_without_compliance" | "disqualified" | "seen"
+          | "id"
+          | "created_at"
+          | "games_without_compliance"
+          | "disqualified"
+          | "seen"
+          | "status"
+          | "completed"
+          | "flagged_seen"
         > & {
           id?: string;
           created_at?: string;
           games_without_compliance?: number;
           disqualified?: boolean;
           seen?: boolean;
+          status?: PenaltyStatus;
+          completed?: boolean;
+          flagged_seen?: boolean;
         };
         Update: Partial<Omit<PenaltyProgress, "id">>;
         Relationships: [

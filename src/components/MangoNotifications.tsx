@@ -16,12 +16,17 @@ const TOAST_AUTO_DISMISS_MS = 8_000;
  * había alguna notificación sin ver esperando, se muestra apenas carga la
  * página, no hace falta esperar al primer tick.
  */
+/** penalty_progress.id no alcanza como key: el mismo id puede representar DOS notificaciones distintas (received + flagged_for_review) si el jugador nunca vio la primera antes de que el castigo pasara a revisión. */
+function toastKey(n: MangoNotification): string {
+  return `${n.kind}:${n.id}`;
+}
+
 export function MangoNotifications() {
   const router = useRouter();
   const [toasts, setToasts] = useState<MangoNotification[]>([]);
-  // Ids ya encolados en ESTA carga de página, para no duplicar un toast si
+  // Keys ya encoladas en ESTA carga de página, para no duplicar un toast si
   // dos polls se pisan antes de que el ack termine de confirmarse.
-  const queuedIds = useRef<Set<string>>(new Set());
+  const queuedKeys = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     let cancelled = false;
@@ -32,10 +37,10 @@ export function MangoNotifications() {
 
       const body = await res.json().catch(() => null);
       const notifications = (body?.notifications ?? []) as MangoNotification[];
-      const fresh = notifications.filter((n) => !queuedIds.current.has(n.id));
+      const fresh = notifications.filter((n) => !queuedKeys.current.has(toastKey(n)));
       if (fresh.length === 0) return;
 
-      fresh.forEach((n) => queuedIds.current.add(n.id));
+      fresh.forEach((n) => queuedKeys.current.add(toastKey(n)));
       setToasts((prev) => [...prev, ...fresh]);
 
       new Audio("/TomaMango.mp3").play().catch(() => {});
@@ -43,6 +48,9 @@ export function MangoNotifications() {
       const ackRes = await fetch("/api/jugador/notifications/ack", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        // Puede haber ids repetidos acá (un mismo penalty_progress.id con
+        // dos kinds distintos) — el endpoint ya marca ambos flags a la vez,
+        // así que un id de más en la lista es inofensivo.
         body: JSON.stringify({ ids: fresh.map((n) => n.id) }),
       }).catch(() => null);
 
@@ -67,15 +75,15 @@ export function MangoNotifications() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function dismiss(id: string) {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
+  function dismiss(key: string) {
+    setToasts((prev) => prev.filter((t) => toastKey(t) !== key));
   }
 
   return (
     <div className="pointer-events-none fixed top-4 right-4 z-[60] flex flex-col gap-2">
       <AnimatePresence>
         {toasts.map((toast) => (
-          <MangoToast key={toast.id} notification={toast} onDismiss={() => dismiss(toast.id)} />
+          <MangoToast key={toastKey(toast)} notification={toast} onDismiss={() => dismiss(toastKey(toast))} />
         ))}
       </AnimatePresence>
     </div>
@@ -95,6 +103,8 @@ function MangoToast({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const isFlagged = notification.kind === "flagged_for_review";
+
   return (
     <motion.div
       layout
@@ -102,19 +112,34 @@ function MangoToast({
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: 40 }}
       transition={{ duration: 0.25, ease: "easeOut" }}
-      className="pointer-events-auto flex w-80 items-center gap-3 rounded-2xl border border-loss/50 bg-surface p-4 shadow-[0_0_40px_-12px_var(--loss)]"
+      className={`pointer-events-auto flex w-80 items-center gap-3 rounded-2xl border bg-surface p-4 ${
+        isFlagged
+          ? "border-gold/50 shadow-[0_0_40px_-12px_var(--gold)]"
+          : "border-loss/50 shadow-[0_0_40px_-12px_var(--loss)]"
+      }`}
     >
-      {/* eslint-disable-next-line @next/next/no-img-element -- asset local */}
+      {/* eslint-disable-next-line @next/next/no-img-element -- asset local o CDN externo (Data Dragon / Community Dragon) */}
       <img
         src={notification.championIconUrl ?? "/MangoAngry.png"}
         alt=""
         className="h-12 w-12 shrink-0 rounded-lg object-cover"
       />
       <div className="min-w-0 flex-1">
-        <p className="font-display text-sm font-bold text-loss">¡Te llegó un Mango!</p>
-        <p className="truncate text-sm text-text-primary">
-          <strong>{notification.senderName}</strong> te envió: <strong>{notification.championName}</strong>
-        </p>
+        {isFlagged ? (
+          <>
+            <p className="font-display text-sm font-bold text-gold">No cumpliste a tiempo</p>
+            <p className="truncate text-sm text-text-primary">
+              <strong>{notification.championName}</strong> quedó pendiente de revisión.
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="font-display text-sm font-bold text-loss">¡Te llegó un Mango!</p>
+            <p className="truncate text-sm text-text-primary">
+              <strong>{notification.senderName}</strong> te envió: <strong>{notification.championName}</strong>
+            </p>
+          </>
+        )}
       </div>
       <button
         type="button"
