@@ -10,6 +10,7 @@ export interface MangoNotification {
   id: string;
   championName: string;
   championIconUrl: string | null;
+  senderName: string;
 }
 
 /**
@@ -42,12 +43,18 @@ export async function GET() {
 
   const { data: mangos } = await supabase
     .from("mangos")
-    .select("id, champion_assigned")
+    .select("id, champion_assigned, sent_by_participant_id")
     .in(
       "id",
       pending.map((p) => p.mango_id),
     );
-  const championIdByMangoId = new Map((mangos ?? []).map((m) => [m.id, m.champion_assigned]));
+  const mangoById = new Map((mangos ?? []).map((m) => [m.id, m]));
+
+  const senderIds = [...new Set((mangos ?? []).map((m) => m.sent_by_participant_id).filter((id) => id !== null))];
+  const { data: senders } = senderIds.length
+    ? await supabase.from("participants").select("id, nombre_display").in("id", senderIds)
+    : { data: [] };
+  const senderNameById = new Map((senders ?? []).map((s) => [s.id, s.nombre_display]));
 
   let champions: Champion[] = [];
   try {
@@ -58,12 +65,16 @@ export async function GET() {
   const championById = new Map(champions.map((c) => [c.id, c]));
 
   const notifications: MangoNotification[] = pending.map((p) => {
-    const championId = championIdByMangoId.get(p.mango_id) ?? null;
-    const resolved = resolveAssignedPunishment(championId, championById);
+    const mango = mangoById.get(p.mango_id);
+    const resolved = resolveAssignedPunishment(mango?.champion_assigned ?? null, championById);
+    const senderName =
+      (mango?.sent_by_participant_id && senderNameById.get(mango.sent_by_participant_id)) ||
+      "Alguien";
     return {
       id: p.id,
       championName: resolved.name,
       championIconUrl: resolved.iconUrl,
+      senderName,
     };
   });
 

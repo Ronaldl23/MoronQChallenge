@@ -113,7 +113,7 @@ function MangoToast({
       <div className="min-w-0 flex-1">
         <p className="font-display text-sm font-bold text-loss">¡Te llegó un Mango!</p>
         <p className="truncate text-sm text-text-primary">
-          Te toca: <strong>{notification.championName}</strong>
+          <strong>{notification.senderName}</strong> te envió: <strong>{notification.championName}</strong>
         </p>
       </div>
       <button

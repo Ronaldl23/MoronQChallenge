@@ -120,19 +120,33 @@ export default async function JugadorPage() {
   const championById = new Map(champions.map((c) => [c.id, c]));
 
   const pendingPenalties = pendingPenaltiesResult.data ?? [];
-  let pendingPunishments: { name: string; iconUrl: string | null }[] = [];
+  let pendingPunishments: { name: string; iconUrl: string | null; senderName: string }[] = [];
   if (pendingPenalties.length > 0) {
     const { data: pendingMangos } = await supabase
       .from("mangos")
-      .select("id, champion_assigned")
+      .select("id, champion_assigned, sent_by_participant_id")
       .in(
         "id",
         pendingPenalties.map((p) => p.mango_id),
       );
-    const championIdByMangoId = new Map((pendingMangos ?? []).map((m) => [m.id, m.champion_assigned]));
-    pendingPunishments = pendingPenalties.map((p) =>
-      resolveAssignedPunishment(championIdByMangoId.get(p.mango_id) ?? null, championById),
-    );
+    const mangoById = new Map((pendingMangos ?? []).map((m) => [m.id, m]));
+
+    const senderIds = [
+      ...new Set((pendingMangos ?? []).map((m) => m.sent_by_participant_id).filter((id) => id !== null)),
+    ];
+    const { data: senders } = senderIds.length
+      ? await supabase.from("participants").select("id, nombre_display").in("id", senderIds)
+      : { data: [] };
+    const senderNameById = new Map((senders ?? []).map((s) => [s.id, s.nombre_display]));
+
+    pendingPunishments = pendingPenalties.map((p) => {
+      const mango = mangoById.get(p.mango_id);
+      const resolved = resolveAssignedPunishment(mango?.champion_assigned ?? null, championById);
+      const senderName =
+        (mango?.sent_by_participant_id && senderNameById.get(mango.sent_by_participant_id)) ||
+        "Alguien";
+      return { ...resolved, senderName };
+    });
   }
 
   return (
@@ -156,7 +170,10 @@ export default async function JugadorPage() {
                   alt=""
                   className="h-6 w-6 shrink-0 rounded-full object-cover"
                 />
-                {punishment.name}
+                <span>
+                  <span className="text-text-secondary">{punishment.senderName} te envió:</span>{" "}
+                  {punishment.name}
+                </span>
               </li>
             ))}
           </ul>
