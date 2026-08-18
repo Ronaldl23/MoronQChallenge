@@ -58,24 +58,42 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
     Date.now() - TREND_WINDOW_DAYS * 24 * 60 * 60 * 1000,
   ).toISOString();
 
-  const { data: snapshots, error: snapshotsError } = await supabase
-    .from("snapshots")
-    .select("*")
-    .in(
-      "participant_id",
-      participants.map((p) => p.id),
-    )
-    .gte("created_at", windowStart)
-    .order("created_at", { ascending: true });
+  /**
+   * PostgREST corta cada response en 1000 filas por default (db-max-rows).
+   * Con 20 participantes y el cron corriendo cada 15min, una ventana de 7
+   * días junta bastante más que eso — un .select() sin paginar se queda
+   * truncado en las primeras 1000 filas por created_at ascendente, es decir
+   * las MÁS VIEJAS, cortando justo los snapshots recientes de quien se haya
+   * sumado hace poco (pocas filas propias, todas cerca del final de la
+   * ventana) y dejándolo afuera del leaderboard sin ningún error visible.
+   * Se pagina explícitamente con .range() hasta agotar los resultados.
+   */
+  const PAGE_SIZE = 1000;
+  const snapshots: Snapshot[] = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data: page, error: snapshotsError } = await supabase
+      .from("snapshots")
+      .select("*")
+      .in(
+        "participant_id",
+        participants.map((p) => p.id),
+      )
+      .gte("created_at", windowStart)
+      .order("created_at", { ascending: true })
+      .range(from, from + PAGE_SIZE - 1);
 
-  if (snapshotsError) {
-    console.error("Failed to load snapshots:", snapshotsError.message);
-    return { entries: [], lastUpdated: null };
+    if (snapshotsError) {
+      console.error("Failed to load snapshots:", snapshotsError.message);
+      return { entries: [], lastUpdated: null };
+    }
+
+    snapshots.push(...(page ?? []));
+    if (!page || page.length < PAGE_SIZE) break;
   }
 
   const historyByParticipant = new Map<string, Snapshot[]>();
   let lastUpdated: string | null = null;
-  for (const snapshot of snapshots ?? []) {
+  for (const snapshot of snapshots) {
     const history = historyByParticipant.get(snapshot.participant_id) ?? [];
     history.push(snapshot);
     historyByParticipant.set(snapshot.participant_id, history);

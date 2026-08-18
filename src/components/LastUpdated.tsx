@@ -25,7 +25,13 @@ export function LastUpdated({ iso }: { iso: string | null }) {
   if (!iso || !label) return null;
 
   return (
-    <span className="inline-flex shrink-0 items-center gap-2 rounded-full border border-border-hairline bg-surface px-3 py-1.5 text-xs font-medium text-text-secondary">
+    // title = ISO crudo que llegó del servidor, para diagnosticar sin DevTools
+    // (hover en desktop). TEMPORAL mientras se investiga el reporte de
+    // timestamp desactualizado — sacar una vez confirmado, ver AGENTS.md.
+    <span
+      title={`iso crudo: ${iso}`}
+      className="inline-flex shrink-0 items-center gap-2 rounded-full border border-border-hairline bg-surface px-3 py-1.5 text-xs font-medium text-text-secondary"
+    >
       <span className="relative flex h-2 w-2">
         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-win opacity-75" />
         <span className="relative inline-flex h-2 w-2 rounded-full bg-win" />

@@ -142,7 +142,22 @@ export async function POST(request: Request) {
         { status: 409 },
       );
     }
+    // Logueado para poder diagnosticar desde los Runtime Logs de Vercel —
+    // antes este error solo viajaba en la respuesta HTTP.
+    console.error("Insert de participante falló:", error.code, error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  if (!data) {
+    console.error(
+      "Insert de participante sin error pero sin fila devuelta (puuid:",
+      account.puuid,
+      ")",
+    );
+    return NextResponse.json(
+      { error: "El insert no devolvió el participante creado. Revisá si realmente se guardó." },
+      { status: 500 },
+    );
   }
 
   return NextResponse.json({ participant: data }, { status: 201 });
