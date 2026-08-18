@@ -23,15 +23,22 @@ export function LeaderboardTable({
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-border-hairline bg-surface">
-      <table className="w-full min-w-[720px] border-collapse text-sm">
+    <div className="min-w-0 overflow-x-auto rounded-2xl border border-border-hairline bg-surface">
+      {/*
+        Racha y ±LP se ocultan en mobile (hidden sm:table-cell): son las
+        columnas menos esenciales, y sacarlas de encima deja que #, Jugador,
+        Rango y V/D entren sin necesitar scroll horizontal. sm:min-w-[720px]
+        solo aplica el ancho mínimo denso en desktop; en mobile el ancho lo
+        define el contenido de las columnas visibles.
+      */}
+      <table className="w-full sm:min-w-[720px] border-collapse text-sm">
         <thead>
           <tr className="border-b border-border-hairline text-left text-xs tracking-wider text-text-secondary uppercase">
             <th className="px-4 py-3 font-medium">#</th>
             <th className="px-4 py-3 font-medium">Jugador</th>
             <th className="px-4 py-3 font-medium">Rango</th>
             <th className="px-4 py-3 font-medium">V / D</th>
-            <th className="px-4 py-3 font-medium">Racha</th>
+            <th className="hidden px-4 py-3 font-medium sm:table-cell">Racha</th>
             <th className="px-4 py-3 text-right font-medium">±LP</th>
           </tr>
         </thead>
@@ -94,9 +101,21 @@ export function LeaderboardTable({
                 </button>
               </td>
               <td className="px-4 py-3">
-                <div className="flex items-center gap-3">
-                  <TierEmblem tier={entry.latest.tier} size={80} />
-                  <TierBadge tier={entry.latest.tier} division={entry.latest.division} />
+                {/*
+                  Mobile: badge y LP apilados, sin el emblema de 80px (demasiado
+                  grande para 390px de ancho — es el que más empuja el overflow
+                  horizontal). sm:contents "desarma" este wrapper para que sus
+                  hijos vuelvan a ser hijos directos del flex de abajo, quedando
+                  desktop pixel a pixel igual que antes (emblema + badge + LP en
+                  una sola línea).
+                */}
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+                  <div className="flex items-center gap-2 sm:contents">
+                    <span className="hidden sm:inline-flex">
+                      <TierEmblem tier={entry.latest.tier} size={80} />
+                    </span>
+                    <TierBadge tier={entry.latest.tier} division={entry.latest.division} />
+                  </div>
                   <span className="font-display text-base font-bold text-text-primary">
                     {entry.latest.lp.toLocaleString("es")} LP
                   </span>
@@ -113,12 +132,13 @@ export function LeaderboardTable({
                   <WinrateBar wins={entry.latest.wins} losses={entry.latest.losses} />
                 </div>
               </td>
-              <td className="px-4 py-3">
+              <td className="hidden px-4 py-3 sm:table-cell">
                 <Sparkline points={entry.trend} id={entry.participant.id} />
               </td>
               <td className="px-4 py-3 text-right">
                 <div className="flex items-center justify-end gap-2">
-                  <div className="flex flex-col items-end gap-0.5 font-display text-xs font-semibold">
+                  {/* ▲▼LP se oculta en mobile: es un detalle secundario del V/D que ya se ve al lado; el botón de OP.GG (estado en vivo) se mantiene siempre visible. */}
+                  <div className="hidden flex-col items-end gap-0.5 font-display text-xs font-semibold sm:flex">
                     <span className="text-win">▲ {entry.lpGained}</span>
                     <span className="text-loss">▼ {entry.lpLost}</span>
                   </div>
