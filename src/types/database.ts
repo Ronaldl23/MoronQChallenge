@@ -127,10 +127,15 @@ export type Database = {
       };
       mangos: {
         Row: Mango;
-        Insert: Omit<Mango, "id" | "created_at" | "status"> & {
+        Insert: Omit<
+          Mango,
+          "id" | "created_at" | "status" | "sent_by_participant_id" | "champion_assigned"
+        > & {
           id?: string;
           created_at?: string;
           status?: MangoStatus;
+          sent_by_participant_id?: string | null;
+          champion_assigned?: string | null;
         };
         Update: Partial<Omit<Mango, "id">>;
         Relationships: [
@@ -152,10 +157,14 @@ export type Database = {
       };
       quest_progress: {
         Row: QuestProgress;
-        Insert: Omit<QuestProgress, "id" | "updated_at" | "current_progress"> & {
+        Insert: Omit<
+          QuestProgress,
+          "id" | "updated_at" | "current_progress" | "last_processed_match_id"
+        > & {
           id?: string;
           updated_at?: string;
           current_progress?: number;
+          last_processed_match_id?: string | null;
         };
         Update: Partial<Omit<QuestProgress, "id">>;
         Relationships: [
