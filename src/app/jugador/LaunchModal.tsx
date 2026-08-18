@@ -88,11 +88,12 @@ export function LaunchModal({
   function handleFirstSettle() {
     const pending = pendingRef.current;
     if (!pending) return;
-    setStep(
-      pending.bounced
-        ? { phase: "bounced-first-revealed", targetName: pending.targetName }
-        : { phase: "revealed-normal", champion: pending.champion, targetName: pending.targetName },
-    );
+    if (pending.bounced) {
+      new Audio("/RuletaFallo.mp3").play().catch(() => {});
+      setStep({ phase: "bounced-first-revealed", targetName: pending.targetName });
+    } else {
+      setStep({ phase: "revealed-normal", champion: pending.champion, targetName: pending.targetName });
+    }
   }
 
   function handleContinueAfterBounceReveal() {

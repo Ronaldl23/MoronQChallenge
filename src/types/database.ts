@@ -74,6 +74,8 @@ export type PenaltyProgress = {
   games_without_compliance: number;
   disqualified: boolean;
   created_at: string;
+  /** Si el jugador ya vio el toast de "te llegó un Mango" para este castigo — no tiene relación con si lo cumplió. */
+  seen: boolean;
 };
 
 export type Snapshot = {
@@ -181,12 +183,13 @@ export type Database = {
         Row: PenaltyProgress;
         Insert: Omit<
           PenaltyProgress,
-          "id" | "created_at" | "games_without_compliance" | "disqualified"
+          "id" | "created_at" | "games_without_compliance" | "disqualified" | "seen"
         > & {
           id?: string;
           created_at?: string;
           games_without_compliance?: number;
           disqualified?: boolean;
+          seen?: boolean;
         };
         Update: Partial<Omit<PenaltyProgress, "id">>;
         Relationships: [

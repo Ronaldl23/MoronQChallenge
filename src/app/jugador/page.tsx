@@ -7,6 +7,7 @@ import { Header } from "@/components/Header";
 import { FixedLogo } from "@/components/FixedLogo";
 import { PlayerLoginForm } from "./PlayerLoginForm";
 import { InventoryPanel } from "./InventoryPanel";
+import { MangoNotifications } from "./MangoNotifications";
 import type { LaunchTarget } from "./LaunchModal";
 
 export const dynamic = "force-dynamic";
@@ -33,20 +34,31 @@ export default async function JugadorPage() {
 
   const supabase = createAdminClient();
 
-  const [participantResult, mangosResult, questsResult, othersResult] = await Promise.all([
-    supabase.from("participants").select("nombre_display").eq("id", participantId).maybeSingle(),
-    supabase
-      .from("mangos")
-      .select("id")
-      .eq("owner_participant_id", participantId)
-      .eq("status", "in_inventory")
-      .order("created_at", { ascending: true }),
-    supabase
-      .from("quest_progress")
-      .select("quest_type, current_progress, target")
-      .eq("participant_id", participantId),
-    supabase.from("participants").select("id, nombre_display").neq("id", participantId),
-  ]);
+  const [participantResult, mangosResult, questsResult, othersResult, pendingPenaltiesResult] =
+    await Promise.all([
+      supabase.from("participants").select("nombre_display").eq("id", participantId).maybeSingle(),
+      supabase
+        .from("mangos")
+        .select("id")
+        .eq("owner_participant_id", participantId)
+        .eq("status", "in_inventory")
+        .order("created_at", { ascending: true }),
+      supabase
+        .from("quest_progress")
+        .select("quest_type, current_progress, target")
+        .eq("participant_id", participantId),
+      supabase.from("participants").select("id, nombre_display").neq("id", participantId),
+      // "Pendiente" = no descalificado — la Fase 4 (detectar si cumplió el
+      // castigo) todavía no existe, así que por ahora TODO lo no descalificado
+      // cuenta como pendiente. No tiene relación con `seen` (esto es para el
+      // banner, no para las notificaciones).
+      supabase
+        .from("penalty_progress")
+        .select("id, mango_id")
+        .eq("participant_id", participantId)
+        .eq("disqualified", false)
+        .order("created_at", { ascending: false }),
+    ]);
 
   const nombreDisplay = participantResult.data?.nombre_display ?? null;
 
@@ -102,9 +114,49 @@ export default async function JugadorPage() {
   } catch {
     // Se maneja en LaunchModal: sin campeones no se puede tirar la ruleta.
   }
+  const championById = new Map(champions.map((c) => [c.id, c]));
+
+  const pendingPenalties = pendingPenaltiesResult.data ?? [];
+  let pendingChampionNames: string[] = [];
+  if (pendingPenalties.length > 0) {
+    const { data: pendingMangos } = await supabase
+      .from("mangos")
+      .select("id, champion_assigned")
+      .in(
+        "id",
+        pendingPenalties.map((p) => p.mango_id),
+      );
+    const championIdByMangoId = new Map((pendingMangos ?? []).map((m) => [m.id, m.champion_assigned]));
+    pendingChampionNames = pendingPenalties.map((p) => {
+      const championId = championIdByMangoId.get(p.mango_id) ?? null;
+      return championId ? (championById.get(championId)?.name ?? championId) : "un campeón";
+    });
+  }
 
   return (
     <PageShell subtitle="Sesión iniciada.">
+      <MangoNotifications />
+
+      {pendingChampionNames.length > 0 && (
+        <section className="flex flex-col gap-2 rounded-2xl border border-loss/50 bg-surface p-6">
+          <p className="font-display text-base font-bold text-loss">
+            Tenés {pendingChampionNames.length}{" "}
+            {pendingChampionNames.length === 1 ? "castigo pendiente" : "castigos pendientes"} por
+            cumplir
+          </p>
+          <ul className="flex flex-wrap gap-2">
+            {pendingChampionNames.map((name, i) => (
+              <li
+                key={`${name}-${i}`}
+                className="rounded-full border border-loss/40 bg-bg-elevated px-3 py-1 text-sm font-medium text-text-primary"
+              >
+                {name}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <section className="flex flex-col gap-2 rounded-2xl border border-gold/40 bg-surface p-6 shadow-[0_0_50px_-20px_var(--gold)]">
         <p className="font-display text-2xl font-bold text-text-primary">Hola, {nombreDisplay}</p>
       </section>
