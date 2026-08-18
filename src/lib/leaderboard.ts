@@ -1,9 +1,12 @@
 import { createClient } from "@/lib/supabase/server";
 import type { Participant, Snapshot } from "@/types/database";
 
+/** login_code no viaja acá — el leaderboard público nunca lo selecciona (ver getLeaderboard). */
+type PublicParticipant = Omit<Participant, "login_code">;
+
 export interface LeaderboardEntry {
   rank: number;
-  participant: Participant;
+  participant: PublicParticipant;
   latest: Snapshot;
   /**
    * Suma de subidas del LP real entre snapshots consecutivos del MISMO
@@ -41,9 +44,15 @@ export interface Leaderboard {
 export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
   const supabase = await createClient();
 
+  // Columnas explícitas, sin login_code: esa columna le tiene el select
+  // revocado a anon/authenticated (ver 0005_mango_system_phase1.sql) — es
+  // el código personal de acceso a /jugador, no algo que el leaderboard
+  // público deba poder leer. select("*") rompería con un permission denied.
   const { data: participants, error: participantsError } = await supabase
     .from("participants")
-    .select("*");
+    .select(
+      "id, nombre_display, riot_game_name, riot_tag, puuid, region_platform, profile_icon_id, avatar_url, opgg_url, in_game, main_role",
+    );
 
   if (participantsError) {
     console.error("Failed to load participants:", participantsError.message);

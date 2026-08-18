@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isAdminAuthenticated } from "@/lib/admin-auth";
 import { buildOpggUrl } from "@/lib/opgg";
+import { generateLoginCode } from "@/lib/login-code";
 import { MAIN_ROLES, type MainRole } from "@/lib/lane";
 import {
   resolvePuuid,
@@ -9,6 +10,44 @@ import {
   RiotApiError,
   SUPPORTED_PLATFORMS,
 } from "@/lib/riot";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/types/database";
+
+const LOGIN_CODE_ATTEMPTS = 5;
+
+/**
+ * Reintenta solo ante choque del login_code (astronómicamente raro con 32^8
+ * combinaciones, pero gratis de cubrir) — cualquier otro error (puuid o
+ * riot_game_name+riot_tag duplicado, columna faltante, etc) se propaga tal
+ * cual en el primer intento.
+ */
+async function insertParticipantWithLoginCode(
+  supabase: SupabaseClient<Database>,
+  base: Omit<Database["public"]["Tables"]["participants"]["Insert"], "login_code">,
+) {
+  let lastError: { code?: string; message: string } | null = null;
+
+  for (let attempt = 0; attempt < LOGIN_CODE_ATTEMPTS; attempt++) {
+    const login_code = generateLoginCode();
+    const { data, error } = await supabase
+      .from("participants")
+      .insert({ ...base, login_code })
+      .select()
+      .single();
+
+    if (!error) return { data, error: null };
+    if (error.code === "23505" && error.message.includes("login_code")) {
+      lastError = error;
+      continue;
+    }
+    return { data: null, error };
+  }
+
+  return {
+    data: null,
+    error: lastError ?? { message: "No se pudo generar un login_code único" },
+  };
+}
 
 export const dynamic = "force-dynamic";
 
@@ -117,20 +156,16 @@ export async function POST(request: Request) {
   });
 
   const supabase = createAdminClient();
-  const { data, error } = await supabase
-    .from("participants")
-    .insert({
-      nombre_display: nombre_display.trim(),
-      riot_game_name: account.gameName,
-      riot_tag: account.tagLine,
-      puuid: account.puuid,
-      region_platform: platform,
-      avatar_url: avatarUrl,
-      opgg_url: opggUrl,
-      main_role: mainRole,
-    })
-    .select()
-    .single();
+  const { data, error } = await insertParticipantWithLoginCode(supabase, {
+    nombre_display: nombre_display.trim(),
+    riot_game_name: account.gameName,
+    riot_tag: account.tagLine,
+    puuid: account.puuid,
+    region_platform: platform,
+    avatar_url: avatarUrl,
+    opgg_url: opggUrl,
+    main_role: mainRole,
+  });
 
   if (error) {
     if (error.code === "23505") {

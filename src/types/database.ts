@@ -36,6 +36,44 @@ export type Participant = {
   in_game: boolean;
   /** Línea main fija, definida a mano en /admin al crear el participante. Distinta de la línea jugada partida a partida (esa sale de teamPosition en match-v5). */
   main_role: MainRole | null;
+  /**
+   * Código personal para loguearse en /jugador (sistema de Mangos). Null
+   * para participantes creados antes de la Fase 1 hasta que se les asigne
+   * uno (ver el backfill opcional en 0005_mango_system_phase1.sql).
+   */
+  login_code: string | null;
+};
+
+export type MangoStatus = "in_inventory" | "sent" | "returned";
+
+export type Mango = {
+  id: string;
+  owner_participant_id: string;
+  status: MangoStatus;
+  sent_by_participant_id: string | null;
+  champion_assigned: string | null;
+  created_at: string;
+};
+
+export type QuestType = "win_streak" | "kda_streak";
+
+export type QuestProgress = {
+  id: string;
+  participant_id: string;
+  quest_type: QuestType;
+  current_progress: number;
+  target: number;
+  last_processed_match_id: string | null;
+  updated_at: string;
+};
+
+export type PenaltyProgress = {
+  id: string;
+  participant_id: string;
+  mango_id: string;
+  games_without_compliance: number;
+  disqualified: boolean;
+  created_at: string;
 };
 
 export type Snapshot = {
@@ -57,13 +95,14 @@ export type Database = {
         Row: Participant;
         Insert: Omit<
           Participant,
-          "id" | "profile_icon_id" | "avatar_url" | "in_game" | "main_role"
+          "id" | "profile_icon_id" | "avatar_url" | "in_game" | "main_role" | "login_code"
         > & {
           id?: string;
           profile_icon_id?: number | null;
           avatar_url?: string | null;
           in_game?: boolean;
           main_role?: MainRole | null;
+          login_code?: string | null;
         };
         Update: Partial<Omit<Participant, "id">>;
         Relationships: [];
@@ -82,6 +121,78 @@ export type Database = {
             columns: ["participant_id"];
             isOneToOne: false;
             referencedRelation: "participants";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      mangos: {
+        Row: Mango;
+        Insert: Omit<Mango, "id" | "created_at" | "status"> & {
+          id?: string;
+          created_at?: string;
+          status?: MangoStatus;
+        };
+        Update: Partial<Omit<Mango, "id">>;
+        Relationships: [
+          {
+            foreignKeyName: "mangos_owner_participant_id_fkey";
+            columns: ["owner_participant_id"];
+            isOneToOne: false;
+            referencedRelation: "participants";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "mangos_sent_by_participant_id_fkey";
+            columns: ["sent_by_participant_id"];
+            isOneToOne: false;
+            referencedRelation: "participants";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      quest_progress: {
+        Row: QuestProgress;
+        Insert: Omit<QuestProgress, "id" | "updated_at" | "current_progress"> & {
+          id?: string;
+          updated_at?: string;
+          current_progress?: number;
+        };
+        Update: Partial<Omit<QuestProgress, "id">>;
+        Relationships: [
+          {
+            foreignKeyName: "quest_progress_participant_id_fkey";
+            columns: ["participant_id"];
+            isOneToOne: false;
+            referencedRelation: "participants";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      penalty_progress: {
+        Row: PenaltyProgress;
+        Insert: Omit<
+          PenaltyProgress,
+          "id" | "created_at" | "games_without_compliance" | "disqualified"
+        > & {
+          id?: string;
+          created_at?: string;
+          games_without_compliance?: number;
+          disqualified?: boolean;
+        };
+        Update: Partial<Omit<PenaltyProgress, "id">>;
+        Relationships: [
+          {
+            foreignKeyName: "penalty_progress_participant_id_fkey";
+            columns: ["participant_id"];
+            isOneToOne: false;
+            referencedRelation: "participants";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "penalty_progress_mango_id_fkey";
+            columns: ["mango_id"];
+            isOneToOne: false;
+            referencedRelation: "mangos";
             referencedColumns: ["id"];
           },
         ];

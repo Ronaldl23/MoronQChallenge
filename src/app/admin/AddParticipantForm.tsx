@@ -24,7 +24,7 @@ type Status =
   | { type: "idle" }
   | { type: "loading" }
   | { type: "error"; message: string }
-  | { type: "success"; message: string };
+  | { type: "success"; message: string; loginCode: string | null };
 
 export function AddParticipantForm() {
   const [form, setForm] = useState(initialForm);
@@ -53,6 +53,7 @@ export function AddParticipantForm() {
     setStatus({
       type: "success",
       message: `Agregado: ${body.participant.riot_game_name}#${body.participant.riot_tag}`,
+      loginCode: body.participant.login_code ?? null,
     });
     setForm(initialForm);
   }
@@ -142,7 +143,20 @@ export function AddParticipantForm() {
         <p className="text-sm text-red-600 dark:text-red-400">{status.message}</p>
       )}
       {status.type === "success" && (
-        <p className="text-sm text-green-600 dark:text-green-400">{status.message}</p>
+        <div className="flex flex-col gap-2 rounded border border-green-300 bg-green-50 p-3 dark:border-green-800 dark:bg-green-950">
+          <p className="text-sm text-green-700 dark:text-green-400">{status.message}</p>
+          {status.loginCode && (
+            <p className="text-sm text-zinc-700 dark:text-zinc-300">
+              Código de acceso a{" "}
+              <code className="font-mono text-zinc-900 dark:text-zinc-100">/jugador</code>:{" "}
+              <code className="rounded bg-zinc-200 px-2 py-0.5 font-mono text-base font-semibold tracking-wider text-zinc-900 dark:bg-zinc-800 dark:text-zinc-50">
+                {status.loginCode}
+              </code>
+              <br />
+              Compartíselo a la persona — no se vuelve a mostrar acá.
+            </p>
+          )}
+        </div>
       )}
 
       <button
