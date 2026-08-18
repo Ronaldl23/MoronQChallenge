@@ -4,6 +4,44 @@ import { calculateEloScore } from "@/lib/elo";
 import type { RankDivision, RankTier } from "@/types/database";
 
 export const dynamic = "force-dynamic";
+// Con reintentos por 429 el tiempo total ya no es 100% predecible; damos
+// margen de sobra en Vercel en vez de arriesgar que corte la función a
+// mitad de camino (el default sin esto es 10s en Hobby).
+export const maxDuration = 60;
+
+/**
+ * Delay entre CADA llamada a Riot (no solo entre participantes — ver abajo
+ * por qué eso no alcanzaba). 100ms por request mantiene el ritmo por debajo
+ * de 10 req/s, cómodo incluso bajo el límite más chico que existe (Personal
+ * y Production Keys tienen límites más altos, pero no hace falta apurar
+ * esto: con 20 participantes × 3 llamadas el proceso igual termina en
+ * segundos). Configurable por si tu key necesita ir más lento o si querés
+ * acelerarlo sabiendo que tu límite real es más alto.
+ */
+const RIOT_REQUEST_DELAY_MS = Number(process.env.RIOT_API_REQUEST_DELAY_MS) || 100;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * fetch a Riot con un reintento automático ante 429: espera lo que indica
+ * el header Retry-After (la propia API te dice cuánto esperar, no hace
+ * falta adivinar) y reintenta una sola vez, en vez de marcar al
+ * participante como error definitivo por un rate limit pasajero.
+ */
+async function riotFetch(url: string, apiKey: string): Promise<Response> {
+  const res = await fetch(url, { headers: { "X-Riot-Token": apiKey }, cache: "no-store" });
+  if (res.status !== 429) return res;
+
+  const retryAfterHeader = Number(res.headers.get("Retry-After"));
+  const retryAfterSeconds = Number.isFinite(retryAfterHeader) && retryAfterHeader > 0
+    ? retryAfterHeader
+    : 2;
+  await sleep(retryAfterSeconds * 1000 + 250);
+
+  return fetch(url, { headers: { "X-Riot-Token": apiKey }, cache: "no-store" });
+}
 
 interface RiotLeagueEntry {
   queueType: string;
@@ -65,9 +103,9 @@ export async function GET(request: Request) {
     // Ícono de invocador: best-effort, independiente del resultado de
     // league-v4 — un jugador unranked igual tiene un ícono que mostrar.
     try {
-      const summonerRes = await fetch(
+      const summonerRes = await riotFetch(
         `https://${platform}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/${participant.puuid}`,
-        { headers: { "X-Riot-Token": riotApiKey }, cache: "no-store" },
+        riotApiKey,
       );
       if (summonerRes.ok) {
         const summoner = (await summonerRes.json()) as RiotSummoner;
@@ -81,14 +119,21 @@ export async function GET(request: Request) {
       // vuelta a las iniciales — no bloquea la actualización de rango.
     }
 
+    // Espaciar CADA llamada, no solo entre participantes: antes las 3
+    // llamadas de un mismo participante salían pegadas (sin delay entre
+    // ellas) y solo se esperaba una vez al final del loop — eso arma
+    // ráfagas de 3 requests simultáneas que pueden pisar el límite de
+    // Riot aunque el promedio general esté bien.
+    await sleep(RIOT_REQUEST_DELAY_MS);
+
     // Estado en vivo: best-effort, igual que el ícono. 200 = está jugando,
     // 404 = no está en partida (respuesta normal, no un error). Cualquier
     // otro status (429, 5xx) no toca in_game: se resuelve en la próxima
     // corrida en vez de asumir un estado incorrecto.
     try {
-      const spectatorRes = await fetch(
+      const spectatorRes = await riotFetch(
         `https://${platform}.api.riotgames.com/lol/spectator/v5/active-games/by-summoner/${participant.puuid}`,
-        { headers: { "X-Riot-Token": riotApiKey }, cache: "no-store" },
+        riotApiKey,
       );
       if (spectatorRes.ok) {
         await supabase
@@ -105,10 +150,12 @@ export async function GET(request: Request) {
       // Red caída, etc — no bloquea el resto del update.
     }
 
+    await sleep(RIOT_REQUEST_DELAY_MS);
+
     try {
-      const res = await fetch(
+      const res = await riotFetch(
         `https://${platform}.api.riotgames.com/lol/league/v4/entries/by-puuid/${participant.puuid}`,
-        { headers: { "X-Riot-Token": riotApiKey }, cache: "no-store" },
+        riotApiKey,
       );
 
       if (!res.ok) {
@@ -166,8 +213,7 @@ export async function GET(request: Request) {
       });
     }
 
-    // Stay well under Riot's per-second rate limit.
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await sleep(RIOT_REQUEST_DELAY_MS);
   }
 
   return NextResponse.json({ updated: results.length, results });
