@@ -120,7 +120,7 @@ export default async function JugadorPage() {
   const championById = new Map(champions.map((c) => [c.id, c]));
 
   const pendingPenalties = pendingPenaltiesResult.data ?? [];
-  let pendingChampionNames: string[] = [];
+  let pendingPunishments: { name: string; iconUrl: string | null }[] = [];
   if (pendingPenalties.length > 0) {
     const { data: pendingMangos } = await supabase
       .from("mangos")
@@ -130,27 +130,33 @@ export default async function JugadorPage() {
         pendingPenalties.map((p) => p.mango_id),
       );
     const championIdByMangoId = new Map((pendingMangos ?? []).map((m) => [m.id, m.champion_assigned]));
-    pendingChampionNames = pendingPenalties.map(
-      (p) => resolveAssignedPunishment(championIdByMangoId.get(p.mango_id) ?? null, championById).name,
+    pendingPunishments = pendingPenalties.map((p) =>
+      resolveAssignedPunishment(championIdByMangoId.get(p.mango_id) ?? null, championById),
     );
   }
 
   return (
     <PageShell subtitle="Sesión iniciada.">
-      {pendingChampionNames.length > 0 && (
+      {pendingPunishments.length > 0 && (
         <section className="flex flex-col gap-2 rounded-2xl border border-loss/50 bg-surface p-6">
           <p className="font-display text-base font-bold text-loss">
-            Tenés {pendingChampionNames.length}{" "}
-            {pendingChampionNames.length === 1 ? "castigo pendiente" : "castigos pendientes"} por
+            Tenés {pendingPunishments.length}{" "}
+            {pendingPunishments.length === 1 ? "castigo pendiente" : "castigos pendientes"} por
             cumplir
           </p>
           <ul className="flex flex-wrap gap-2">
-            {pendingChampionNames.map((name, i) => (
+            {pendingPunishments.map((punishment, i) => (
               <li
-                key={`${name}-${i}`}
-                className="rounded-full border border-loss/40 bg-bg-elevated px-3 py-1 text-sm font-medium text-text-primary"
+                key={`${punishment.name}-${i}`}
+                className="flex items-center gap-2 rounded-full border border-loss/40 bg-bg-elevated py-1 pr-3 pl-1 text-sm font-medium text-text-primary"
               >
-                {name}
+                {/* eslint-disable-next-line @next/next/no-img-element -- CDN externo (Data Dragon / Community Dragon) */}
+                <img
+                  src={punishment.iconUrl ?? "/MangoAngry.png"}
+                  alt=""
+                  className="h-6 w-6 shrink-0 rounded-full object-cover"
+                />
+                {punishment.name}
               </li>
             ))}
           </ul>
