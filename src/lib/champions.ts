@@ -4,10 +4,12 @@ export interface Champion {
   id: string;
   name: string;
   iconUrl: string;
+  /** Id numérico de Riot como string (ej. "1" = Annie) — los bans de match-v5 vienen como championId numérico, no como el id/key de Data Dragon (ver MatchHistory). */
+  key: string;
 }
 
 interface RiotChampionData {
-  data: Record<string, { id: string; name: string }>;
+  data: Record<string, { id: string; name: string; key: string }>;
 }
 
 /**
@@ -26,7 +28,9 @@ export async function getChampionList(): Promise<Champion[]> {
   );
 
   if (!res.ok) {
-    throw new Error(`Data Dragon respondió ${res.status} al pedir el listado de campeones`);
+    throw new Error(
+      `Data Dragon respondió ${res.status} al pedir el listado de campeones`,
+    );
   }
 
   const body = (await res.json()) as RiotChampionData;
@@ -36,6 +40,7 @@ export async function getChampionList(): Promise<Champion[]> {
       id: champion.id,
       name: champion.name,
       iconUrl: `https://ddragon.leagueoflegends.com/cdn/${version}/img/champion/${champion.id}.png`,
+      key: champion.key,
     }))
     .sort((a, b) => a.name.localeCompare(b.name, "es"));
 }

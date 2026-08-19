@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { platformToContinent } from "@/lib/riot";
 import { ROLE_TO_LANE_SLUG, type MainRole } from "@/lib/lane";
+import { getChampionList } from "@/lib/champions";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,9 @@ interface RiotMatchParticipant {
   puuid: string;
   win: boolean;
   championName: string;
+  riotIdGameName: string;
+  riotIdTagline: string;
+  profileIcon: number;
   kills: number;
   deaths: number;
   assists: number;
@@ -28,12 +32,39 @@ interface RiotMatchParticipant {
   item6: number;
 }
 
+interface RiotMatchTeam {
+  teamId: number;
+  win: boolean;
+  bans: { championId: number; pickTurn: number }[];
+}
+
 interface RiotMatch {
   info: {
     gameDuration: number;
     gameEndTimestamp: number;
     participants: RiotMatchParticipant[];
+    teams: RiotMatchTeam[];
   };
+}
+
+export interface MatchPlayerSummary {
+  puuid: string;
+  riotId: string;
+  profileIconId: number;
+  championName: string;
+  kills: number;
+  deaths: number;
+  assists: number;
+  items: number[];
+  isTrackedParticipant: boolean;
+}
+
+export interface MatchTeam {
+  teamId: number;
+  win: boolean;
+  /** Ids de Data Dragon (mismo id que championName) de los baneados, en orden de ban. Null en el slot si el modo no tiene ese ban o no se pudo resolver el id numérico. */
+  bans: (string | null)[];
+  players: MatchPlayerSummary[];
 }
 
 export interface MatchSummary {
@@ -52,6 +83,8 @@ export interface MatchSummary {
   items: number[];
   durationSeconds: number;
   gameEndTimestamp: number;
+  /** Los 10 jugadores de la partida (ambos equipos) + bans, para el scoreboard expandido. */
+  teams: MatchTeam[];
   /**
    * El LP ganado/perdido no viene en match-v5 — Riot no lo expone por
    * partida en ningún campo. Se estima cruzando la hora de fin de la
@@ -143,7 +176,10 @@ export async function GET(request: Request) {
     .single();
 
   if (error || !participant) {
-    return NextResponse.json({ error: "Participante no encontrado" }, { status: 404 });
+    return NextResponse.json(
+      { error: "Participante no encontrado" },
+      { status: 404 },
+    );
   }
 
   const continent = platformToContinent(participant.region_platform);
@@ -168,7 +204,9 @@ export async function GET(request: Request) {
     );
     if (!idsRes.ok) {
       return NextResponse.json(
-        { error: `Riot API respondió ${idsRes.status} al pedir la lista de partidas` },
+        {
+          error: `Riot API respondió ${idsRes.status} al pedir la lista de partidas`,
+        },
         { status: 502 },
       );
     }
@@ -178,6 +216,21 @@ export async function GET(request: Request) {
       { error: "No se pudo contactar a la API de Riot" },
       { status: 502 },
     );
+  }
+
+  // Los bans de match-v5 vienen como championId numérico, no como el id de
+  // Data Dragon que usan los ícones — se resuelve una sola vez acá afuera
+  // del loop (getChampionList ya cachea 1h por su cuenta) en vez de una
+  // llamada a Riot extra por partida.
+  let championIdToDDragonId = new Map<number, string>();
+  try {
+    const champions = await getChampionList();
+    championIdToDDragonId = new Map(
+      champions.map((c) => [Number(c.key), c.id]),
+    );
+  } catch {
+    // Sin listado de campeones no se pueden resolver los bans a íconos — el
+    // mapa queda vacío y cada ban cae a null en vez de romper el historial.
   }
 
   const matches: Omit<MatchSummary, "lpChange">[] = [];
@@ -197,7 +250,9 @@ export async function GET(request: Request) {
       if (!matchRes.ok) continue;
 
       const match = (await matchRes.json()) as RiotMatch;
-      const mp = match.info.participants.find((p) => p.puuid === participant.puuid);
+      const mp = match.info.participants.find(
+        (p) => p.puuid === participant.puuid,
+      );
       if (!mp) continue;
 
       const opponent = mp.teamPosition
@@ -206,15 +261,54 @@ export async function GET(request: Request) {
           )
         : undefined;
 
-      const items = [mp.item0, mp.item1, mp.item2, mp.item3, mp.item4, mp.item5, mp.item6].filter(
-        (id) => id !== 0,
-      );
+      const items = [
+        mp.item0,
+        mp.item1,
+        mp.item2,
+        mp.item3,
+        mp.item4,
+        mp.item5,
+        mp.item6,
+      ].filter((id) => id !== 0);
 
       const teamKills = match.info.participants
         .filter((p) => p.teamId === mp.teamId)
         .reduce((sum, p) => sum + p.kills, 0);
       const killParticipationPct =
-        teamKills > 0 ? Math.round(((mp.kills + mp.assists) / teamKills) * 100) : 0;
+        teamKills > 0
+          ? Math.round(((mp.kills + mp.assists) / teamKills) * 100)
+          : 0;
+
+      const teams: MatchTeam[] = match.info.teams.map((team) => ({
+        teamId: team.teamId,
+        win: team.win,
+        bans: team.bans
+          .filter((ban) => ban.championId !== -1)
+          .map((ban) => championIdToDDragonId.get(ban.championId) ?? null),
+        players: match.info.participants
+          .filter((p) => p.teamId === team.teamId)
+          .map((p) => ({
+            puuid: p.puuid,
+            riotId: p.riotIdGameName
+              ? `${p.riotIdGameName}#${p.riotIdTagline}`
+              : "Invocador",
+            profileIconId: p.profileIcon,
+            championName: p.championName,
+            kills: p.kills,
+            deaths: p.deaths,
+            assists: p.assists,
+            items: [
+              p.item0,
+              p.item1,
+              p.item2,
+              p.item3,
+              p.item4,
+              p.item5,
+              p.item6,
+            ].filter((id) => id !== 0),
+            isTrackedParticipant: p.puuid === participant.puuid,
+          })),
+      }));
 
       matches.push({
         matchId,
@@ -230,6 +324,7 @@ export async function GET(request: Request) {
         items,
         durationSeconds: match.info.gameDuration,
         gameEndTimestamp: match.info.gameEndTimestamp,
+        teams,
       });
     } catch {
       // Una partida individual falló al traerse — se omite, no rompe el resto.
@@ -242,7 +337,9 @@ export async function GET(request: Request) {
   let lpChanges = new Map<string, number>();
   if (matches.length > 0) {
     const oldestGameEnd = Math.min(...matches.map((m) => m.gameEndTimestamp));
-    const snapshotsSince = new Date(oldestGameEnd - 30 * 60 * 1000).toISOString();
+    const snapshotsSince = new Date(
+      oldestGameEnd - 30 * 60 * 1000,
+    ).toISOString();
 
     const { data: snapshots } = await supabase
       .from("snapshots")
