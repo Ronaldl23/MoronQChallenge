@@ -82,3 +82,40 @@
     background-attachment: fixed;
   }
 }
+
+/*
+ * Motion blur de la ruleta (RouletteStrip): el porcentaje de cada keyframe
+ * es lo que le da la forma a la curva (pico de blur temprano, ya casi
+ * nítido bien antes de frenar) — por eso la animación se dispara con
+ * timing-function "linear", para no aplicarle un segundo easing encima del
+ * que ya define esta curva. Duración = la misma que la transición de
+ * transform (offset), para que el desenfoque se despeje justo cuando el
+ * reel visualmente ya está frenando.
+ */
+@keyframes roulette-blur {
+  0% {
+    filter: blur(0px);
+  }
+  6% {
+    filter: blur(14px);
+  }
+  70% {
+    filter: blur(2px);
+  }
+  100% {
+    filter: blur(0px);
+  }
+}
+
+/* Pop sutil del ítem ganador al asentarse — un solo ciclo, no en loop. */
+@keyframes roulette-win-pop {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.16);
+  }
+  100% {
+    transform: scale(1.08);
+  }
+}

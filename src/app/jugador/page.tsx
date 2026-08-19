@@ -139,22 +139,6 @@ export default async function JugadorPage() {
 
   const pendingPenalties = pendingPenaltiesResult.data ?? [];
 
-  // Mangos 'pending_reveal' dirigidos a este jugador — solo informativo acá
-  // (banner sin botón: la cola se procesa sola, en cualquier página, vía
-  // MangoNotifications). Mismo criterio que pendingReveals en GET
-  // /api/jugador/notifications.
-  let pendingRevealCount = 0;
-  if (pendingPenalties.length > 0) {
-    const { count } = await supabase
-      .from("mangos")
-      .select("id", { count: "exact", head: true })
-      .in(
-        "id",
-        pendingPenalties.map((p) => p.mango_id),
-      )
-      .eq("status", "pending_reveal");
-    pendingRevealCount = count ?? 0;
-  }
   let pendingPunishments: {
     name: string;
     iconUrl: string | null;
@@ -246,7 +230,6 @@ export default async function JugadorPage() {
         kdaStreak={kdaStreak}
         deathlessWin={deathlessWin}
         otherParticipants={otherParticipants}
-        pendingRevealCount={pendingRevealCount}
       />
     </PageShell>
   );

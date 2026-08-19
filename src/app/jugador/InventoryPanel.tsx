@@ -21,15 +21,12 @@ export function InventoryPanel({
   kdaStreak,
   deathlessWin,
   otherParticipants,
-  pendingRevealCount,
 }: {
   mangos: InventoryMango[];
   winStreak: QuestProgressView;
   kdaStreak: QuestProgressView;
   deathlessWin: QuestProgressView;
   otherParticipants: LaunchTarget[];
-  /** Cuántos mangos 'pending_reveal' están dirigidos a este jugador — puramente informativo, la cola se procesa sola desde MangoNotifications en cualquier página. */
-  pendingRevealCount: number;
 }) {
   const router = useRouter();
   const [selectedMangoId, setSelectedMangoId] = useState<string | null>(null);
@@ -45,19 +42,6 @@ export function InventoryPanel({
 
   return (
     <div className="flex flex-col gap-6">
-      {pendingRevealCount > 0 && (
-        <section className="flex items-center gap-3 rounded-2xl border border-gold/50 bg-surface p-6 shadow-[0_0_40px_-16px_var(--gold)]">
-          {/* eslint-disable-next-line @next/next/no-img-element -- asset local */}
-          <img src="/MangoAngry.png" alt="" className="h-10 w-10 shrink-0 object-contain" />
-          <p className="font-display text-sm font-bold text-text-primary">
-            {pendingRevealCount === 1
-              ? "Tenés un Mango en espera"
-              : `Tenés ${pendingRevealCount} Mangos en espera`}{" "}
-            <span className="font-normal text-text-secondary">— se van a revelar solos.</span>
-          </p>
-        </section>
-      )}
-
       <section className="rounded-2xl border border-border-hairline bg-surface p-6">
         <h2 className="font-display text-lg font-semibold text-gold">Inventario de Mangos</h2>
         <p className="mt-1 text-sm text-text-secondary">

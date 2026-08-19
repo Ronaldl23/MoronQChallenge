@@ -74,7 +74,7 @@ export function PodiumCard({
         </span>
       )}
 
-      <div className="relative flex flex-col gap-4 overflow-hidden rounded-2xl p-6">
+      <div className="relative flex flex-col gap-3 overflow-hidden rounded-2xl p-5">
         <div className={`pointer-events-none absolute inset-0 ${style.tint}`} aria-hidden />
 
         <div className="relative flex items-center justify-between gap-3">

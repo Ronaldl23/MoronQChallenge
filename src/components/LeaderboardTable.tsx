@@ -37,14 +37,14 @@ export function LeaderboardTable({
       <table className="w-full sm:min-w-[720px] border-collapse text-sm">
         <thead>
           <tr className="border-b border-border-hairline text-left text-xs tracking-wider text-text-secondary uppercase">
-            <th className="px-4 py-3 font-medium">#</th>
-            <th className="px-4 py-3 font-medium">Jugador</th>
-            <th className="px-4 py-3 font-medium">Rango</th>
-            <th className="px-4 py-3 font-medium">V / D</th>
-            <th className="hidden px-4 py-3 font-medium sm:table-cell">Racha</th>
-            <th className="px-4 py-3 font-medium">Mangos</th>
-            <th className="px-4 py-3 font-medium">Castigos</th>
-            <th className="px-4 py-3 text-right font-medium">±LP</th>
+            <th className="px-4 py-2 font-medium">#</th>
+            <th className="px-4 py-2 font-medium">Jugador</th>
+            <th className="px-4 py-2 font-medium">Rango</th>
+            <th className="px-4 py-2 font-medium">V / D</th>
+            <th className="hidden px-4 py-2 font-medium sm:table-cell">Racha</th>
+            <th className="px-4 py-2 font-medium">Mangos</th>
+            <th className="px-4 py-2 font-medium">Castigos</th>
+            <th className="px-4 py-2 text-right font-medium">±LP</th>
           </tr>
         </thead>
         <tbody>
@@ -60,10 +60,10 @@ export function LeaderboardTable({
               transition={{ layout: { duration: 0.4, ease: "easeInOut" } }}
               className="border-b border-border-hairline transition-colors duration-150 last:border-0 hover:bg-surface-hover"
             >
-              <td className="px-4 py-3 font-display font-semibold text-text-secondary">
+              <td className="px-4 py-2 font-display font-semibold text-text-secondary">
                 {entry.rank}
               </td>
-              <td className="px-4 py-3">
+              <td className="px-4 py-2">
                 <button
                   type="button"
                   onClick={() =>
@@ -110,7 +110,7 @@ export function LeaderboardTable({
                   </div>
                 </button>
               </td>
-              <td className="px-4 py-3">
+              <td className="px-4 py-2">
                 {/*
                   Mobile: badge y LP apilados, sin el emblema de 80px (demasiado
                   grande para 390px de ancho — es el que más empuja el overflow
@@ -131,7 +131,7 @@ export function LeaderboardTable({
                   </span>
                 </div>
               </td>
-              <td className="px-4 py-3">
+              <td className="px-4 py-2">
                 <div className="flex w-28 flex-col gap-1.5">
                   <div className="flex items-center justify-between text-xs whitespace-nowrap text-text-secondary">
                     <span>{winPct}%</span>
@@ -142,16 +142,16 @@ export function LeaderboardTable({
                   <WinrateBar wins={entry.latest.wins} losses={entry.latest.losses} />
                 </div>
               </td>
-              <td className="hidden px-4 py-3 sm:table-cell">
+              <td className="hidden px-4 py-2 sm:table-cell">
                 <Sparkline points={entry.trend} id={entry.participant.id} />
               </td>
-              <td className="px-4 py-3">
+              <td className="px-4 py-2">
                 <MangoCountBadge count={entry.mangoCount} />
               </td>
-              <td className="px-4 py-3">
+              <td className="px-4 py-2">
                 <PenaltyIndicator penalties={entry.pendingPenalties} />
               </td>
-              <td className="px-4 py-3 text-right">
+              <td className="px-4 py-2 text-right">
                 <div className="flex items-center justify-end gap-2">
                   {/* ▲▼LP se oculta en mobile: es un detalle secundario del V/D que ya se ve al lado; el botón de OP.GG (estado en vivo) se mantiene siempre visible. */}
                   <div className="hidden flex-col items-end gap-0.5 font-display text-xs font-semibold sm:flex">

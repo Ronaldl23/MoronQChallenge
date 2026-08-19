@@ -34,7 +34,7 @@ export default async function Home() {
         por encima. En mobile el logo ya no es fixed (ver FixedLogo), así
         que basta con un padding chico normal.
       */}
-      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-8 px-6 pt-6 pb-10 sm:pt-44">
+      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-5 px-6 pt-6 pb-10 sm:pt-44">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="font-display text-3xl font-bold tracking-tight text-text-primary">
@@ -73,7 +73,7 @@ export default async function Home() {
         ) : (
           <>
             {podium.length > 0 && (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 {podium.map((entry) => (
                   <PodiumCard
                     key={entry.participant.id}
