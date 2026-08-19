@@ -30,11 +30,17 @@ export default async function Home() {
       <Header />
       <AutoRefresh />
       {/*
-        pt-44 en sm+ le da lugar al logo fixed (200px de alto) que flota
-        por encima. En mobile el logo ya no es fixed (ver FixedLogo), así
-        que basta con un padding chico normal.
+        pt-32 en sm+ le da lugar al logo fixed (152px de alto, top-2 — ver
+        Logo.tsx) que flota por encima, con margen de sobra: a 1280/1440px
+        (donde el contenido centrado SÍ cae bajo la columna horizontal del
+        logo) el título todavía arranca ~13px después de su borde inferior.
+        Reducir esto más allá pisa el logo en esos anchos — verificado con
+        Playwright en 640/768/1024/1280/1440/1920px antes de bajarlo tanto
+        como se bajó (era pt-44 con un logo de 200px). En mobile el logo ya
+        no es fixed (ver FixedLogo), así que basta con un padding chico
+        normal.
       */}
-      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-5 px-6 pt-6 pb-10 sm:pt-44">
+      <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-5 px-4 pt-6 pb-10 sm:pt-32">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="font-display text-3xl font-bold tracking-tight text-text-primary">
