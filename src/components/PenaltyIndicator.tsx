@@ -6,6 +6,9 @@ import type { PendingPenaltySummary } from "@/lib/leaderboard";
  * lo envió) va en el `title` nativo del navegador, mismo patrón de tooltip
  * que ya usa el resto del sitio (ver MatchHistory/LastUpdated) — no hay un
  * componente de tooltip custom en este código.
+ *
+ * drop-shadow (no box-shadow) a propósito: sigue la silueta transparente
+ * del PNG en vez de iluminar un cuadrado detrás del ícono.
  */
 export function PenaltyIndicator({ penalties }: { penalties: PendingPenaltySummary[] }) {
   if (penalties.length === 0) return null;
@@ -15,11 +18,18 @@ export function PenaltyIndicator({ penalties }: { penalties: PendingPenaltySumma
   return (
     <span
       title={title}
-      className="inline-flex shrink-0 items-center"
+      className="relative inline-flex shrink-0 items-center"
       aria-label={`${penalties.length} ${penalties.length === 1 ? "castigo pendiente" : "castigos pendientes"}`}
     >
       {/* eslint-disable-next-line @next/next/no-img-element -- asset local */}
-      <img src="/Peligro.png" alt="" className="h-5 w-5 object-contain" />
+      <img
+        src="/Peligro.png"
+        alt=""
+        className="h-5 w-5 object-contain drop-shadow-[0_0_5px_var(--loss)]"
+      />
+      <span className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-loss text-[9px] leading-none font-black text-white ring-2 ring-surface">
+        {penalties.length}
+      </span>
     </span>
   );
 }
