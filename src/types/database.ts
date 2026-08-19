@@ -42,6 +42,15 @@ export type Participant = {
    * uno (ver el backfill opcional en 0005_mango_system_phase1.sql).
    */
   login_code: string | null;
+  /**
+   * Contador COMPARTIDO de partidas ranked sin cumplir NINGUNO de los
+   * castigos pendientes de este jugador (Fase 4, rediseñado: antes vivía
+   * por-castigo en penalty_progress.games_without_compliance, ahora es un
+   * solo contador para todo el grupo — ver src/lib/penalty.ts). Se resetea
+   * a 0 apenas se cumple cualquier castigo pendiente, o cuando el jugador
+   * se queda sin castigos pendientes (nada corriendo, ver regla 5).
+   */
+  penalty_games_without_compliance: number;
 };
 
 export type MangoStatus = "in_inventory" | "sent" | "returned";
@@ -105,7 +114,13 @@ export type Database = {
         Row: Participant;
         Insert: Omit<
           Participant,
-          "id" | "profile_icon_id" | "avatar_url" | "in_game" | "main_role" | "login_code"
+          | "id"
+          | "profile_icon_id"
+          | "avatar_url"
+          | "in_game"
+          | "main_role"
+          | "login_code"
+          | "penalty_games_without_compliance"
         > & {
           id?: string;
           profile_icon_id?: number | null;
@@ -113,6 +128,7 @@ export type Database = {
           in_game?: boolean;
           main_role?: MainRole | null;
           login_code?: string | null;
+          penalty_games_without_compliance?: number;
         };
         Update: Partial<Omit<Participant, "id">>;
         Relationships: [];

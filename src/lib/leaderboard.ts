@@ -3,8 +3,14 @@ import { getChampionList, type Champion } from "@/lib/champions";
 import { resolveAssignedPunishment } from "@/lib/mango-launch";
 import type { Participant, Snapshot } from "@/types/database";
 
-/** login_code no viaja acá — el leaderboard público nunca lo selecciona (ver getLeaderboard). */
-type PublicParticipant = Omit<Participant, "login_code">;
+/**
+ * login_code no viaja acá — el leaderboard público nunca lo selecciona (ver
+ * getLeaderboard). penalty_games_without_compliance tampoco: es el
+ * contador compartido de Fase 4 (contexto de /jugador), no algo que el
+ * leaderboard público necesite mostrar por jugador — la columna ni se pide
+ * en el select de abajo.
+ */
+type PublicParticipant = Omit<Participant, "login_code" | "penalty_games_without_compliance">;
 
 /** Un castigo pendiente o en revisión, en formato listo para mostrar (Fase 5) — mismo shape que el banner de /jugador. */
 export interface PendingPenaltySummary {

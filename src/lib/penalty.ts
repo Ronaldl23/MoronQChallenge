@@ -13,20 +13,35 @@ const SUPPORT_ASSIGNMENT = "SUPPORT";
  * Lógica pura de cumplimiento de castigos — sin Riot ni Supabase acá a
  * propósito, mismo criterio que src/lib/quests.ts (testeable con secuencias
  * simuladas, ver scripts/test-penalty.mjs).
+ *
+ * Contador COMPARTIDO (rediseño): en vez de que cada castigo pendiente
+ * tenga su propio contador de 3 partidas — lo que en la práctica le daba a
+ * un jugador con N castigos activos solo 3 partidas EN TOTAL para
+ * resolverlos todos, no 3 intentos por cada uno — hay UN SOLO contador por
+ * jugador que aplica a todo el grupo de castigos pendientes:
+ * - Cada partida ranked: si cumple CUALQUIERA de los castigos pendientes,
+ *   ese/esos se marcan 'completed' y el contador vuelve a 0 (ventana fresca
+ *   para los que queden).
+ * - Si no cumple ninguno, el contador sube en 1.
+ * - Si el contador llega al límite sin ninguna coincidencia, TODOS los
+ *   castigos que sigan pendientes en ese momento pasan a
+ *   'flagged_for_review' juntos, y el contador vuelve a 0 (sin castigos
+ *   pendientes no hay contador corriendo — regla 5).
  */
 
-/** Partidas ranked que tiene un jugador para cumplir un castigo antes de pasar a revisión manual (Fase 4, regla confirmada por el usuario). */
+/** Partidas ranked que tiene un jugador para cumplir ALGUNO de sus castigos pendientes antes de que el grupo entero pase a revisión manual (regla confirmada por el usuario). */
 export const PENALTY_GAME_LIMIT = 3;
 
 export interface PenaltyMatchOutcome {
   matchId: string;
   /**
    * ISO 8601 completo (ej. `new Date(x).toISOString()`) — se compara contra
-   * `createdAt` del castigo para no contar partidas jugadas ANTES de que se
-   * asignara. La comparación es lexicográfica (string < string), así que el
-   * caller DEBE normalizar ambos con el mismo formato — un timestamptz de
-   * Postgres tal cual no siempre coincide (offset "+00:00" en vez de "Z",
-   * distinta cantidad de dígitos decimales).
+   * el `createdAt` más viejo entre los castigos pendientes, para no contar
+   * partidas jugadas ANTES de que existiera NINGÚN castigo. La comparación
+   * es lexicográfica (string < string), así que el caller DEBE normalizar
+   * ambos con el mismo formato — un timestamptz de Postgres tal cual no
+   * siempre coincide (offset "+00:00" en vez de "Z", distinta cantidad de
+   * dígitos decimales).
    */
   playedAt: string;
   /** Id de campeón (Data Dragon, ej. "Ahri") jugado en esa partida. */
@@ -39,7 +54,6 @@ export interface PendingPenalty {
   id: string;
   /** champion_assigned tal cual está en `mangos` — SUPPORT_ASSIGNMENT o un id de campeón puntual. */
   championAssigned: string;
-  gamesWithoutCompliance: number;
   /** Mismo formato normalizado que `playedAt` de PenaltyMatchOutcome — ver esa nota. */
   createdAt: string;
 }
@@ -48,11 +62,17 @@ export type PenaltyStatus = "pending" | "completed" | "flagged_for_review";
 
 export interface PenaltyUpdate {
   id: string;
-  gamesWithoutCompliance: number;
-  /** 'pending' si no cambió nada esta corrida (igual puede haber subido gamesWithoutCompliance sin llegar al límite). */
+  /** 'pending' si no cambió nada esta corrida. */
   status: PenaltyStatus;
   /** Solo si status pasó a 'completed' en esta corrida — qué partida lo cumplió. */
   completedOnMatchId: string | null;
+}
+
+export interface ProcessPenaltyMatchesResult {
+  /** Uno por cada castigo recibido en `penalties`, en el mismo orden. */
+  updates: PenaltyUpdate[];
+  /** Contador compartido final — el caller lo persiste en participants.penalty_games_without_compliance. */
+  gamesWithoutCompliance: number;
 }
 
 /**
@@ -67,55 +87,68 @@ function isCompliant(championAssigned: string, match: PenaltyMatchOutcome): bool
 
 /**
  * Procesa, en orden cronológico (más vieja primero), las partidas ranked
- * nuevas de un participante contra TODOS sus castigos en estado 'pending' —
- * cada partida cuenta simultáneamente para todos los castigos pendientes
- * (regla confirmada: no hay que elegir uno solo, y una partida puede cumplir
- * más de un castigo a la vez). No toca Supabase — el caller persiste el
- * resultado y dispara la notificación de "pasó a revisión" si corresponde.
+ * nuevas de un participante contra TODOS sus castigos en estado 'pending' a
+ * la vez, usando el contador compartido `gamesWithoutCompliance` (estado
+ * actual del participante, no de un castigo puntual). No toca Supabase — el
+ * caller persiste `updates` en penalty_progress.status y el contador
+ * resultante en participants.penalty_games_without_compliance.
  */
 export function processPenaltyMatches({
   penalties,
   matches,
+  gamesWithoutCompliance,
 }: {
   penalties: PendingPenalty[];
   matches: PenaltyMatchOutcome[];
-}): PenaltyUpdate[] {
-  const state = new Map<
-    string,
-    { gamesWithoutCompliance: number; status: PenaltyStatus; completedOnMatchId: string | null }
-  >(
-    penalties.map((p) => [
-      p.id,
-      { gamesWithoutCompliance: p.gamesWithoutCompliance, status: "pending", completedOnMatchId: null },
-    ]),
+  /** Contador compartido actual del participante (participants.penalty_games_without_compliance). */
+  gamesWithoutCompliance: number;
+}): ProcessPenaltyMatchesResult {
+  // Regla 5: sin castigos pendientes no hay contador corriendo — no-op total,
+  // y el contador vuelve a 0 (por si quedó un resto de un grupo anterior).
+  if (penalties.length === 0) {
+    return { updates: [], gamesWithoutCompliance: 0 };
+  }
+
+  const state = new Map<string, { status: PenaltyStatus; completedOnMatchId: string | null }>(
+    penalties.map((p) => [p.id, { status: "pending", completedOnMatchId: null }]),
   );
+  const earliestCreatedAt = penalties.reduce(
+    (min, p) => (p.createdAt < min ? p.createdAt : min),
+    penalties[0].createdAt,
+  );
+  let counter = gamesWithoutCompliance;
 
   for (const match of matches) {
-    for (const penalty of penalties) {
-      const s = state.get(penalty.id)!;
-      if (s.status !== "pending") continue;
-      // Partidas jugadas ANTES de que se asignara el castigo no cuentan ni a favor ni en contra.
-      if (match.playedAt < penalty.createdAt) continue;
+    const stillPending = penalties.filter((p) => state.get(p.id)!.status === "pending");
+    if (stillPending.length === 0) break; // Ya se resolvió todo el grupo esta corrida — nada más que evaluar.
 
-      if (isCompliant(penalty.championAssigned, match)) {
-        s.status = "completed";
-        s.completedOnMatchId = match.matchId;
-      } else {
-        s.gamesWithoutCompliance += 1;
-        if (s.gamesWithoutCompliance >= PENALTY_GAME_LIMIT) {
-          s.status = "flagged_for_review";
+    // Partida jugada antes de que existiera NINGÚN castigo pendiente: no cuenta ni a favor ni en contra.
+    if (match.playedAt < earliestCreatedAt) continue;
+
+    const compliant = stillPending.filter((p) => isCompliant(p.championAssigned, match));
+
+    if (compliant.length > 0) {
+      for (const p of compliant) {
+        state.set(p.id, { status: "completed", completedOnMatchId: match.matchId });
+      }
+      counter = 0; // Ventana fresca para los castigos que queden pendientes.
+    } else {
+      counter += 1;
+      if (counter >= PENALTY_GAME_LIMIT) {
+        // Se agotó la ventana compartida: TODO el grupo que siga pendiente pasa a revisión junto.
+        for (const p of stillPending) {
+          state.set(p.id, { status: "flagged_for_review", completedOnMatchId: null });
         }
+        counter = 0; // Sin pendientes → sin contador corriendo (regla 5), listo para el próximo grupo.
       }
     }
   }
 
-  return penalties.map((p) => {
-    const s = state.get(p.id)!;
-    return {
-      id: p.id,
-      gamesWithoutCompliance: s.gamesWithoutCompliance,
-      status: s.status,
-      completedOnMatchId: s.completedOnMatchId,
-    };
-  });
+  return {
+    updates: penalties.map((p) => {
+      const s = state.get(p.id)!;
+      return { id: p.id, status: s.status, completedOnMatchId: s.completedOnMatchId };
+    }),
+    gamesWithoutCompliance: counter,
+  };
 }

@@ -189,7 +189,12 @@ async function processParticipantQuests({
   riotApiKey,
 }: {
   supabase: SupabaseClient<Database>;
-  participant: { id: string; puuid: string; region_platform: string };
+  participant: {
+    id: string;
+    puuid: string;
+    region_platform: string;
+    penalty_games_without_compliance: number;
+  };
   riotApiKey: string;
 }): Promise<void> {
   const continent = platformToContinent(participant.region_platform);
@@ -260,7 +265,12 @@ async function processParticipantQuests({
 
   if (outcomes.length === 0) return;
 
-  await processParticipantPenalties({ supabase, participantId: participant.id, penaltyMatches });
+  await processParticipantPenalties({
+    supabase,
+    participantId: participant.id,
+    currentGamesWithoutCompliance: participant.penalty_games_without_compliance,
+    penaltyMatches,
+  });
 
   const mangoCount = await countMangoInventory(supabase, participant.id);
 
@@ -302,11 +312,13 @@ async function processParticipantQuests({
 }
 
 /**
- * Fase 4: cumplimiento de castigos. Revisa TODOS los penalty_progress en
- * estado 'pending' de este participante contra las mismas partidas ranked
- * nuevas que ya bajó processParticipantQuests (ver comentario en el loop de
- * arriba) — cada partida cuenta simultáneamente para todos los castigos
- * pendientes, así que una sola corrida puede completar más de uno a la vez.
+ * Fase 4 (rediseñada — contador compartido, ver src/lib/penalty.ts): revisa
+ * TODOS los penalty_progress en estado 'pending' de este participante
+ * contra las mismas partidas ranked nuevas que ya bajó
+ * processParticipantQuests (ver comentario en el loop de arriba) — cada
+ * partida cuenta simultáneamente para todos los castigos pendientes, así
+ * que una sola corrida puede completar más de uno a la vez, y el contador
+ * de partidas-sin-cumplir es UNO SOLO por participante (no por castigo).
  * Llamado desde adentro del mismo try/catch que envuelve
  * processParticipantQuests: un error acá tampoco debe afectar al resto de
  * la actualización.
@@ -314,31 +326,35 @@ async function processParticipantQuests({
 async function processParticipantPenalties({
   supabase,
   participantId,
+  currentGamesWithoutCompliance,
   penaltyMatches,
 }: {
   supabase: SupabaseClient<Database>;
   participantId: string;
+  currentGamesWithoutCompliance: number;
   penaltyMatches: PenaltyMatchOutcome[];
 }): Promise<void> {
   const { data: pendingRows, error: pendingError } = await supabase
     .from("penalty_progress")
-    .select("id, mango_id, games_without_compliance, created_at")
+    .select("id, mango_id, created_at")
     .eq("participant_id", participantId)
     .eq("status", "pending");
   if (pendingError) throw pendingError;
-  if (!pendingRows || pendingRows.length === 0) return;
 
-  const { data: mangoRows, error: mangoError } = await supabase
-    .from("mangos")
-    .select("id, champion_assigned")
-    .in(
-      "id",
-      pendingRows.map((row) => row.mango_id),
-    );
-  if (mangoError) throw mangoError;
-  const championAssignedByMangoId = new Map((mangoRows ?? []).map((m) => [m.id, m.champion_assigned]));
+  const championAssignedByMangoId = new Map<string, string | null>();
+  if (pendingRows && pendingRows.length > 0) {
+    const { data: mangoRows, error: mangoError } = await supabase
+      .from("mangos")
+      .select("id, champion_assigned")
+      .in(
+        "id",
+        pendingRows.map((row) => row.mango_id),
+      );
+    if (mangoError) throw mangoError;
+    for (const m of mangoRows ?? []) championAssignedByMangoId.set(m.id, m.champion_assigned);
+  }
 
-  const penalties: PendingPenalty[] = pendingRows.flatMap((row) => {
+  const penalties: PendingPenalty[] = (pendingRows ?? []).flatMap((row) => {
     const championAssigned = championAssignedByMangoId.get(row.mango_id);
     // No debería pasar para un mango con status='sent' (siempre se le asigna
     // un castigo al lanzarlo), pero sin campeón/rol asignado no hay nada
@@ -348,7 +364,6 @@ async function processParticipantPenalties({
       {
         id: row.id,
         championAssigned,
-        gamesWithoutCompliance: row.games_without_compliance,
         // Normalizado a ISO completo (mismo formato que playedAt abajo) para
         // que la comparación lexicográfica en processPenaltyMatches sea
         // válida — timestamptz de Supabase no siempre viene en ese formato.
@@ -356,22 +371,34 @@ async function processParticipantPenalties({
       },
     ];
   });
-  if (penalties.length === 0) return;
 
-  const updates = processPenaltyMatches({ penalties, matches: penaltyMatches });
+  const result = processPenaltyMatches({
+    penalties,
+    matches: penaltyMatches,
+    gamesWithoutCompliance: currentGamesWithoutCompliance,
+  });
 
   await Promise.all(
-    updates.map((update) =>
-      supabase
-        .from("penalty_progress")
-        .update({
-          games_without_compliance: update.gamesWithoutCompliance,
-          status: update.status,
-          completed: update.status === "completed",
-        })
-        .eq("id", update.id),
-    ),
+    result.updates
+      .filter((update) => update.status !== "pending")
+      .map((update) =>
+        supabase
+          .from("penalty_progress")
+          .update({
+            status: update.status,
+            completed: update.status === "completed",
+          })
+          .eq("id", update.id),
+      ),
   );
+
+  if (result.gamesWithoutCompliance !== currentGamesWithoutCompliance) {
+    const { error: counterError } = await supabase
+      .from("participants")
+      .update({ penalty_games_without_compliance: result.gamesWithoutCompliance })
+      .eq("id", participantId);
+    if (counterError) throw counterError;
+  }
 }
 
 function isAuthorized(request: Request): boolean {
@@ -401,7 +428,7 @@ export async function GET(request: Request) {
   const supabase = createAdminClient();
   const { data: participants, error } = await supabase
     .from("participants")
-    .select("id, puuid, region_platform, nombre_display");
+    .select("id, puuid, region_platform, nombre_display, penalty_games_without_compliance");
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });

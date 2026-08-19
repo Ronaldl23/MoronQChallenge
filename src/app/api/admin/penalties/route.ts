@@ -8,19 +8,23 @@ export const dynamic = "force-dynamic";
 
 export interface FlaggedPenalty {
   id: string;
+  participantId: string;
   participantName: string;
   senderName: string;
   championName: string;
   championIconUrl: string | null;
-  gamesWithoutCompliance: number;
   createdAt: string;
 }
 
 /**
- * Fase 4: cola de revisión manual. Castigos en 'flagged_for_review' — se
- * pasaron de las PENALTY_GAME_LIMIT partidas sin cumplirse (ver
- * src/lib/penalty.ts y su integración en /api/update-rankings) y esperan
- * que el admin confirme la descalificación o perdone acá.
+ * Fase 4 (rediseñada — contador compartido, ver src/lib/penalty.ts): cola
+ * de revisión manual. Castigos en 'flagged_for_review' — el jugador se
+ * pasó de las PENALTY_GAME_LIMIT partidas sin cumplir NINGUNO de sus
+ * castigos pendientes, así que TODOS los que le quedaban pendientes en ese
+ * momento pasaron a revisión juntos (misma causa). El cliente
+ * (PenaltyReviewPanel) los agrupa por participantId para mostrar eso, pero
+ * cada fila se sigue resolviendo por separado (Perdonar/Confirmar
+ * descalificación individual).
  */
 export async function GET(request: Request) {
   if (!(await isAdminAuthenticated(request))) {
@@ -30,7 +34,7 @@ export async function GET(request: Request) {
   const supabase = createAdminClient();
   const { data: flagged, error } = await supabase
     .from("penalty_progress")
-    .select("id, participant_id, mango_id, games_without_compliance, created_at")
+    .select("id, participant_id, mango_id, created_at")
     .eq("status", "flagged_for_review")
     .order("created_at", { ascending: true });
 
@@ -78,11 +82,11 @@ export async function GET(request: Request) {
       (mango?.sent_by_participant_id && nameById.get(mango.sent_by_participant_id)) || "Alguien";
     return {
       id: f.id,
+      participantId: f.participant_id,
       participantName: nameById.get(f.participant_id) ?? "Desconocido",
       senderName,
       championName: resolved.name,
       championIconUrl: resolved.iconUrl,
-      gamesWithoutCompliance: f.games_without_compliance,
       createdAt: f.created_at,
     };
   });

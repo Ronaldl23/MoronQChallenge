@@ -2,6 +2,10 @@
 // (src/lib/penalty.ts), sin red ni base de datos — mismo patrón que
 // scripts/test-quests.mjs.
 //
+// Modelo de contador COMPARTIDO (rediseño): un jugador con N castigos
+// pendientes tiene UN SOLO contador de partidas-sin-cumplir para todo el
+// grupo, no uno por castigo — ver el comentario al tope de penalty.ts.
+//
 //   node --experimental-strip-types scripts/test-penalty.mjs
 //
 import { processPenaltyMatches, PENALTY_GAME_LIMIT } from "../src/lib/penalty.ts";
@@ -28,188 +32,190 @@ function assertEqual(actual, expected, label) {
 
 const BASE_DATE = "2026-01-01T00:00:00.000Z";
 
-function penalty(id, championAssigned, { gamesWithoutCompliance = 0, createdAt = BASE_DATE } = {}) {
-  return { id, championAssigned, gamesWithoutCompliance, createdAt };
+function penalty(id, championAssigned, { createdAt = BASE_DATE } = {}) {
+  return { id, championAssigned, createdAt };
 }
 
 function match(id, { playedAt, championPlayed = "Ahri", teamPosition = "MIDDLE" } = {}) {
   return { matchId: id, playedAt, championPlayed, teamPosition };
 }
 
-// Timestamps crecientes después de BASE_DATE, para no tener que escribirlos a mano en cada test.
 function at(hoursAfterBase) {
   return new Date(new Date(BASE_DATE).getTime() + hoursAfterBase * 60 * 60 * 1000).toISOString();
 }
 
-// --- 1. Cumple a tiempo: jugó el campeón asignado en la primera partida -> 'completed' de inmediato ---
-{
-  const penalties = [penalty("p1", "Teemo")];
-  const matches = [match("m1", { playedAt: at(1), championPlayed: "Teemo" })];
-  const result = processPenaltyMatches({ penalties, matches });
-  assertEqual(
-    result,
-    [{ id: "p1", gamesWithoutCompliance: 0, status: "completed", completedOnMatchId: "m1" }],
-    "cumple en la 1ra partida: completed sin incrementar el contador",
-  );
+function run(penalties, matches, gamesWithoutCompliance = 0) {
+  return processPenaltyMatches({ penalties, matches, gamesWithoutCompliance });
 }
 
-// --- 2. Cumple en la 3ra partida (las primeras 2 no cumplen): completed, contador quedó en 2 ---
-{
-  const penalties = [penalty("p1", "Teemo")];
-  const matches = [
-    match("m1", { playedAt: at(1), championPlayed: "Ahri" }),
-    match("m2", { playedAt: at(2), championPlayed: "Zed" }),
-    match("m3", { playedAt: at(3), championPlayed: "Teemo" }),
-  ];
-  const result = processPenaltyMatches({ penalties, matches });
-  assertEqual(
-    result,
-    [{ id: "p1", gamesWithoutCompliance: 2, status: "completed", completedOnMatchId: "m3" }],
-    "cumple en la 3ra partida: completed, gamesWithoutCompliance quedó en 2 (no sube en la que sí cumple)",
-  );
+function statusOf(result, id) {
+  return result.updates.find((u) => u.id === id).status;
 }
 
-// --- 3. No cumple en 3 partidas seguidas -> pasa a 'flagged_for_review' ---
+// --- 1. Un solo castigo pendiente: cumple en la 1ra partida -> completed, contador vuelve a 0 ---
 {
-  const penalties = [penalty("p1", "Teemo")];
-  const matches = [
-    match("m1", { playedAt: at(1), championPlayed: "Ahri" }),
-    match("m2", { playedAt: at(2), championPlayed: "Zed" }),
-    match("m3", { playedAt: at(3), championPlayed: "Jinx" }),
-  ];
-  const result = processPenaltyMatches({ penalties, matches });
-  assertEqual(
-    result,
-    [{ id: "p1", gamesWithoutCompliance: 3, status: "flagged_for_review", completedOnMatchId: null }],
-    "3 partidas sin cumplir: flagged_for_review, contador en el límite exacto",
-  );
+  const result = run([penalty("p1", "Teemo")], [match("m1", { playedAt: at(1), championPlayed: "Teemo" })]);
+  assertEqual(statusOf(result, "p1"), "completed", "1 castigo, cumple en m1: completed");
+  assertEqual(result.gamesWithoutCompliance, 0, "1 castigo, cumple en m1: contador queda en 0");
 }
 
-// --- 4. Solo 2 partidas sin cumplir todavía (no llegó al límite) -> sigue 'pending' ---
+// --- 2. Un solo castigo: 3 partidas sin cumplir -> flagged_for_review, contador vuelve a 0 (regla 5: sin pendientes, sin contador) ---
 {
-  const penalties = [penalty("p1", "Teemo")];
-  const matches = [
-    match("m1", { playedAt: at(1), championPlayed: "Ahri" }),
-    match("m2", { playedAt: at(2), championPlayed: "Zed" }),
-  ];
-  const result = processPenaltyMatches({ penalties, matches });
-  assertEqual(
-    result,
-    [{ id: "p1", gamesWithoutCompliance: 2, status: "pending", completedOnMatchId: null }],
-    "2 partidas sin cumplir (todavía no llega a 3): sigue pending, con margen",
-  );
-}
-
-// --- 5. Una vez flagged, partidas siguientes no lo tocan más (no sigue subiendo el contador) ---
-{
-  const penalties = [penalty("p1", "Teemo")];
-  const matches = [
-    match("m1", { playedAt: at(1), championPlayed: "Ahri" }),
-    match("m2", { playedAt: at(2), championPlayed: "Zed" }),
-    match("m3", { playedAt: at(3), championPlayed: "Jinx" }),
-    match("m4", { playedAt: at(4), championPlayed: "Teemo" }), // llega tarde, ya no cuenta
-  ];
-  const result = processPenaltyMatches({ penalties, matches });
-  assertEqual(
-    result,
-    [{ id: "p1", gamesWithoutCompliance: 3, status: "flagged_for_review", completedOnMatchId: null }],
-    "flagged en m3: partidas posteriores (m4, aunque cumpla) no lo revierten ni lo tocan más",
-  );
-}
-
-// --- 6. Castigo "Support": cumple jugando CUALQUIER campeón en UTILITY ---
-{
-  const penalties = [penalty("p1", SUPPORT_ASSIGNMENT)];
-  const matches = [
-    match("m1", { playedAt: at(1), championPlayed: "Ahri", teamPosition: "MIDDLE" }),
-    match("m2", { playedAt: at(2), championPlayed: "Jinx", teamPosition: "UTILITY" }), // cualquier campeón sirve, lo que importa es la línea
-  ];
-  const result = processPenaltyMatches({ penalties, matches });
-  assertEqual(
-    result,
-    [{ id: "p1", gamesWithoutCompliance: 1, status: "completed", completedOnMatchId: "m2" }],
-    "castigo Support: cumple con Jinx en UTILITY (no hace falta un campeón específico)",
-  );
-}
-
-// --- 7. Castigo "Support": jugar Support de nombre (campeón) pero en otra línea NO cumple ---
-{
-  const penalties = [penalty("p1", SUPPORT_ASSIGNMENT)];
-  const matches = [match("m1", { playedAt: at(1), championPlayed: "Soraka", teamPosition: "BOTTOM" })];
-  const result = processPenaltyMatches({ penalties, matches });
-  assertEqual(
-    result,
-    [{ id: "p1", gamesWithoutCompliance: 1, status: "pending", completedOnMatchId: null }],
-    "castigo Support: jugar en BOTTOM no cumple aunque el campeón sea un support típico — importa teamPosition, no el campeón",
-  );
-}
-
-// --- 8. Múltiples castigos simultáneos: una partida cumple SOLO el que coincide, el otro sigue sumando ---
-{
-  const penalties = [penalty("teemo", "Teemo"), penalty("zed", "Zed")];
-  const matches = [match("m1", { playedAt: at(1), championPlayed: "Teemo" })];
-  const result = processPenaltyMatches({ penalties, matches });
-  assertEqual(
-    result,
+  const result = run(
+    [penalty("p1", "Teemo")],
     [
-      { id: "teemo", gamesWithoutCompliance: 0, status: "completed", completedOnMatchId: "m1" },
-      { id: "zed", gamesWithoutCompliance: 1, status: "pending", completedOnMatchId: null },
+      match("m1", { playedAt: at(1), championPlayed: "Ahri" }),
+      match("m2", { playedAt: at(2), championPlayed: "Zed" }),
+      match("m3", { playedAt: at(3), championPlayed: "Jinx" }),
     ],
-    "2 castigos pendientes, 1 partida: se cumple el que coincide, el otro suma 1 sin cumplir",
+  );
+  assertEqual(statusOf(result, "p1"), "flagged_for_review", "1 castigo, 3 partidas sin cumplir: flagged_for_review");
+  assertEqual(
+    result.gamesWithoutCompliance,
+    0,
+    "1 castigo flagged: el contador vuelve a 0 (ya no queda ningún pendiente corriendo)",
   );
 }
 
-// --- 9. Múltiples castigos simultáneos: UNA partida cumple DOS a la vez (dos Support pendientes) ---
+// --- 3. EJEMPLO DEL USUARIO: 3 castigos pendientes, 2 partidas sin cumplir ninguno, la 3ra cumple UNO -> ese completed, contador reinicia a 0, quedan 2 pendientes con ventana fresca ---
+{
+  const penalties = [penalty("a", "Teemo"), penalty("b", "Zed"), penalty("c", "Jinx")];
+  const matches = [
+    match("m1", { playedAt: at(1), championPlayed: "Ahri" }), // no cumple ninguno -> contador=1
+    match("m2", { playedAt: at(2), championPlayed: "Lux" }), // no cumple ninguno -> contador=2
+    match("m3", { playedAt: at(3), championPlayed: "Teemo" }), // cumple "a" -> completed, contador vuelve a 0
+  ];
+  const result = run(penalties, matches);
+  assertEqual(statusOf(result, "a"), "completed", "ejemplo del usuario: castigo 'a' (Teemo) se cumple en m3");
+  assertEqual(statusOf(result, "b"), "pending", "ejemplo del usuario: 'b' sigue pendiente, con ventana fresca");
+  assertEqual(statusOf(result, "c"), "pending", "ejemplo del usuario: 'c' sigue pendiente, con ventana fresca");
+  assertEqual(
+    result.gamesWithoutCompliance,
+    0,
+    "ejemplo del usuario: el contador compartido se reinicia a 0 tras cumplir 'a', para 'b' y 'c'",
+  );
+}
+
+// --- 4. 3 castigos pendientes, NINGUNO se cumple en 3 partidas -> los 3 pasan a flagged_for_review JUNTOS ---
+{
+  const penalties = [penalty("a", "Teemo"), penalty("b", "Zed"), penalty("c", "Jinx")];
+  const matches = [
+    match("m1", { playedAt: at(1), championPlayed: "Ahri" }),
+    match("m2", { playedAt: at(2), championPlayed: "Lux" }),
+    match("m3", { playedAt: at(3), championPlayed: "Vayne" }),
+  ];
+  const result = run(penalties, matches);
+  assertEqual(statusOf(result, "a"), "flagged_for_review", "3 castigos, nada cumplido en 3 partidas: 'a' flagged");
+  assertEqual(statusOf(result, "b"), "flagged_for_review", "3 castigos, nada cumplido en 3 partidas: 'b' flagged");
+  assertEqual(statusOf(result, "c"), "flagged_for_review", "3 castigos, nada cumplido en 3 partidas: 'c' flagged");
+  assertEqual(result.gamesWithoutCompliance, 0, "los 3 flagged juntos: el contador vuelve a 0");
+}
+
+// --- 5. Una misma partida cumple DOS castigos a la vez (dos Support pendientes) -> ambos completed en la misma partida ---
 {
   const penalties = [penalty("s1", SUPPORT_ASSIGNMENT), penalty("s2", SUPPORT_ASSIGNMENT)];
   const matches = [match("m1", { playedAt: at(1), championPlayed: "Lulu", teamPosition: "UTILITY" })];
-  const result = processPenaltyMatches({ penalties, matches });
+  const result = run(penalties, matches);
+  assertEqual(statusOf(result, "s1"), "completed", "2 castigos Support: la misma partida cumple los DOS a la vez (s1)");
+  assertEqual(statusOf(result, "s2"), "completed", "2 castigos Support: la misma partida cumple los DOS a la vez (s2)");
   assertEqual(
-    result,
-    [
-      { id: "s1", gamesWithoutCompliance: 0, status: "completed", completedOnMatchId: "m1" },
-      { id: "s2", gamesWithoutCompliance: 0, status: "completed", completedOnMatchId: "m1" },
-    ],
-    "2 castigos Support pendientes a la vez: la misma partida en UTILITY cumple los DOS simultáneamente",
+    result.updates.find((u) => u.id === "s1").completedOnMatchId,
+    "m1",
+    "ambos quedan marcados con la misma partida que los cumplió",
   );
 }
 
-// --- 10. Partidas jugadas ANTES de que se asignara el castigo no cuentan ni a favor ni en contra ---
+// --- 6. Solo 2 partidas sin cumplir (no llega al límite) -> el grupo entero sigue 'pending', contador en 2 ---
 {
-  const penalties = [penalty("p1", "Teemo", { createdAt: at(5) })];
+  const penalties = [penalty("a", "Teemo"), penalty("b", "Zed")];
   const matches = [
-    match("m1", { playedAt: at(1), championPlayed: "Ahri" }), // antes del castigo: se ignora
-    match("m2", { playedAt: at(2), championPlayed: "Teemo" }), // antes del castigo: se ignora aunque "cumpliría"
+    match("m1", { playedAt: at(1), championPlayed: "Ahri" }),
+    match("m2", { playedAt: at(2), championPlayed: "Lux" }),
   ];
-  const result = processPenaltyMatches({ penalties, matches });
-  assertEqual(
-    result,
-    [{ id: "p1", gamesWithoutCompliance: 0, status: "pending", completedOnMatchId: null }],
-    "partidas anteriores a created_at del castigo: no cuentan, ni para sumar ni para cumplir",
-  );
+  const result = run(penalties, matches);
+  assertEqual(statusOf(result, "a"), "pending", "2 partidas sin cumplir (no llega a 3): sigue pending");
+  assertEqual(statusOf(result, "b"), "pending", "2 partidas sin cumplir (no llega a 3): sigue pending");
+  assertEqual(result.gamesWithoutCompliance, 2, "el contador compartido queda en 2, con margen todavía");
 }
 
-// --- 11. Retoma un contador que ya venía con progreso de una corrida anterior (2/3) -> la 3ra partida sin cumplir lo flaggea ---
+// --- 7. Retoma un contador que ya venía con progreso (2) de una corrida anterior -> 1 partida más sin cumplir alcanza el límite ---
 {
-  const penalties = [penalty("p1", "Teemo", { gamesWithoutCompliance: 2 })];
-  const matches = [match("m1", { playedAt: at(1), championPlayed: "Ahri" })];
-  const result = processPenaltyMatches({ penalties, matches });
-  assertEqual(
-    result,
-    [{ id: "p1", gamesWithoutCompliance: 3, status: "flagged_for_review", completedOnMatchId: null }],
-    "arranca en 2/3 de una corrida anterior: 1 partida más sin cumplir alcanza el límite (PENALTY_GAME_LIMIT=3)",
+  const result = run(
+    [penalty("a", "Teemo")],
+    [match("m1", { playedAt: at(1), championPlayed: "Ahri" })],
+    2, // contador ya en 2 al arrancar esta corrida
   );
+  assertEqual(statusOf(result, "a"), "flagged_for_review", "arranca en 2/3: 1 partida más sin cumplir alcanza el límite");
+  assertEqual(result.gamesWithoutCompliance, 0, "flagged: el contador vuelve a 0");
 }
 
-// --- 12. Sin partidas nuevas: no-op, se devuelve tal cual estaba ---
+// --- 8. Sin castigos pendientes: no-op total, sin contador corriendo (regla 5) — incluso si venía un contador viejo pegado ---
 {
-  const penalties = [penalty("p1", "Teemo", { gamesWithoutCompliance: 1 })];
-  const result = processPenaltyMatches({ penalties, matches: [] });
-  assertEqual(
-    result,
-    [{ id: "p1", gamesWithoutCompliance: 1, status: "pending", completedOnMatchId: null }],
-    "sin partidas nuevas: no cambia nada",
+  const result = run([], [match("m1", { playedAt: at(1), championPlayed: "Teemo" })], 2);
+  assertEqual(result.updates, [], "sin castigos pendientes: no hay nada que actualizar");
+  assertEqual(result.gamesWithoutCompliance, 0, "sin castigos pendientes: el contador queda/vuelve a 0, no corre");
+}
+
+// --- 9. Una vez flagged el grupo, partidas posteriores en la misma corrida no lo tocan más ---
+{
+  const penalties = [penalty("a", "Teemo")];
+  const matches = [
+    match("m1", { playedAt: at(1), championPlayed: "Ahri" }),
+    match("m2", { playedAt: at(2), championPlayed: "Lux" }),
+    match("m3", { playedAt: at(3), championPlayed: "Vayne" }), // flaggea acá
+    match("m4", { playedAt: at(4), championPlayed: "Teemo" }), // llega tarde, ya no cuenta
+  ];
+  const result = run(penalties, matches);
+  assertEqual(statusOf(result, "a"), "flagged_for_review", "flagged en m3: m4 (aunque cumpla) no lo revierte");
+  assertEqual(result.gamesWithoutCompliance, 0, "sigue en 0 tras flaggear, m4 no lo mueve");
+}
+
+// --- 10. Castigo "Support": cumple con CUALQUIER campeón en UTILITY, no uno específico ---
+{
+  const result = run(
+    [penalty("p1", SUPPORT_ASSIGNMENT)],
+    [match("m1", { playedAt: at(1), championPlayed: "Jinx", teamPosition: "UTILITY" })],
   );
+  assertEqual(statusOf(result, "p1"), "completed", "castigo Support: cumple con Jinx en UTILITY, no hace falta un campeón específico");
+}
+
+// --- 11. Castigo "Support": jugar un campeón support típico en otra línea NO cumple (importa teamPosition, no el campeón) ---
+{
+  const result = run(
+    [penalty("p1", SUPPORT_ASSIGNMENT)],
+    [match("m1", { playedAt: at(1), championPlayed: "Soraka", teamPosition: "BOTTOM" })],
+  );
+  assertEqual(statusOf(result, "p1"), "pending", "castigo Support: Soraka en BOTTOM no cumple, importa la línea");
+}
+
+// --- 12. Partidas jugadas ANTES de que existiera NINGÚN castigo pendiente no cuentan ni a favor ni en contra ---
+{
+  const result = run(
+    [penalty("a", "Teemo", { createdAt: at(5) })],
+    [
+      match("m1", { playedAt: at(1), championPlayed: "Ahri" }), // antes: se ignora
+      match("m2", { playedAt: at(2), championPlayed: "Teemo" }), // antes: se ignora aunque "cumpliría"
+    ],
+  );
+  assertEqual(statusOf(result, "a"), "pending", "partidas anteriores a que existiera el castigo: se ignoran");
+  assertEqual(result.gamesWithoutCompliance, 0, "partidas anteriores: no suman al contador");
+}
+
+// --- 13. Sin partidas nuevas: no-op, el contador se devuelve tal cual estaba ---
+{
+  const result = run([penalty("a", "Teemo")], [], 1);
+  assertEqual(statusOf(result, "a"), "pending", "sin partidas nuevas: no cambia nada");
+  assertEqual(result.gamesWithoutCompliance, 1, "sin partidas nuevas: el contador no se toca");
+}
+
+// --- 14. Múltiples castigos: uno se cumple, otro NO en la misma partida (no todos cumplen a la vez) ---
+{
+  const penalties = [penalty("teemo", "Teemo"), penalty("zed", "Zed")];
+  const matches = [match("m1", { playedAt: at(1), championPlayed: "Teemo" })];
+  const result = run(penalties, matches);
+  assertEqual(statusOf(result, "teemo"), "completed", "2 castigos, 1 partida: se cumple el que coincide");
+  assertEqual(statusOf(result, "zed"), "pending", "2 castigos, 1 partida: el que no coincide sigue pendiente");
+  assertEqual(result.gamesWithoutCompliance, 0, "al cumplirse uno, el contador compartido se resetea igual");
 }
 
 assertEqual(PENALTY_GAME_LIMIT, 3, "PENALTY_GAME_LIMIT es 3 (regla confirmada por el usuario)");

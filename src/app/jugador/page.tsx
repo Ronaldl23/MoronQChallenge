@@ -13,11 +13,14 @@ import type { LaunchTarget } from "./LaunchModal";
 export const dynamic = "force-dynamic";
 
 /**
- * mangos/quest_progress/penalty_progress tienen RLS activado sin policies
- * públicas todavía (Fase 1) — /jugador no usa Supabase Auth, así que no hay
- * forma de atarlas a auth.uid(). El service role + el scoping explícito acá
- * abajo (siempre .eq a participantId, ya validado por la cookie firmada) ES
- * el límite de autorización, mismo patrón que /api/jugador/login.
+ * mangos/penalty_progress tienen policy pública de SOLO LECTURA desde la
+ * Fase 5 (0009_public_read_mango_penalty.sql, para el leaderboard público);
+ * quest_progress sigue sin ninguna. Ninguna de las tres tiene policy de
+ * ESCRITURA pública — /jugador no usa Supabase Auth, así que no hay forma de
+ * atarlas a auth.uid(). El service role + el scoping explícito acá abajo
+ * (siempre .eq a participantId, ya validado por la cookie firmada) ES el
+ * límite de autorización para lecturas/escrituras propias del jugador,
+ * mismo patrón que /api/jugador/login.
  */
 export default async function JugadorPage() {
   const participantId = await getAuthenticatedParticipantId();
@@ -36,7 +39,11 @@ export default async function JugadorPage() {
 
   const [participantResult, mangosResult, questsResult, othersResult, pendingPenaltiesResult] =
     await Promise.all([
-      supabase.from("participants").select("nombre_display").eq("id", participantId).maybeSingle(),
+      supabase
+        .from("participants")
+        .select("nombre_display, penalty_games_without_compliance")
+        .eq("id", participantId)
+        .maybeSingle(),
       supabase
         .from("mangos")
         .select("id")
@@ -56,13 +63,16 @@ export default async function JugadorPage() {
       // notificaciones).
       supabase
         .from("penalty_progress")
-        .select("id, mango_id, games_without_compliance")
+        .select("id, mango_id")
         .eq("participant_id", participantId)
         .eq("status", "pending")
         .order("created_at", { ascending: false }),
     ]);
 
   const nombreDisplay = participantResult.data?.nombre_display ?? null;
+  // Contador COMPARTIDO entre TODOS los castigos pendientes (rediseño de
+  // Fase 4) — vive en participants, no en cada penalty_progress individual.
+  const gamesWithoutCompliance = participantResult.data?.penalty_games_without_compliance ?? 0;
 
   if (!nombreDisplay) {
     // Cookie firmada pero el participante ya no existe — sesión huérfana.
@@ -127,7 +137,6 @@ export default async function JugadorPage() {
     name: string;
     iconUrl: string | null;
     senderName: string;
-    gamesWithoutCompliance: number;
   }[] = [];
   if (pendingPenalties.length > 0) {
     const { data: pendingMangos } = await supabase
@@ -153,19 +162,30 @@ export default async function JugadorPage() {
       const senderName =
         (mango?.sent_by_participant_id && senderNameById.get(mango.sent_by_participant_id)) ||
         "Alguien";
-      return { ...resolved, senderName, gamesWithoutCompliance: p.games_without_compliance };
+      return { ...resolved, senderName };
     });
   }
 
   return (
     <PageShell subtitle="Sesión iniciada.">
       {pendingPunishments.length > 0 && (
-        <section className="flex flex-col gap-2 rounded-2xl border border-loss/50 bg-surface p-6">
-          <p className="font-display text-base font-bold text-loss">
-            Tenés {pendingPunishments.length}{" "}
-            {pendingPunishments.length === 1 ? "castigo pendiente" : "castigos pendientes"} por
-            cumplir
-          </p>
+        <section className="flex flex-col gap-3 rounded-2xl border border-loss/50 bg-surface p-6">
+          <div>
+            <p className="font-display text-base font-bold text-loss">
+              Tenés {pendingPunishments.length}{" "}
+              {pendingPunishments.length === 1 ? "castigo pendiente" : "castigos pendientes"} por
+              cumplir
+            </p>
+            {/*
+              Contador COMPARTIDO entre TODOS los castigos pendientes (no
+              uno por castigo, rediseño de Fase 4) — cumplir CUALQUIERA de
+              ellos reinicia esta ventana para los que queden.
+            */}
+            <p className="text-sm text-text-secondary">
+              Llevas {gamesWithoutCompliance} de {PENALTY_GAME_LIMIT} partidas sin cumplir ninguno de
+              tus castigos pendientes.
+            </p>
+          </div>
           <ul className="flex flex-col gap-2">
             {pendingPunishments.map((punishment, i) => (
               <li
@@ -178,15 +198,9 @@ export default async function JugadorPage() {
                   alt=""
                   className="h-8 w-8 shrink-0 rounded-full object-cover"
                 />
-                <span className="flex flex-col">
-                  <span>
-                    <span className="text-text-secondary">{punishment.senderName} te envió:</span>{" "}
-                    {punishment.name}
-                  </span>
-                  <span className="text-xs text-text-muted">
-                    Llevas {punishment.gamesWithoutCompliance} de {PENALTY_GAME_LIMIT} partidas sin
-                    cumplir este castigo
-                  </span>
+                <span>
+                  <span className="text-text-secondary">{punishment.senderName} te envió:</span>{" "}
+                  {punishment.name}
                 </span>
               </li>
             ))}
