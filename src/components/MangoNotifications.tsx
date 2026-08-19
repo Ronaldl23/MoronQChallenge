@@ -3,30 +3,57 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
-import type { MangoNotification } from "@/app/api/jugador/notifications/route";
+import type { Champion } from "@/lib/champions";
+import type { MangoNotification, NotificationsResponse } from "@/app/api/jugador/notifications/route";
+import { MangoRevealModal } from "./MangoRevealModal";
 
 const POLL_INTERVAL_MS = 20_000;
 const TOAST_AUTO_DISMISS_MS = 8_000;
-
 /**
- * Poll + toast de "te llegó un Mango". Mismo patrón que AutoRefresh del
- * leaderboard (intervalo + refresco inmediato al volver a la pestaña), pero
- * acá el chequeo INICIAL al montar (antes de cualquier intervalo) es lo que
- * cubre el caso de "recibí un mango mientras no estaba logueado": si ya
- * había alguna notificación sin ver esperando, se muestra apenas carga la
- * página, no hace falta esperar al primer tick.
+ * Cuánto esperar DESPUÉS de mostrar el toast de "te llegó un Mango" antes
+ * de disparar la ruleta de revelación — la secuencia (sonido → aviso →
+ * recién ahí la ruleta) es un requisito explícito del usuario, nunca deben
+ * aparecer juntos ni la ruleta primero.
  */
+const REVEAL_DELAY_AFTER_TOAST_MS = 2_500;
+
 /** penalty_progress.id no alcanza como key: el mismo id puede representar DOS notificaciones distintas (received + flagged_for_review) si el jugador nunca vio la primera antes de que el castigo pasara a revisión. */
 function toastKey(n: MangoNotification): string {
   return `${n.kind}:${n.id}`;
 }
 
-export function MangoNotifications() {
+/**
+ * Poll de 20s (mismo intervalo de siempre) con tres responsabilidades:
+ * 1. Toasts de "te llegó un Mango" / "no cumpliste a tiempo" / "X recibió tu
+ *    mango" — igual que antes, con sonido.
+ * 2. Efecto secundario en el propio GET: refresca participants.last_seen_at
+ *    (presencia, ver src/lib/presence.ts) — no hay nada que hacer acá del
+ *    lado del cliente para esto, el servidor ya lo hace en cada corrida.
+ * 3. Dispara el modal de revelación de la ruleta (MangoRevealModal) cuando
+ *    corresponde — SIEMPRE después del toast de "te llegó un Mango" (nunca
+ *    antes, nunca en su lugar), tanto para una recepción normal como para
+ *    un rebote (ambos casos usan la misma secuencia, confirmado por el
+ *    usuario). `pendingReveal` en la respuesta es la verdad actual (no un
+ *    evento "nuevo" como `notifications`), así que si el jugador cierra el
+ *    modal sin girar, se lo vuelve a ofrecer en el próximo poll — salvo que
+ *    ya lo haya descartado en ESTA carga de página (dismissedRevealsRef),
+ *    en cuyo caso queda disponible solo desde el banner manual de
+ *    /jugador ("Mango en espera").
+ */
+export function MangoNotifications({ champions }: { champions: Champion[] }) {
   const router = useRouter();
   const [toasts, setToasts] = useState<MangoNotification[]>([]);
+  const [revealMangoId, setRevealMangoId] = useState<string | null>(null);
   // Keys ya encoladas en ESTA carga de página, para no duplicar un toast si
   // dos polls se pisan antes de que el ack termine de confirmarse.
   const queuedKeys = useRef<Set<string>>(new Set());
+  // Mangos que el jugador cerró sin girar en ESTA carga de página — no se
+  // vuelven a ofrecer solos hasta un reload/pestaña nueva (siguen
+  // disponibles desde /jugador mientras tanto).
+  const dismissedRevealsRef = useRef<Set<string>>(new Set());
+  // Evita programar el mismo reveal dos veces si un poll llega mientras el
+  // setTimeout del poll anterior todavía no disparó.
+  const revealScheduledRef = useRef<string | null>(null);
   // Un solo <audio> reusado (no "new Audio()" cada vez) — el "desbloqueo" de
   // autoplay del navegador queda atado a ESTE elemento en particular, no al
   // origen en general, así que hay que reproducir SIEMPRE el mismo objeto.
@@ -76,28 +103,43 @@ export function MangoNotifications() {
       const res = await fetch("/api/jugador/notifications");
       if (!res.ok || cancelled) return;
 
-      const body = await res.json().catch(() => null);
-      const notifications = (body?.notifications ?? []) as MangoNotification[];
+      const body = (await res.json().catch(() => null)) as NotificationsResponse | null;
+      const notifications = body?.notifications ?? [];
+      const pendingReveal = body?.pendingReveal ?? null;
+
       const fresh = notifications.filter((n) => !queuedKeys.current.has(toastKey(n)));
-      if (fresh.length === 0) return;
+      let justShowedToast = false;
 
-      fresh.forEach((n) => queuedKeys.current.add(toastKey(n)));
-      setToasts((prev) => [...prev, ...fresh]);
+      if (fresh.length > 0) {
+        fresh.forEach((n) => queuedKeys.current.add(toastKey(n)));
+        setToasts((prev) => [...prev, ...fresh]);
+        justShowedToast = true;
 
-      audioRef.current?.play().catch(() => {});
+        audioRef.current?.play().catch(() => {});
 
-      const ackRes = await fetch("/api/jugador/notifications/ack", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        // Puede haber ids repetidos acá (un mismo penalty_progress.id con
-        // dos kinds distintos) — el endpoint ya marca ambos flags a la vez,
-        // así que un id de más en la lista es inofensivo.
-        body: JSON.stringify({ ids: fresh.map((n) => n.id) }),
-      }).catch(() => null);
+        const ackRes = await fetch("/api/jugador/notifications/ack", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items: fresh.map((n) => ({ id: n.id, kind: n.kind })) }),
+        }).catch(() => null);
 
-      // El banner de "castigos pendientes" se arma server-side — refrescar
-      // para que incluya el que recién llegó, sin esperar a un reload manual.
-      if (ackRes?.ok) router.refresh();
+        // El banner de "castigos pendientes" se arma server-side — refrescar
+        // para que incluya el que recién llegó, sin esperar a un reload manual.
+        if (ackRes?.ok) router.refresh();
+      }
+
+      if (
+        pendingReveal &&
+        !dismissedRevealsRef.current.has(pendingReveal.mangoId) &&
+        revealScheduledRef.current !== pendingReveal.mangoId
+      ) {
+        revealScheduledRef.current = pendingReveal.mangoId;
+        const delay = justShowedToast ? REVEAL_DELAY_AFTER_TOAST_MS : 0;
+        setTimeout(() => {
+          if (cancelled) return;
+          setRevealMangoId(pendingReveal.mangoId);
+        }, delay);
+      }
     }
 
     checkForNotifications();
@@ -120,14 +162,36 @@ export function MangoNotifications() {
     setToasts((prev) => prev.filter((t) => toastKey(t) !== key));
   }
 
+  function handleRevealClose() {
+    if (revealMangoId) dismissedRevealsRef.current.add(revealMangoId);
+    revealScheduledRef.current = null;
+    setRevealMangoId(null);
+  }
+
+  function handleRevealed() {
+    revealScheduledRef.current = null;
+    setRevealMangoId(null);
+    router.refresh();
+  }
+
   return (
-    <div className="pointer-events-none fixed top-4 right-4 z-[60] flex flex-col gap-2">
-      <AnimatePresence>
-        {toasts.map((toast) => (
-          <MangoToast key={toastKey(toast)} notification={toast} onDismiss={() => dismiss(toastKey(toast))} />
-        ))}
-      </AnimatePresence>
-    </div>
+    <>
+      <div className="pointer-events-none fixed top-4 right-4 z-[60] flex flex-col gap-2">
+        <AnimatePresence>
+          {toasts.map((toast) => (
+            <MangoToast key={toastKey(toast)} notification={toast} onDismiss={() => dismiss(toastKey(toast))} />
+          ))}
+        </AnimatePresence>
+      </div>
+      {revealMangoId && (
+        <MangoRevealModal
+          mangoId={revealMangoId}
+          champions={champions}
+          onClose={handleRevealClose}
+          onRevealed={handleRevealed}
+        />
+      )}
+    </>
   );
 }
 
@@ -144,8 +208,6 @@ function MangoToast({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const isFlagged = notification.kind === "flagged_for_review";
-
   return (
     <motion.div
       layout
@@ -154,9 +216,9 @@ function MangoToast({
       exit={{ opacity: 0, x: 40 }}
       transition={{ duration: 0.25, ease: "easeOut" }}
       className={`pointer-events-auto flex w-80 items-center gap-3 rounded-2xl border bg-surface p-4 ${
-        isFlagged
-          ? "border-gold/50 shadow-[0_0_40px_-12px_var(--gold)]"
-          : "border-loss/50 shadow-[0_0_40px_-12px_var(--loss)]"
+        notification.kind === "received"
+          ? "border-loss/50 shadow-[0_0_40px_-12px_var(--loss)]"
+          : "border-gold/50 shadow-[0_0_40px_-12px_var(--gold)]"
       }`}
     >
       {/* eslint-disable-next-line @next/next/no-img-element -- asset local o CDN externo (Data Dragon / Community Dragon) */}
@@ -166,18 +228,28 @@ function MangoToast({
         className="h-12 w-12 shrink-0 rounded-lg object-cover"
       />
       <div className="min-w-0 flex-1">
-        {isFlagged ? (
+        {notification.kind === "flagged_for_review" && (
           <>
             <p className="font-display text-sm font-bold text-gold">No cumpliste a tiempo</p>
             <p className="truncate text-sm text-text-primary">
               <strong>{notification.championName}</strong> quedó pendiente de revisión.
             </p>
           </>
-        ) : (
+        )}
+        {notification.kind === "received" && (
           <>
             <p className="font-display text-sm font-bold text-loss">¡Te llegó un Mango!</p>
             <p className="truncate text-sm text-text-primary">
-              <strong>{notification.senderName}</strong> te envió: <strong>{notification.championName}</strong>
+              <strong>{notification.otherPartyName}</strong> te envió un Mango.
+            </p>
+          </>
+        )}
+        {notification.kind === "launcher_reveal" && (
+          <>
+            <p className="font-display text-sm font-bold text-gold">¡Tu mango llegó a destino!</p>
+            <p className="truncate text-sm text-text-primary">
+              <strong>{notification.otherPartyName}</strong> recibió tu mango con el castigo:{" "}
+              <strong>{notification.championName}</strong>.
             </p>
           </>
         )}

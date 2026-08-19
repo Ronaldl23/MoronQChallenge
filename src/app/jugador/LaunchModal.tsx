@@ -1,38 +1,11 @@
 "use client";
 
-import { useRef, useState } from "react";
-import type { Champion } from "@/lib/champions";
-import { SUPPORT_ASSIGNMENT, SUPPORT_ICON_URL } from "@/lib/mango-launch";
-import { RouletteStrip, type RouletteItem } from "@/components/RouletteStrip";
-
-const BOUNCE_ITEM: RouletteItem = {
-  key: "bounce",
-  label: "MANGO DEVUELTO",
-  iconUrl: "/MangoAngry.png",
-  variant: "bounce",
-};
-
-const SUPPORT_ITEM: RouletteItem = {
-  key: "support",
-  label: "Support",
-  iconUrl: SUPPORT_ICON_URL,
-  variant: "support",
-};
-
-/** El id pseudo-campeón "SUPPORT" que devuelve el servidor (ver toStoredAssignment en el endpoint) necesita el anillo dorado de SUPPORT_ITEM, no el genérico. */
-function championToRouletteItem(champion: Champion): RouletteItem {
-  if (champion.id === SUPPORT_ASSIGNMENT) return SUPPORT_ITEM;
-  return { key: champion.id, label: champion.name, iconUrl: champion.iconUrl };
-}
+import { useState } from "react";
 
 type Step =
   | { phase: "select" }
   | { phase: "launching" }
-  | { phase: "spinning"; result: RouletteItem; spinToken: number }
-  | { phase: "revealed-normal"; champion: Champion; targetName: string }
-  | { phase: "bounced-first-revealed"; targetName: string }
-  | { phase: "spinning-bounce"; result: RouletteItem; spinToken: number }
-  | { phase: "revealed-bounce"; champion: Champion }
+  | { phase: "sent"; targetName: string }
   | { phase: "error"; message: string };
 
 export interface LaunchTarget {
@@ -40,48 +13,33 @@ export interface LaunchTarget {
   nombre_display: string;
   receivedLast24h: number;
   dailyLimit: number;
+  /** Presencia (últimos 45s de last_seen_at) — ver src/lib/presence.ts. Calculado server-side. */
+  online: boolean;
 }
 
+/**
+ * El azar (campeón/Support/rebote) se decide en el servidor en el momento
+ * del lanzamiento, como siempre — pero desde este rediseño ya NO se le
+ * muestra a quien lanza (ver /api/jugador/mangos/launch). El resultado se
+ * revela recién en la sesión de quien lo tiene que revelar, con
+ * MangoRevealModal (disparado automáticamente desde MangoNotifications en
+ * cualquier página, o manualmente desde el banner de "Mango en espera" acá
+ * mismo en /jugador) — este modal solo confirma el envío.
+ */
 export function LaunchModal({
   mangoId,
   otherParticipants,
-  champions,
   onClose,
   onComplete,
 }: {
   mangoId: string;
   otherParticipants: LaunchTarget[];
-  champions: Champion[];
   onClose: () => void;
   onComplete: () => void;
 }) {
   const [step, setStep] = useState<Step>({ phase: "select" });
-  const pendingRef = useRef<{ bounced: boolean; champion: Champion; targetName: string } | null>(
-    null,
-  );
-  // Contador en vez de Date.now(): alcanza con que cambie en cada giro para
-  // forzar el useEffect de RouletteStrip, sin llamar nada impuro acá.
-  const spinCounterRef = useRef(0);
 
-  const championItems: RouletteItem[] = champions.map((c) => ({
-    key: c.id,
-    label: c.name,
-    iconUrl: c.iconUrl,
-  }));
-  // Support pesa 20% real (vs. ~0.4% de un campeón puntual): unas cuantas
-  // copias más en el pool visual para que se sienta acorde, aunque el
-  // resultado real ya lo decidió el servidor — esto es solo relleno.
-  const poolWithSupport: RouletteItem[] = [
-    ...championItems,
-    SUPPORT_ITEM,
-    SUPPORT_ITEM,
-    SUPPORT_ITEM,
-    SUPPORT_ITEM,
-  ];
-  // Marcador de rebote intercalado, solo para la PRIMERA ruleta (el "10%").
-  const poolWithBounceAndSupport: RouletteItem[] = [...poolWithSupport, BOUNCE_ITEM, BOUNCE_ITEM];
-
-  async function handleSelectTarget(targetId: string) {
+  async function handleSelectTarget(targetId: string, targetName: string) {
     setStep({ phase: "launching" });
 
     const res = await fetch("/api/jugador/mangos/launch", {
@@ -96,39 +54,7 @@ export function LaunchModal({
       return;
     }
 
-    const bounced = body.bounced as boolean;
-    const champion = body.champion as Champion;
-    const targetName = body.targetNombreDisplay as string;
-    pendingRef.current = { bounced, champion, targetName };
-
-    const resultItem: RouletteItem = bounced ? BOUNCE_ITEM : championToRouletteItem(champion);
-    spinCounterRef.current += 1;
-    setStep({ phase: "spinning", result: resultItem, spinToken: spinCounterRef.current });
-  }
-
-  function handleFirstSettle() {
-    const pending = pendingRef.current;
-    if (!pending) return;
-    if (pending.bounced) {
-      new Audio("/RuletaFallo.mp3").play().catch(() => {});
-      setStep({ phase: "bounced-first-revealed", targetName: pending.targetName });
-    } else {
-      setStep({ phase: "revealed-normal", champion: pending.champion, targetName: pending.targetName });
-    }
-  }
-
-  function handleContinueAfterBounceReveal() {
-    const pending = pendingRef.current;
-    if (!pending) return;
-    const resultItem = championToRouletteItem(pending.champion);
-    spinCounterRef.current += 1;
-    setStep({ phase: "spinning-bounce", result: resultItem, spinToken: spinCounterRef.current });
-  }
-
-  function handleBounceSettle() {
-    const pending = pendingRef.current;
-    if (!pending) return;
-    setStep({ phase: "revealed-bounce", champion: pending.champion });
+    setStep({ phase: "sent", targetName: body.targetNombreDisplay ?? targetName });
   }
 
   return (
@@ -145,6 +71,10 @@ export function LaunchModal({
             <h3 className="font-display text-lg font-bold text-text-primary">
               ¿A quién le lanzás el mango?
             </h3>
+            <p className="mt-1 text-xs text-text-secondary">
+              El castigo se decide ahora, pero no lo vas a ver — se revela en la sesión de quien lo
+              reciba.
+            </p>
             <div className="mt-4 flex max-h-80 flex-col gap-2 overflow-y-auto">
               {otherParticipants.length === 0 && (
                 <p className="text-sm text-text-secondary">No hay otros participantes todavía.</p>
@@ -156,14 +86,23 @@ export function LaunchModal({
                     key={p.id}
                     type="button"
                     disabled={atLimit}
-                    onClick={() => handleSelectTarget(p.id)}
+                    onClick={() => handleSelectTarget(p.id, p.nombre_display)}
                     className={`flex items-center justify-between rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
                       atLimit
                         ? "cursor-not-allowed border-border-hairline bg-bg-elevated/40 text-text-muted"
                         : "border-border-hairline bg-bg-elevated text-text-primary hover:border-gold/50"
                     }`}
                   >
-                    <span>{p.nombre_display}</span>
+                    <span className="flex items-center gap-1.5">
+                      {/* Mismo estilo de brillo que el "en partida" de OP.GG (OpggButton) — un jugador conectado ahora mismo es más probable que revele pronto. */}
+                      <span
+                        className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                          p.online ? "animate-pulse bg-live shadow-[0_0_6px_var(--live)]" : "bg-text-muted/40"
+                        }`}
+                        aria-hidden
+                      />
+                      <span className={p.online ? "" : "text-text-muted"}>{p.nombre_display}</span>
+                    </span>
                     {atLimit ? (
                       <span className="text-xs text-loss">límite diario alcanzado</span>
                     ) : (
@@ -189,86 +128,15 @@ export function LaunchModal({
           <p className="py-8 text-center text-sm text-text-secondary">Lanzando...</p>
         )}
 
-        {step.phase === "spinning" && (
-          <div className="flex flex-col items-center gap-4 py-4">
-            <h3 className="font-display text-lg font-bold text-text-primary">
-              Girando la ruleta...
-            </h3>
-            <RouletteStrip
-              key={step.spinToken}
-              pool={poolWithBounceAndSupport}
-              result={step.result}
-              onSettle={handleFirstSettle}
-            />
-          </div>
-        )}
-
-        {step.phase === "revealed-normal" && (
-          <div className="flex flex-col items-center gap-3 py-4 text-center">
-            {/* eslint-disable-next-line @next/next/no-img-element -- CDN externo (Data Dragon) */}
-            <img
-              src={step.champion.iconUrl}
-              alt={step.champion.name}
-              className="h-20 w-20 rounded-lg ring-2 ring-gold"
-            />
-            <p className="text-text-secondary">
-              Le lanzaste el mango a{" "}
-              <strong className="text-text-primary">{step.targetName}</strong>.
-            </p>
-            <p className="font-display text-xl font-bold text-gold">Le tocó: {step.champion.name}</p>
-            <button
-              type="button"
-              onClick={onComplete}
-              className="mt-2 rounded-full bg-gold px-4 py-2 font-display text-sm font-bold tracking-wide text-bg uppercase transition-colors hover:bg-gold-soft"
-            >
-              Listo
-            </button>
-          </div>
-        )}
-
-        {step.phase === "bounced-first-revealed" && (
+        {step.phase === "sent" && (
           <div className="flex flex-col items-center gap-3 py-4 text-center">
             {/* eslint-disable-next-line @next/next/no-img-element -- asset local */}
-            <img src="/MangoAngry.png" alt="Mango devuelto" className="h-20 w-20 object-contain" />
-            <p className="font-display text-xl font-bold text-loss">
-              ¡{step.targetName} te devolvió el mango!
-            </p>
+            <img src="/MangoHappy.png" alt="" className="h-20 w-20 object-contain" />
+            <p className="font-display text-xl font-bold text-gold">¡Mango lanzado!</p>
             <p className="text-sm text-text-secondary">
-              El mango vuelve a tu inventario — pero el castigo te toca a vos.
+              Se lo enviaste a <strong className="text-text-primary">{step.targetName}</strong>. Te
+              vamos a avisar acá cuando lo revele.
             </p>
-            <button
-              type="button"
-              onClick={handleContinueAfterBounceReveal}
-              className="mt-2 rounded-full bg-gold px-4 py-2 font-display text-sm font-bold tracking-wide text-bg uppercase transition-colors hover:bg-gold-soft"
-            >
-              Girar mi castigo
-            </button>
-          </div>
-        )}
-
-        {step.phase === "spinning-bounce" && (
-          <div className="flex flex-col items-center gap-4 py-4">
-            <h3 className="font-display text-lg font-bold text-text-primary">
-              Girando tu castigo...
-            </h3>
-            <RouletteStrip
-              key={step.spinToken}
-              pool={poolWithSupport}
-              result={step.result}
-              onSettle={handleBounceSettle}
-            />
-          </div>
-        )}
-
-        {step.phase === "revealed-bounce" && (
-          <div className="flex flex-col items-center gap-3 py-4 text-center">
-            {/* eslint-disable-next-line @next/next/no-img-element -- CDN externo (Data Dragon) */}
-            <img
-              src={step.champion.iconUrl}
-              alt={step.champion.name}
-              className="h-20 w-20 rounded-lg ring-2 ring-loss"
-            />
-            <p className="font-display text-xl font-bold text-loss">Te tocó: {step.champion.name}</p>
             <button
               type="button"
               onClick={onComplete}

@@ -51,9 +51,16 @@ export type Participant = {
    * se queda sin castigos pendientes (nada corriendo, ver regla 5).
    */
   penalty_games_without_compliance: number;
+  /** Última vez que el poll de MangoNotifications corrió para este jugador — null hasta el primer poll de esa sesión. "Online" = dentro de los últimos ONLINE_WINDOW_MS (ver src/lib/presence.ts). */
+  last_seen_at: string | null;
 };
 
-export type MangoStatus = "in_inventory" | "sent" | "returned";
+/**
+ * 'pending_reveal': el servidor ya decidió el resultado (en el momento del
+ * lanzamiento) pero todavía no se lo mostró a quien corresponde revelarlo
+ * — pasa a 'sent' recién cuando esa persona completa el giro de la ruleta.
+ */
+export type MangoStatus = "in_inventory" | "pending_reveal" | "sent" | "returned";
 
 export type Mango = {
   id: string;
@@ -62,6 +69,10 @@ export type Mango = {
   sent_by_participant_id: string | null;
   champion_assigned: string | null;
   created_at: string;
+  /** true solo en la fila creada por un rebote (10%) — informativo, no cambia la lógica de juego. */
+  is_bounce_back: boolean;
+  /** Si quien lanzó este mango ya vio el aviso de "X recibió tu mango con el castigo: Y" — mismo patrón que penalty_progress.seen. */
+  launcher_notified: boolean;
 };
 
 export type QuestType = "win_streak" | "kda_streak" | "deathless_win";
@@ -121,6 +132,7 @@ export type Database = {
           | "main_role"
           | "login_code"
           | "penalty_games_without_compliance"
+          | "last_seen_at"
         > & {
           id?: string;
           profile_icon_id?: number | null;
@@ -129,6 +141,7 @@ export type Database = {
           main_role?: MainRole | null;
           login_code?: string | null;
           penalty_games_without_compliance?: number;
+          last_seen_at?: string | null;
         };
         Update: Partial<Omit<Participant, "id">>;
         Relationships: [];
@@ -155,13 +168,21 @@ export type Database = {
         Row: Mango;
         Insert: Omit<
           Mango,
-          "id" | "created_at" | "status" | "sent_by_participant_id" | "champion_assigned"
+          | "id"
+          | "created_at"
+          | "status"
+          | "sent_by_participant_id"
+          | "champion_assigned"
+          | "is_bounce_back"
+          | "launcher_notified"
         > & {
           id?: string;
           created_at?: string;
           status?: MangoStatus;
           sent_by_participant_id?: string | null;
           champion_assigned?: string | null;
+          is_bounce_back?: boolean;
+          launcher_notified?: boolean;
         };
         Update: Partial<Omit<Mango, "id">>;
         Relationships: [

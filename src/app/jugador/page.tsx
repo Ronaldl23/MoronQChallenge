@@ -4,6 +4,7 @@ import { getChampionList, type Champion } from "@/lib/champions";
 import { DAILY_RECEIVE_LIMIT, hoursAgoIso, resolveAssignedPunishment } from "@/lib/mango-launch";
 import { QUEST_TARGETS } from "@/lib/quests";
 import { PENALTY_GAME_LIMIT } from "@/lib/penalty";
+import { isOnline } from "@/lib/presence";
 import { Header } from "@/components/Header";
 import { FixedLogo } from "@/components/FixedLogo";
 import { PlayerLoginForm } from "./PlayerLoginForm";
@@ -54,7 +55,10 @@ export default async function JugadorPage() {
         .from("quest_progress")
         .select("quest_type, current_progress, target")
         .eq("participant_id", participantId),
-      supabase.from("participants").select("id, nombre_display").neq("id", participantId),
+      supabase
+        .from("participants")
+        .select("id, nombre_display, last_seen_at")
+        .neq("id", participantId),
       // Solo status='pending': todavía dentro de las 3 partidas para
       // cumplirlo (Fase 4). 'flagged_for_review'/'disqualified'/'pardoned'
       // ya salieron de la ventana de cumplimiento (avisados por toast en su
@@ -122,17 +126,37 @@ export default async function JugadorPage() {
     nombre_display: p.nombre_display,
     receivedLast24h: receivedCountByParticipant.get(p.id) ?? 0,
     dailyLimit: DAILY_RECEIVE_LIMIT,
+    online: isOnline(p.last_seen_at),
   }));
 
   let champions: Champion[] = [];
   try {
     champions = await getChampionList();
   } catch {
-    // Se maneja en LaunchModal: sin campeones no se puede tirar la ruleta.
+    // Se maneja en MangoRevealModal: sin campeones no se puede tirar la ruleta.
   }
   const championById = new Map(champions.map((c) => [c.id, c]));
 
   const pendingPenalties = pendingPenaltiesResult.data ?? [];
+
+  // Mango 'pending_reveal' dirigido a este jugador (si hay uno) — fallback
+  // manual del banner "Mango en espera" por si el auto-disparo de
+  // MangoNotifications no corrió (pestaña que tardó en cargar, etc). Mismo
+  // criterio que pendingReveal en GET /api/jugador/notifications.
+  let pendingRevealMangoId: string | null = null;
+  if (pendingPenalties.length > 0) {
+    const { data: pendingRevealMango } = await supabase
+      .from("mangos")
+      .select("id")
+      .in(
+        "id",
+        pendingPenalties.map((p) => p.mango_id),
+      )
+      .eq("status", "pending_reveal")
+      .limit(1)
+      .maybeSingle();
+    pendingRevealMangoId = pendingRevealMango?.id ?? null;
+  }
   let pendingPunishments: {
     name: string;
     iconUrl: string | null;
@@ -141,7 +165,7 @@ export default async function JugadorPage() {
   if (pendingPenalties.length > 0) {
     const { data: pendingMangos } = await supabase
       .from("mangos")
-      .select("id, champion_assigned, sent_by_participant_id")
+      .select("id, status, champion_assigned, sent_by_participant_id")
       .in(
         "id",
         pendingPenalties.map((p) => p.mango_id),
@@ -156,14 +180,20 @@ export default async function JugadorPage() {
       : { data: [] };
     const senderNameById = new Map((senders ?? []).map((s) => [s.id, s.nombre_display]));
 
-    pendingPunishments = pendingPenalties.map((p) => {
-      const mango = mangoById.get(p.mango_id);
-      const resolved = resolveAssignedPunishment(mango?.champion_assigned ?? null, championById);
-      const senderName =
-        (mango?.sent_by_participant_id && senderNameById.get(mango.sent_by_participant_id)) ||
-        "Alguien";
-      return { ...resolved, senderName };
-    });
+    // Filtra los que todavía están 'pending_reveal': mostrar el castigo acá
+    // sería un spoiler y saltearía por completo la ruleta de revelación —
+    // este banner es solo para castigos YA revelados (status='sent') que
+    // siguen pendientes de cumplir.
+    pendingPunishments = pendingPenalties
+      .filter((p) => mangoById.get(p.mango_id)?.status !== "pending_reveal")
+      .map((p) => {
+        const mango = mangoById.get(p.mango_id);
+        const resolved = resolveAssignedPunishment(mango?.champion_assigned ?? null, championById);
+        const senderName =
+          (mango?.sent_by_participant_id && senderNameById.get(mango.sent_by_participant_id)) ||
+          "Alguien";
+        return { ...resolved, senderName };
+      });
   }
 
   return (
@@ -219,6 +249,7 @@ export default async function JugadorPage() {
         deathlessWin={deathlessWin}
         otherParticipants={otherParticipants}
         champions={champions}
+        pendingRevealMangoId={pendingRevealMangoId}
       />
     </PageShell>
   );

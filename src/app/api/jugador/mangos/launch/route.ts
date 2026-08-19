@@ -8,35 +8,21 @@ import {
   DAILY_RECEIVE_LIMIT,
   hoursAgoIso,
   SUPPORT_ASSIGNMENT,
-  SUPPORT_ICON_URL,
   type PunishmentOutcome,
 } from "@/lib/mango-launch";
 
 export const dynamic = "force-dynamic";
 
-interface ChampionResult {
-  id: string;
-  name: string;
-  iconUrl: string;
-}
-
 /**
- * `champion_assigned` a guardar en la fila de `mangos` y el objeto
- * champion-like a devolverle al cliente para el reveal — mismo shape tanto
- * para Support como para un campeón puntual, así el frontend no necesita
- * distinguir los dos casos (ver LaunchModal.tsx).
+ * `champion_assigned` a guardar en la fila de `mangos` — el azar se decide
+ * ACÁ, en el momento del lanzamiento, como siempre (por seguridad: nunca en
+ * el cliente ni al momento de revelar). La diferencia contra la Fase 3
+ * original es que ya no se le devuelve el resultado a quien lanza — queda
+ * guardado como 'pending_reveal' hasta que la persona correcta lo revele en
+ * su propia sesión (ver /api/jugador/mangos/reveal).
  */
-function toStoredAssignment(outcome: PunishmentOutcome): {
-  championAssigned: string;
-  result: ChampionResult;
-} {
-  if (outcome.kind === "support") {
-    return {
-      championAssigned: SUPPORT_ASSIGNMENT,
-      result: { id: SUPPORT_ASSIGNMENT, name: "Support", iconUrl: SUPPORT_ICON_URL },
-    };
-  }
-  return { championAssigned: outcome.champion.id, result: outcome.champion };
+function toStoredAssignment(outcome: PunishmentOutcome): string {
+  return outcome.kind === "support" ? SUPPORT_ASSIGNMENT : outcome.champion.id;
 }
 
 export async function POST(request: Request) {
@@ -130,14 +116,12 @@ export async function POST(request: Request) {
   const outcome = rollFirstOutcome(champions);
 
   if (outcome.kind !== "bounce") {
-    const { championAssigned, result } = toStoredAssignment(outcome);
-
     const { error: updateError } = await supabase
       .from("mangos")
       .update({
-        status: "sent",
+        status: "pending_reveal",
         sent_by_participant_id: participantId,
-        champion_assigned: championAssigned,
+        champion_assigned: toStoredAssignment(outcome),
       })
       .eq("id", mango.id);
     if (updateError) {
@@ -152,34 +136,34 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: penaltyError.message }, { status: 500 });
     }
 
-    return NextResponse.json({
-      bounced: false,
-      champion: result,
-      targetNombreDisplay: target.nombre_display,
-    });
+    return NextResponse.json({ ok: true, targetNombreDisplay: target.nombre_display });
   }
 
   // Rebote (10%): el mango original NO se toca — sigue 'in_inventory', tal
-  // como pidió el usuario ("no se gasta"). El castigo que le "rebota" a
-  // quien lo lanzó se modela con el mismo patrón que un lanzamiento normal
-  // (fila nueva en mangos + penalty_progress), solo que el mango nuevo lo
-  // "envía" el objetivo (quien devolvió la jugada) y la víctima es quien
-  // lanzó originalmente. No cuenta contra el cupo de inventario de nadie
-  // (nace directo en status='sent') ni contra el límite diario del
-  // lanzador original — es una consecuencia automática de SU lanzamiento,
-  // no un blanco nuevo que alguien eligió a propósito. Sin balde de rebote
-  // acá (rollPenaltyOutcome): un rebote no puede volver a rebotar.
+  // como pidió el usuario ("no se gasta"). El segundo roll (solo
+  // champion/Support, sin balde de rebote — un rebote no puede volver a
+  // rebotar) también se decide ACÁ, en el mismo request, así que para
+  // cuando cualquiera revele algo, el azar ya terminó de principio a fin.
+  // El castigo que le "rebota" a quien lo lanzó se modela con el mismo
+  // patrón que un lanzamiento normal (fila nueva en mangos +
+  // penalty_progress), solo que el mango nuevo lo "envía" el objetivo
+  // (quien devolvió la jugada) y la víctima es quien lanzó originalmente.
+  // No cuenta contra el cupo de inventario de nadie (nace directo en
+  // status='pending_reveal') ni contra el límite diario del lanzador
+  // original — es una consecuencia automática de SU lanzamiento, no un
+  // blanco nuevo que alguien eligió a propósito. El objetivo original NUNCA
+  // se entera de nada de esto: ni mango, ni penalty_progress, ni revelación
+  // — el rebote es invisible para él, igual que en el diseño anterior.
   const bounceOutcome = rollPenaltyOutcome(champions);
-  const { championAssigned: bounceAssigned, result: bounceResult } =
-    toStoredAssignment(bounceOutcome);
 
   const { data: bounceMango, error: bounceMangoError } = await supabase
     .from("mangos")
     .insert({
       owner_participant_id: target_participant_id,
-      status: "sent",
+      status: "pending_reveal",
       sent_by_participant_id: target_participant_id,
-      champion_assigned: bounceAssigned,
+      champion_assigned: toStoredAssignment(bounceOutcome),
+      is_bounce_back: true,
     })
     .select()
     .single();
@@ -199,9 +183,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: bouncePenaltyError.message }, { status: 500 });
   }
 
-  return NextResponse.json({
-    bounced: true,
-    champion: bounceResult,
-    targetNombreDisplay: target.nombre_display,
-  });
+  return NextResponse.json({ ok: true, targetNombreDisplay: target.nombre_display });
 }
