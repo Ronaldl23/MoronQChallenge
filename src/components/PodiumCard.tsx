@@ -77,32 +77,38 @@ export function PodiumCard({
       <div className="relative flex flex-col gap-4 overflow-hidden rounded-2xl p-6">
         <div className={`pointer-events-none absolute inset-0 ${style.tint}`} aria-hidden />
 
-        <div className="relative flex items-center gap-3">
-          <span className="font-display text-2xl font-bold text-text-muted">
-            #{rank}
-          </span>
-          <div className="relative shrink-0">
-            <ProfileIcon
-              name={participant.nombre_display}
-              avatarUrl={participant.avatar_url}
-              profileIconId={participant.profile_icon_id}
-              ddragonVersion={ddragonVersion}
-              size={48}
-            />
-            {entry.isDisqualified && <DisqualifiedBadge />}
+        <div className="relative flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="font-display text-2xl font-bold text-text-muted">
+              #{rank}
+            </span>
+            <div className="relative shrink-0">
+              <ProfileIcon
+                name={participant.nombre_display}
+                avatarUrl={participant.avatar_url}
+                profileIconId={participant.profile_icon_id}
+                ddragonVersion={ddragonVersion}
+                size={48}
+              />
+              {entry.isDisqualified && <DisqualifiedBadge />}
+            </div>
+            <div className="min-w-0">
+              <p
+                className={`flex items-center gap-1.5 truncate text-lg font-bold ${entry.isDisqualified ? "text-text-muted" : "text-text-primary"}`}
+              >
+                {participant.nombre_display}
+                {participant.main_role && (
+                  <PositionIcon laneSlug={ROLE_TO_LANE_SLUG[participant.main_role]} size={14} />
+                )}
+              </p>
+              <p className="truncate text-xs text-text-secondary">
+                {participant.riot_game_name}#{participant.riot_tag}
+              </p>
+            </div>
           </div>
-          <div className="min-w-0">
-            <p
-              className={`flex items-center gap-1.5 truncate text-lg font-bold ${entry.isDisqualified ? "text-text-muted" : "text-text-primary"}`}
-            >
-              {participant.nombre_display}
-              {participant.main_role && (
-                <PositionIcon laneSlug={ROLE_TO_LANE_SLUG[participant.main_role]} size={14} />
-              )}
-            </p>
-            <p className="truncate text-xs text-text-secondary">
-              {participant.riot_game_name}#{participant.riot_tag}
-            </p>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <PenaltyIndicator penalties={entry.pendingPenalties} />
+            <MangoCountBadge count={entry.mangoCount} />
           </div>
         </div>
 
@@ -118,11 +124,7 @@ export function PodiumCard({
             </span>{" "}
             <span className="text-sm font-medium text-text-secondary">LP</span>
           </p>
-          <div className="flex shrink-0 items-center gap-2">
-            <PenaltyIndicator penalties={entry.pendingPenalties} />
-            <MangoCountBadge count={entry.mangoCount} />
-            <OpggButton opggUrl={participant.opgg_url} inGame={participant.in_game} />
-          </div>
+          <OpggButton opggUrl={participant.opgg_url} inGame={participant.in_game} />
         </div>
 
         <div className="relative flex flex-col gap-1.5">

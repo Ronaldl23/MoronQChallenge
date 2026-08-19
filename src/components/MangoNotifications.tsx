@@ -27,6 +27,47 @@ export function MangoNotifications() {
   // Keys ya encoladas en ESTA carga de página, para no duplicar un toast si
   // dos polls se pisan antes de que el ack termine de confirmarse.
   const queuedKeys = useRef<Set<string>>(new Set());
+  // Un solo <audio> reusado (no "new Audio()" cada vez) — el "desbloqueo" de
+  // autoplay del navegador queda atado a ESTE elemento en particular, no al
+  // origen en general, así que hay que reproducir SIEMPRE el mismo objeto.
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUnlockedRef = useRef(false);
+
+  // El polling inicial (ver comentario de arriba) puede disparar un toast
+  // ANTES de que el usuario haya interactuado con la página — y los
+  // navegadores bloquean `.play()` de audio con sonido sin un gesto de
+  // usuario previo (NotAllowedError, silenciada por el .catch() de abajo,
+  // sin ningún aviso visible). Truco estándar: en el primer click/tap/tecla
+  // en cualquier parte de la página, reproducir y pausar inmediatamente ese
+  // mismo <audio> — eso "cuenta" como reproducir dentro de un gesto real, y
+  // el navegador recuerda ese elemento como habilitado para el resto de la
+  // sesión, incluso cuando se lo vuelve a llamar fuera de un gesto (poll).
+  useEffect(() => {
+    audioRef.current = new Audio("/TomaMango.mp3");
+
+    function unlockAudio() {
+      if (audioUnlockedRef.current) return;
+      const audio = audioRef.current;
+      if (!audio) return;
+      audio
+        .play()
+        .then(() => {
+          audio.pause();
+          audio.currentTime = 0;
+          audioUnlockedRef.current = true;
+        })
+        .catch(() => {
+          // Sigue bloqueado — se reintenta con la próxima interacción.
+        });
+    }
+
+    const events: Array<keyof DocumentEventMap> = ["click", "keydown", "touchstart"];
+    events.forEach((event) => document.addEventListener(event, unlockAudio));
+
+    return () => {
+      events.forEach((event) => document.removeEventListener(event, unlockAudio));
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -43,7 +84,7 @@ export function MangoNotifications() {
       fresh.forEach((n) => queuedKeys.current.add(toastKey(n)));
       setToasts((prev) => [...prev, ...fresh]);
 
-      new Audio("/TomaMango.mp3").play().catch(() => {});
+      audioRef.current?.play().catch(() => {});
 
       const ackRes = await fetch("/api/jugador/notifications/ack", {
         method: "POST",

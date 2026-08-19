@@ -42,6 +42,8 @@ export function LeaderboardTable({
             <th className="px-4 py-3 font-medium">Rango</th>
             <th className="px-4 py-3 font-medium">V / D</th>
             <th className="hidden px-4 py-3 font-medium sm:table-cell">Racha</th>
+            <th className="px-4 py-3 font-medium">Mangos</th>
+            <th className="px-4 py-3 font-medium">Castigos</th>
             <th className="px-4 py-3 text-right font-medium">±LP</th>
           </tr>
         </thead>
@@ -143,6 +145,12 @@ export function LeaderboardTable({
               <td className="hidden px-4 py-3 sm:table-cell">
                 <Sparkline points={entry.trend} id={entry.participant.id} />
               </td>
+              <td className="px-4 py-3">
+                <MangoCountBadge count={entry.mangoCount} />
+              </td>
+              <td className="px-4 py-3">
+                <PenaltyIndicator penalties={entry.pendingPenalties} />
+              </td>
               <td className="px-4 py-3 text-right">
                 <div className="flex items-center justify-end gap-2">
                   {/* ▲▼LP se oculta en mobile: es un detalle secundario del V/D que ya se ve al lado; el botón de OP.GG (estado en vivo) se mantiene siempre visible. */}
@@ -150,8 +158,6 @@ export function LeaderboardTable({
                     <span className="text-win">▲ {entry.lpGained}</span>
                     <span className="text-loss">▼ {entry.lpLost}</span>
                   </div>
-                  <PenaltyIndicator penalties={entry.pendingPenalties} />
-                  <MangoCountBadge count={entry.mangoCount} />
                   <OpggButton
                     opggUrl={entry.participant.opgg_url}
                     inGame={entry.participant.in_game}
@@ -162,7 +168,7 @@ export function LeaderboardTable({
             <AnimatePresence>
               {isExpanded && (
                 <tr>
-                  <td colSpan={6} className="p-0">
+                  <td colSpan={8} className="p-0">
                     <motion.div
                       initial={{ height: 0, opacity: 0 }}
                       animate={{ height: "auto", opacity: 1 }}
