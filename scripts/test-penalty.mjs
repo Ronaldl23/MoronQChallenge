@@ -10,10 +10,15 @@
 //
 import { processPenaltyMatches, PENALTY_GAME_LIMIT } from "../src/lib/penalty.ts";
 import { SUPPORT_ASSIGNMENT as SUPPORT_ASSIGNMENT_FROM_MANGO_LAUNCH } from "../src/lib/mango-launch.ts";
+import { MIN_MATCH_DURATION_SECONDS as MIN_MATCH_DURATION_SECONDS_FROM_QUESTS } from "../src/lib/quests.ts";
 
 // penalty.ts duplica este valor a propósito (ver comentario ahí) — este test
 // es lo que garantiza que no se desincronice del original en mango-launch.ts.
 const SUPPORT_ASSIGNMENT = SUPPORT_ASSIGNMENT_FROM_MANGO_LAUNCH;
+
+// Mismo patrón — penalty.ts duplica MIN_MATCH_DURATION_SECONDS de quests.ts
+// (ver comentario ahí); este test garantiza que ambos sigan sincronizados.
+const MIN_MATCH_DURATION_SECONDS = MIN_MATCH_DURATION_SECONDS_FROM_QUESTS;
 
 let passed = 0;
 let failed = 0;
@@ -31,13 +36,21 @@ function assertEqual(actual, expected, label) {
 }
 
 const BASE_DATE = "2026-01-01T00:00:00.000Z";
+const NORMAL_GAME_DURATION_SECONDS = 1200;
 
 function penalty(id, championAssigned, { createdAt = BASE_DATE } = {}) {
   return { id, championAssigned, createdAt };
 }
 
-function match(id, { playedAt, championPlayed = "Ahri", teamPosition = "MIDDLE" } = {}) {
-  return { matchId: id, playedAt, championPlayed, teamPosition };
+function match(
+  id,
+  { playedAt, championPlayed = "Ahri", teamPosition = "MIDDLE", gameDurationSeconds = NORMAL_GAME_DURATION_SECONDS },
+) {
+  return { matchId: id, playedAt, championPlayed, teamPosition, gameDurationSeconds };
+}
+// Remake: duración corta (por defecto 3 min) es lo único que importa acá.
+function remakeMatch(id, { playedAt, championPlayed = "Ahri", teamPosition = "MIDDLE", gameDurationSeconds = 180 }) {
+  return { matchId: id, playedAt, championPlayed, teamPosition, gameDurationSeconds };
 }
 
 function at(hoursAfterBase) {
@@ -218,7 +231,55 @@ function statusOf(result, id) {
   assertEqual(result.gamesWithoutCompliance, 0, "al cumplirse uno, el contador compartido se resetea igual");
 }
 
+// --- 15. Remake no gasta ventana del contador compartido, aunque no cumpla ---
+{
+  const result = run(
+    [penalty("a", "Teemo")],
+    [
+      match("m1", { playedAt: at(1), championPlayed: "Ahri" }), // no cumple -> contador=1
+      remakeMatch("m2", { playedAt: at(2), championPlayed: "Zed" }), // remake: se ignora, contador sigue en 1
+      match("m3", { playedAt: at(3), championPlayed: "Jinx" }), // no cumple -> contador=2
+    ],
+  );
+  assertEqual(statusOf(result, "a"), "pending", "remake en el medio: no gasta ventana, todavía no llega a 3");
+  assertEqual(
+    result.gamesWithoutCompliance,
+    2,
+    "remake en el medio: el contador solo cuenta las 2 partidas reales (m1, m3), no el remake",
+  );
+}
+
+// --- 16. Remake NO cumple un castigo aunque el campeón jugado coincida ---
+{
+  const result = run([penalty("a", "Teemo")], [remakeMatch("m1", { playedAt: at(1), championPlayed: "Teemo" })]);
+  assertEqual(
+    statusOf(result, "a"),
+    "pending",
+    "remake con el campeón correcto: NO cumple el castigo, se ignora por completo",
+  );
+  assertEqual(result.gamesWithoutCompliance, 0, "remake: tampoco suma al contador");
+}
+
+// --- 17. Un remake entre las 3 partidas de la ventana: el grupo NO flaggea todavía (solo cuentan las reales) ---
+{
+  const result = run(
+    [penalty("a", "Teemo")],
+    [
+      match("m1", { playedAt: at(1), championPlayed: "Ahri" }),
+      match("m2", { playedAt: at(2), championPlayed: "Lux" }),
+      remakeMatch("m3", { playedAt: at(3), championPlayed: "Vayne" }),
+    ],
+  );
+  assertEqual(statusOf(result, "a"), "pending", "solo 2 partidas reales sin cumplir (el remake no cuenta): sigue pending");
+  assertEqual(result.gamesWithoutCompliance, 2, "el contador refleja solo las 2 partidas reales");
+}
+
 assertEqual(PENALTY_GAME_LIMIT, 3, "PENALTY_GAME_LIMIT es 3 (regla confirmada por el usuario)");
+assertEqual(
+  MIN_MATCH_DURATION_SECONDS,
+  300,
+  "MIN_MATCH_DURATION_SECONDS sincronizado con quests.ts (300s = 5 min, regla confirmada por el usuario)",
+);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

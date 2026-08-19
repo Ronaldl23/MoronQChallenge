@@ -10,6 +10,13 @@
 const SUPPORT_ASSIGNMENT = "SUPPORT";
 
 /**
+ * Mismo valor que MIN_MATCH_DURATION_SECONDS en src/lib/quests.ts —
+ * duplicado a propósito, mismo motivo que SUPPORT_ASSIGNMENT arriba.
+ * scripts/test-penalty.mjs verifica que no se desincronice.
+ */
+const MIN_MATCH_DURATION_SECONDS = 300;
+
+/**
  * Lógica pura de cumplimiento de castigos — sin Riot ni Supabase acá a
  * propósito, mismo criterio que src/lib/quests.ts (testeable con secuencias
  * simuladas, ver scripts/test-penalty.mjs).
@@ -27,6 +34,9 @@ const SUPPORT_ASSIGNMENT = "SUPPORT";
  *   castigos que sigan pendientes en ese momento pasan a
  *   'flagged_for_review' juntos, y el contador vuelve a 0 (sin castigos
  *   pendientes no hay contador corriendo — regla 5).
+ * - Remakes (gameDurationSeconds < MIN_MATCH_DURATION_SECONDS) se ignoran
+ *   por completo: no cumplen ningún castigo NI gastan una de las 3
+ *   partidas de la ventana — es como si no se hubieran jugado.
  */
 
 /** Partidas ranked que tiene un jugador para cumplir ALGUNO de sus castigos pendientes antes de que el grupo entero pase a revisión manual (regla confirmada por el usuario). */
@@ -48,6 +58,8 @@ export interface PenaltyMatchOutcome {
   championPlayed: string;
   /** teamPosition crudo de match-v5 ("TOP" | "JUNGLE" | "MIDDLE" | "BOTTOM" | "UTILITY", puede venir vacío en casos raros). */
   teamPosition: string;
+  /** gameDuration crudo de match-v5, en segundos. Menos de MIN_MATCH_DURATION_SECONDS = remake, se ignora por completo (no gasta ventana ni cumple nada). */
+  gameDurationSeconds: number;
 }
 
 export interface PendingPenalty {
@@ -121,6 +133,11 @@ export function processPenaltyMatches({
   for (const match of matches) {
     const stillPending = penalties.filter((p) => state.get(p.id)!.status === "pending");
     if (stillPending.length === 0) break; // Ya se resolvió todo el grupo esta corrida — nada más que evaluar.
+
+    // Remake (gameDurationSeconds < MIN_MATCH_DURATION_SECONDS): no cuenta
+    // para nada — ni cumple un castigo, ni gasta una de las 3 partidas de
+    // la ventana del contador compartido.
+    if (match.gameDurationSeconds < MIN_MATCH_DURATION_SECONDS) continue;
 
     // Partida jugada antes de que existiera NINGÚN castigo pendiente: no cuenta ni a favor ni en contra.
     if (match.playedAt < earliestCreatedAt) continue;

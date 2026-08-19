@@ -5,7 +5,14 @@
 //
 //   node --experimental-strip-types scripts/test-quests.mjs
 //
-import { processNewMatches, calculateKda, QUEST_TARGETS, MAX_MANGO_INVENTORY } from "../src/lib/quests.ts";
+import {
+  processNewMatches,
+  calculateKda,
+  QUEST_TARGETS,
+  MAX_MANGO_INVENTORY,
+  KDA_STREAK_THRESHOLD,
+  MIN_MATCH_DURATION_SECONDS,
+} from "../src/lib/quests.ts";
 
 let passed = 0;
 let failed = 0;
@@ -22,18 +29,39 @@ function assertEqual(actual, expected, label) {
   }
 }
 
-// KDA por defecto DELIBERADAMENTE bajo (< 4) y muertes > 0 en ambos helpers,
-// para que los casos de win_streak "puro" no completen kda_streak ni
-// deathless_win de arrastre — los casos que necesitan buen KDA o 0 muertes
-// lo piden explícito (ver match()).
+// Duración por defecto DELIBERADAMENTE por encima del mínimo (20 min) — los
+// casos que testean el corte de remakes lo piden explícito (ver remake()).
+const NORMAL_GAME_DURATION_SECONDS = 1200;
+
+// KDA por defecto DELIBERADAMENTE bajo (< umbral) y muertes > 0 en ambos
+// helpers, para que los casos de win_streak "puro" no completen kda_streak
+// ni deathless_win de arrastre — los casos que necesitan buen KDA o 0
+// muertes lo piden explícito (ver match()).
 function win(id, kills = 3, deaths = 5, assists = 1) {
-  return { matchId: id, win: true, kda: calculateKda({ kills, deaths, assists }), deaths };
+  return {
+    matchId: id,
+    win: true,
+    kda: calculateKda({ kills, deaths, assists }),
+    deaths,
+    gameDurationSeconds: NORMAL_GAME_DURATION_SECONDS,
+  };
 }
 function loss(id, kills = 1, deaths = 5, assists = 1) {
-  return { matchId: id, win: false, kda: calculateKda({ kills, deaths, assists }), deaths };
+  return {
+    matchId: id,
+    win: false,
+    kda: calculateKda({ kills, deaths, assists }),
+    deaths,
+    gameDurationSeconds: NORMAL_GAME_DURATION_SECONDS,
+  };
 }
-function match(id, { win: w, kda, deaths = 1 }) {
-  return { matchId: id, win: w, kda, deaths };
+function match(id, { win: w, kda, deaths = 1, gameDurationSeconds = NORMAL_GAME_DURATION_SECONDS }) {
+  return { matchId: id, win: w, kda, deaths, gameDurationSeconds };
+}
+// Remake: gana o pierde da igual (0/0/0), lo único que importa es que dure
+// menos que MIN_MATCH_DURATION_SECONDS — por defecto bien corto (3 min).
+function remake(id, { win: w = true, kda = 0, deaths = 0, gameDurationSeconds = 180 } = {}) {
+  return { matchId: id, win: w, kda, deaths, gameDurationSeconds };
 }
 
 const ZERO = { win_streak: 0, kda_streak: 0, deathless_win: 0 };
@@ -73,42 +101,41 @@ const ZERO = { win_streak: 0, kda_streak: 0, deathless_win: 0 };
   assertEqual(result.progress.win_streak, 4, "4 wins: progreso queda en 4, esperando la 5ta");
 }
 
-// --- 4. Racha de KDA >= 4 en 5 partidas seguidas (mezcla de wins/losses, no importa el resultado) ---
+// --- 4. 5 partidas con KDA >= 5 (umbral nuevo), resultado mixto (no importa ganar o perder) ---
 {
   const seq = [
-    match("k1", { win: true, kda: 5 }),
-    match("k2", { win: false, kda: 4 }), // exactamente el umbral: cuenta
+    match("k1", { win: true, kda: 6 }),
+    match("k2", { win: false, kda: 5 }), // exactamente el nuevo umbral: cuenta
     match("k3", { win: true, kda: 10 }),
-    match("k4", { win: false, kda: 4.5 }),
-    match("k5", { win: true, kda: 4 }),
+    match("k4", { win: false, kda: 5.5 }),
+    match("k5", { win: true, kda: 5 }),
   ];
   const result = processNewMatches({ progress: ZERO, matches: seq, mangoCount: 0 });
   assertEqual(
     result.grants,
     [{ matchId: "k5", quest_type: "kda_streak" }],
-    "5 partidas con KDA>=4 (resultado mixto): otorga mango de kda_streak en k5",
+    "5 partidas con KDA>=5 (resultado mixto): otorga mango de kda_streak en k5",
   );
+  assertEqual(KDA_STREAK_THRESHOLD, 5, "el umbral de kda_streak es 5 (antes 4)");
 }
 
-// --- 5. Una partida con KDA < 4 en el medio corta la racha de KDA ---
+// --- 5. Ya NO es una racha consecutiva: una partida con KDA < 5 en el medio NO corta el contador, solo no lo avanza ---
 // (win/loss alternados a propósito para que win_streak nunca se acerque a 5
 // y no contamine el resultado — este caso testea SOLO kda_streak).
 {
   const seq = [
-    match("c1", { win: true, kda: 5 }),
-    match("c2", { win: false, kda: 4 }),
-    match("c3", { win: true, kda: 3.9 }), // corta la racha de KDA
-    match("c4", { win: false, kda: 4 }),
-    match("c5", { win: true, kda: 4 }),
-    match("c6", { win: false, kda: 4 }),
-    match("c7", { win: true, kda: 4 }),
-    match("c8", { win: false, kda: 4 }),
+    match("c1", { win: true, kda: 5 }), // cuenta -> 1
+    match("c2", { win: false, kda: 5 }), // cuenta -> 2
+    match("c3", { win: true, kda: 4.9 }), // NO cumple — pero ya no corta nada, se ignora
+    match("c4", { win: false, kda: 5 }), // cuenta -> 3
+    match("c5", { win: true, kda: 5 }), // cuenta -> 4
+    match("c6", { win: false, kda: 5 }), // cuenta -> 5, se completa acá
   ];
   const result = processNewMatches({ progress: ZERO, matches: seq, mangoCount: 0 });
   assertEqual(
     result.grants,
-    [{ matchId: "c8", quest_type: "kda_streak" }],
-    "KDA<4 corta la racha: recién se completa 5 partidas después (c4..c8), no antes",
+    [{ matchId: "c6", quest_type: "kda_streak" }],
+    "KDA<5 en el medio (c3) ya no corta el contador — se completa en c6 con las 5 partidas que sí cumplieron (c1,c2,c4,c5,c6)",
   );
 }
 
@@ -304,6 +331,45 @@ const ZERO = { win_streak: 0, kda_streak: 0, deathless_win: 0 };
   );
   assertEqual(result.mangoCount, 3, "3 quests completas a la vez: mangoCount sube en 3, justo al tope");
 }
+
+// --- 20. Remake en medio de una racha de victorias: se ignora por completo, no cuenta ni corta la racha ---
+{
+  const seq = [win("r1"), win("r2"), remake("r3", { win: false }), win("r4"), win("r5"), win("r6")];
+  const result = processNewMatches({ progress: ZERO, matches: seq, mangoCount: 0 });
+  assertEqual(
+    result.grants,
+    [{ matchId: "r6", quest_type: "win_streak" }],
+    "remake en el medio de una racha de wins: se ignora — la racha real (r1,r2,r4,r5,r6) se completa en r6",
+  );
+}
+
+// --- 21. Remake como última partida de la corrida: lastProcessedMatchId avanza igual (si no, se reprocesaría para siempre) ---
+{
+  const seq = [win("s1"), remake("s2")];
+  const result = processNewMatches({ progress: ZERO, matches: seq, mangoCount: 0 });
+  assertEqual(
+    result.lastProcessedMatchId,
+    "s2",
+    "remake al final de la corrida: el cursor avanza hasta ahí igual",
+  );
+  assertEqual(result.progress.win_streak, 1, "remake al final: no resetea el progreso que ya había ganado s1");
+}
+
+// --- 22. Duración exactamente en el mínimo (300s): SÍ cuenta, no es remake (>=, no >) ---
+{
+  const seq = [match("t1", { win: true, kda: 10, gameDurationSeconds: MIN_MATCH_DURATION_SECONDS })];
+  const result = processNewMatches({ progress: ZERO, matches: seq, mangoCount: 0 });
+  assertEqual(result.progress.win_streak, 1, "duración == MIN_MATCH_DURATION_SECONDS: cuenta normal");
+}
+
+// --- 23. Un segundo menos que el mínimo: se ignora como remake ---
+{
+  const seq = [match("u1", { win: true, kda: 10, gameDurationSeconds: MIN_MATCH_DURATION_SECONDS - 1 })];
+  const result = processNewMatches({ progress: ZERO, matches: seq, mangoCount: 0 });
+  assertEqual(result.progress.win_streak, 0, "duración == MIN_MATCH_DURATION_SECONDS - 1: se ignora como remake");
+}
+
+assertEqual(MIN_MATCH_DURATION_SECONDS, 300, "MIN_MATCH_DURATION_SECONDS es 300 (5 minutos, regla confirmada por el usuario)");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

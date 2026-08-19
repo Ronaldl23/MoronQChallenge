@@ -63,7 +63,7 @@ export function InventoryPanel({
         <div className="mt-4 flex flex-col gap-4">
           <QuestBar label="Racha de victorias" current={winStreak.current} target={winStreak.target} />
           <QuestBar
-            label="Racha de KDA 4+"
+            label="5 partidas con KDA 5+"
             current={kdaStreak.current}
             target={kdaStreak.target}
           />

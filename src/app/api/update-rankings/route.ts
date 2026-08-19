@@ -110,6 +110,8 @@ interface RiotMatchDetail {
     participants: RiotMatchParticipant[];
     /** Epoch ms — para no contar contra un castigo partidas jugadas antes de que se asignara (Fase 4). */
     gameEndTimestamp: number;
+    /** Segundos — remakes (alguien se desconectó al arranque) terminan en un puñado de segundos; se ignoran por completo para quests y castigos (ver MIN_MATCH_DURATION_SECONDS). */
+    gameDuration: number;
   };
 }
 
@@ -254,12 +256,14 @@ async function processParticipantQuests({
       win: mp.win,
       kda: calculateKda({ kills: mp.kills, deaths: mp.deaths, assists: mp.assists }),
       deaths: mp.deaths,
+      gameDurationSeconds: match.info.gameDuration,
     });
     penaltyMatches.push({
       matchId,
       playedAt: new Date(match.info.gameEndTimestamp).toISOString(),
       championPlayed: mp.championName,
       teamPosition: mp.teamPosition,
+      gameDurationSeconds: match.info.gameDuration,
     });
   }
 

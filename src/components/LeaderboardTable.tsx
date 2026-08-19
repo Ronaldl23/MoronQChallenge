@@ -44,7 +44,8 @@ export function LeaderboardTable({
             <th className="hidden px-4 py-2 font-medium sm:table-cell">Racha</th>
             <th className="px-4 py-2 font-medium">Mangos</th>
             <th className="px-4 py-2 font-medium">Castigos</th>
-            <th className="px-4 py-2 text-right font-medium">±LP</th>
+            {/* pr-8 en vez de px-4: nudge a la izquierda respecto al contenido de abajo (▲/▼ + botón OP.GG), que visualmente "pesa" más hacia la derecha que el label solo. */}
+            <th className="py-2 pr-8 pl-4 text-right font-medium">±LP</th>
           </tr>
         </thead>
         <tbody>
