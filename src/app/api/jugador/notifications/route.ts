@@ -151,6 +151,18 @@ export async function GET() {
     pendingReveals = (pendingRevealMangos ?? []).map((m) => ({ mangoId: m.id }));
   }
 
+  // TEMPORAL — diagnóstico del reporte de "no aparece nada", ver conversación.
+  // Sacar una vez confirmado de qué lado está el bug (server vs cliente).
+  console.log(
+    "notifications DEBUG:",
+    JSON.stringify({
+      participantId,
+      activePenaltiesCount: activePenalties.length,
+      activePenaltiesMangoIds: activePenalties.map((p) => p.mango_id),
+      pendingReveals,
+    }),
+  );
+
   if (received.length === 0 && flagged.length === 0 && launcherReveals.length === 0) {
     return NextResponse.json({ notifications: [], pendingReveals } satisfies NotificationsResponse);
   }
