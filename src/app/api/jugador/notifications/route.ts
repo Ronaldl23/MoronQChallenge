@@ -151,18 +151,6 @@ export async function GET() {
     pendingReveals = (pendingRevealMangos ?? []).map((m) => ({ mangoId: m.id }));
   }
 
-  // TEMPORAL — diagnóstico del reporte de "no aparece nada", ver conversación.
-  // Sacar una vez confirmado de qué lado está el bug (server vs cliente).
-  console.log(
-    "notifications DEBUG:",
-    JSON.stringify({
-      participantId,
-      activePenaltiesCount: activePenalties.length,
-      activePenaltiesMangoIds: activePenalties.map((p) => p.mango_id),
-      pendingReveals,
-    }),
-  );
-
   if (received.length === 0 && flagged.length === 0 && launcherReveals.length === 0) {
     return NextResponse.json({ notifications: [], pendingReveals } satisfies NotificationsResponse);
   }
@@ -171,13 +159,24 @@ export async function GET() {
   const { data: mangos } = penaltyRows.length
     ? await supabase
         .from("mangos")
-        .select("id, champion_assigned, sent_by_participant_id")
+        .select("id, champion_assigned, sent_by_participant_id, status")
         .in(
           "id",
           penaltyRows.map((p) => p.mango_id),
         )
     : { data: [] };
   const mangoById = new Map((mangos ?? []).map((m) => [m.id, m]));
+
+  // "received" cuyo mango YA se reveló (status !== 'pending_reveal') pero
+  // penalty_progress.seen sigue en false — puede pasar con datos de antes
+  // de este rediseño (revelado por un camino que no llegó a ackear el
+  // toast). Ya no hay ningún spoiler que cuidar en ese caso: el campeón ya
+  // se decidió Y se mostró en algún momento, así que es seguro mostrarlo acá
+  // — y hace falta la lista de campeones para resolverlo, igual que flagged.
+  const receivedNeedsChampionResolution = received.some((p) => {
+    const mango = mangoById.get(p.mango_id);
+    return mango && mango.status !== "pending_reveal";
+  });
 
   // Nombres: remitentes (para received/flagged, vía mango.sent_by) y
   // receptores (para launcher_reveal, vía penalty_progress del mango).
@@ -203,7 +202,7 @@ export async function GET() {
   const nameById = new Map((participantsData ?? []).map((p) => [p.id, p.nombre_display]));
 
   let champions: Champion[] = [];
-  if (flagged.length > 0 || launcherReveals.length > 0) {
+  if (flagged.length > 0 || launcherReveals.length > 0 || receivedNeedsChampionResolution) {
     try {
       champions = await getChampionList();
     } catch {
@@ -216,13 +215,30 @@ export async function GET() {
     ...received.map((p): MangoNotification => {
       const mango = mangoById.get(p.mango_id);
       const senderName = (mango?.sent_by_participant_id && nameById.get(mango.sent_by_participant_id)) || "Alguien";
+      // Todavía en 'pending_reveal' (el caso normal): sin spoiler, se
+      // revela recién con la ruleta — championName vacío a propósito. Si
+      // el mango ya no está 'pending_reveal' (dato viejo, ver comentario
+      // de receivedNeedsChampionResolution arriba), no hay nada que
+      // proteger — mostrar el campeón real en vez de dejarlo vacío para
+      // siempre.
+      if (!mango || mango.status === "pending_reveal") {
+        return {
+          id: p.id,
+          kind: "received",
+          mangoId: p.mango_id,
+          otherPartyName: senderName,
+          championName: "",
+          championIconUrl: null,
+        };
+      }
+      const resolved = resolveAssignedPunishment(mango.champion_assigned, championById);
       return {
         id: p.id,
         kind: "received",
         mangoId: p.mango_id,
         otherPartyName: senderName,
-        championName: "",
-        championIconUrl: null,
+        championName: resolved.name,
+        championIconUrl: resolved.iconUrl,
       };
     }),
     ...flagged.map((p): MangoNotification => {

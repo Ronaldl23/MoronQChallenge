@@ -341,29 +341,37 @@ async function processParticipantPenalties({
     .eq("status", "pending");
   if (pendingError) throw pendingError;
 
-  const championAssignedByMangoId = new Map<string, string | null>();
+  const mangoById = new Map<string, { champion_assigned: string | null; status: string }>();
   if (pendingRows && pendingRows.length > 0) {
     const { data: mangoRows, error: mangoError } = await supabase
       .from("mangos")
-      .select("id, champion_assigned")
+      .select("id, champion_assigned, status")
       .in(
         "id",
         pendingRows.map((row) => row.mango_id),
       );
     if (mangoError) throw mangoError;
-    for (const m of mangoRows ?? []) championAssignedByMangoId.set(m.id, m.champion_assigned);
+    for (const m of mangoRows ?? []) mangoById.set(m.id, { champion_assigned: m.champion_assigned, status: m.status });
   }
 
   const penalties: PendingPenalty[] = (pendingRows ?? []).flatMap((row) => {
-    const championAssigned = championAssignedByMangoId.get(row.mango_id);
-    // No debería pasar para un mango con status='sent' (siempre se le asigna
-    // un castigo al lanzarlo), pero sin campeón/rol asignado no hay nada
-    // que evaluar — se salta en vez de romper el resto de la corrida.
-    if (!championAssigned) return [];
+    const mango = mangoById.get(row.mango_id);
+    // El mango todavía no se le reveló al jugador (status='pending_reveal',
+    // ver Fase 3.5) — no se le puede exigir cumplir un castigo que todavía
+    // no vio. Se salta esta corrida; se evalúa recién una vez que lo
+    // revele (mango pasa a 'sent'), no antes. Sin este chequeo, esta
+    // corrida podía marcar 'completed'/'flagged_for_review' un castigo
+    // fantasma para el jugador — el bug real detrás del reporte de
+    // "el pending_reveal no aparece en ningún lado".
+    if (!mango || mango.status !== "sent") return [];
+    // No debería pasar para un mango 'sent' (siempre se le asigna un
+    // castigo al lanzarlo), pero sin campeón/rol asignado no hay nada que
+    // evaluar — se salta en vez de romper el resto de la corrida.
+    if (!mango.champion_assigned) return [];
     return [
       {
         id: row.id,
-        championAssigned,
+        championAssigned: mango.champion_assigned,
         // Normalizado a ISO completo (mismo formato que playedAt abajo) para
         // que la comparación lexicográfica en processPenaltyMatches sea
         // válida — timestamptz de Supabase no siempre viene en ese formato.

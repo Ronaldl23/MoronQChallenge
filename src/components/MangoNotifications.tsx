@@ -167,10 +167,20 @@ export function MangoNotifications({ champions }: { champions: Champion[] }) {
       const body = (await res.json().catch(() => null)) as NotificationsResponse | null;
       const notifications = body?.notifications ?? [];
       const pendingReveals = body?.pendingReveals ?? [];
+      const pendingRevealMangoIds = new Set(pendingReveals.map((p) => p.mangoId));
 
-      // Kinds inmediatos, sin ruleta asociada — se muestran todos juntos, como siempre.
+      // "received" solo se encola para la ruleta si su mango sigue
+      // 'pending_reveal' AHORA (verdad actual del servidor, en
+      // pendingReveals) — es el caso normal. Si no está ahí (dato viejo: el
+      // mango ya se reveló por otro camino sin llegar a ackear este toast,
+      // por ejemplo antes de este rediseño) no hay ninguna ruleta que
+      // vaya a arrancar para él — encolarlo lo dejaría esperando un turno
+      // que nunca llega. En ese caso se trata como un toast inmediato más
+      // (el servidor ya lo resuelve con el campeón real, no hay spoiler).
       const freshImmediate = notifications.filter(
-        (n) => n.kind !== "received" && !queuedKeys.current.has(toastKey(n)),
+        (n) =>
+          (n.kind !== "received" || !pendingRevealMangoIds.has(n.mangoId)) &&
+          !queuedKeys.current.has(toastKey(n)),
       );
       if (freshImmediate.length > 0) {
         freshImmediate.forEach((n) => queuedKeys.current.add(toastKey(n)));
@@ -188,12 +198,14 @@ export function MangoNotifications({ champions }: { champions: Champion[] }) {
         if (ackRes?.ok) router.refresh();
       }
 
-      // "received": no se muestran de inmediato — esperan su turno en la
-      // cola de revelación (advanceQueue), para que el ciclo completo
-      // sonido→toast→ruleta se repita mango por mango en vez de mostrar
-      // todos los toasts de golpe.
+      // "received" con mango todavía 'pending_reveal': no se muestran de
+      // inmediato — esperan su turno en la cola de revelación
+      // (advanceQueue), para que el ciclo completo sonido→toast→ruleta se
+      // repita mango por mango en vez de mostrar todos los toasts de golpe.
       notifications
-        .filter((n) => n.kind === "received" && !queuedKeys.current.has(toastKey(n)))
+        .filter(
+          (n) => n.kind === "received" && pendingRevealMangoIds.has(n.mangoId) && !queuedKeys.current.has(toastKey(n)),
+        )
         .forEach((n) => {
           queuedKeys.current.add(toastKey(n));
           receivedByMangoIdRef.current.set(n.mangoId, n);
@@ -288,7 +300,18 @@ function MangoToast({
           <>
             <p className="font-display text-sm font-bold text-loss">¡Te llegó un Mango!</p>
             <p className="truncate text-sm text-text-primary">
-              <strong>{notification.otherPartyName}</strong> te envió un Mango.
+              <strong>{notification.otherPartyName}</strong> te envió un Mango
+              {/* Solo tiene campeón acá si ya se había revelado por otro
+                  lado sin llegar a mostrar este toast (dato viejo) — el
+                  caso normal (mango recién llegado) sigue sin spoiler,
+                  la ruleta lo revela después. */}
+              {notification.championName ? (
+                <>
+                  : <strong>{notification.championName}</strong>
+                </>
+              ) : (
+                "."
+              )}
             </p>
           </>
         )}
