@@ -139,23 +139,21 @@ export default async function JugadorPage() {
 
   const pendingPenalties = pendingPenaltiesResult.data ?? [];
 
-  // Mango 'pending_reveal' dirigido a este jugador (si hay uno) — fallback
-  // manual del banner "Mango en espera" por si el auto-disparo de
-  // MangoNotifications no corrió (pestaña que tardó en cargar, etc). Mismo
-  // criterio que pendingReveal en GET /api/jugador/notifications.
-  let pendingRevealMangoId: string | null = null;
+  // Mangos 'pending_reveal' dirigidos a este jugador — solo informativo acá
+  // (banner sin botón: la cola se procesa sola, en cualquier página, vía
+  // MangoNotifications). Mismo criterio que pendingReveals en GET
+  // /api/jugador/notifications.
+  let pendingRevealCount = 0;
   if (pendingPenalties.length > 0) {
-    const { data: pendingRevealMango } = await supabase
+    const { count } = await supabase
       .from("mangos")
-      .select("id")
+      .select("id", { count: "exact", head: true })
       .in(
         "id",
         pendingPenalties.map((p) => p.mango_id),
       )
-      .eq("status", "pending_reveal")
-      .limit(1)
-      .maybeSingle();
-    pendingRevealMangoId = pendingRevealMango?.id ?? null;
+      .eq("status", "pending_reveal");
+    pendingRevealCount = count ?? 0;
   }
   let pendingPunishments: {
     name: string;
@@ -248,8 +246,7 @@ export default async function JugadorPage() {
         kdaStreak={kdaStreak}
         deathlessWin={deathlessWin}
         otherParticipants={otherParticipants}
-        champions={champions}
-        pendingRevealMangoId={pendingRevealMangoId}
+        pendingRevealCount={pendingRevealCount}
       />
     </PageShell>
   );

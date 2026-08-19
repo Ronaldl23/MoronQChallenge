@@ -2,8 +2,6 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import type { Champion } from "@/lib/champions";
-import { MangoRevealModal } from "@/components/MangoRevealModal";
 import { LaunchModal, type LaunchTarget } from "./LaunchModal";
 
 export interface InventoryMango {
@@ -23,21 +21,18 @@ export function InventoryPanel({
   kdaStreak,
   deathlessWin,
   otherParticipants,
-  champions,
-  pendingRevealMangoId,
+  pendingRevealCount,
 }: {
   mangos: InventoryMango[];
   winStreak: QuestProgressView;
   kdaStreak: QuestProgressView;
   deathlessWin: QuestProgressView;
   otherParticipants: LaunchTarget[];
-  champions: Champion[];
-  /** Mango 'pending_reveal' dirigido a este jugador, si hay uno — para el fallback manual (si por lo que sea el auto-disparo de MangoNotifications no corrió). */
-  pendingRevealMangoId: string | null;
+  /** Cuántos mangos 'pending_reveal' están dirigidos a este jugador — puramente informativo, la cola se procesa sola desde MangoNotifications en cualquier página. */
+  pendingRevealCount: number;
 }) {
   const router = useRouter();
   const [selectedMangoId, setSelectedMangoId] = useState<string | null>(null);
-  const [showManualReveal, setShowManualReveal] = useState(false);
 
   function handleClose() {
     setSelectedMangoId(null);
@@ -50,22 +45,16 @@ export function InventoryPanel({
 
   return (
     <div className="flex flex-col gap-6">
-      {pendingRevealMangoId && !showManualReveal && (
-        <section className="flex flex-col gap-2 rounded-2xl border border-gold/50 bg-surface p-6 shadow-[0_0_40px_-16px_var(--gold)] sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            {/* eslint-disable-next-line @next/next/no-img-element -- asset local */}
-            <img src="/MangoAngry.png" alt="" className="h-10 w-10 shrink-0 object-contain" />
-            <p className="font-display text-sm font-bold text-text-primary">
-              Tenés un Mango en espera
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowManualReveal(true)}
-            className="shrink-0 rounded-full bg-gold px-4 py-2 font-display text-sm font-bold tracking-wide text-bg uppercase transition-colors hover:bg-gold-soft"
-          >
-            Revelar
-          </button>
+      {pendingRevealCount > 0 && (
+        <section className="flex items-center gap-3 rounded-2xl border border-gold/50 bg-surface p-6 shadow-[0_0_40px_-16px_var(--gold)]">
+          {/* eslint-disable-next-line @next/next/no-img-element -- asset local */}
+          <img src="/MangoAngry.png" alt="" className="h-10 w-10 shrink-0 object-contain" />
+          <p className="font-display text-sm font-bold text-text-primary">
+            {pendingRevealCount === 1
+              ? "Tenés un Mango en espera"
+              : `Tenés ${pendingRevealCount} Mangos en espera`}{" "}
+            <span className="font-normal text-text-secondary">— se van a revelar solos.</span>
+          </p>
         </section>
       )}
 
@@ -108,18 +97,6 @@ export function InventoryPanel({
           otherParticipants={otherParticipants}
           onClose={handleClose}
           onComplete={handleComplete}
-        />
-      )}
-
-      {showManualReveal && pendingRevealMangoId && (
-        <MangoRevealModal
-          mangoId={pendingRevealMangoId}
-          champions={champions}
-          onClose={() => setShowManualReveal(false)}
-          onRevealed={() => {
-            setShowManualReveal(false);
-            router.refresh();
-          }}
         />
       )}
     </div>

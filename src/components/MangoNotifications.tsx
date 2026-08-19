@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
 import type { Champion } from "@/lib/champions";
 import type { MangoNotification, NotificationsResponse } from "@/app/api/jugador/notifications/route";
-import { MangoRevealModal } from "./MangoRevealModal";
+import { MangoRevealWidget } from "./MangoRevealWidget";
 
 const POLL_INTERVAL_MS = 20_000;
 const TOAST_AUTO_DISMISS_MS = 8_000;
@@ -24,41 +24,61 @@ function toastKey(n: MangoNotification): string {
 
 /**
  * Poll de 20s (mismo intervalo de siempre) con tres responsabilidades:
- * 1. Toasts de "te llegó un Mango" / "no cumpliste a tiempo" / "X recibió tu
- *    mango" — igual que antes, con sonido.
+ * 1. Toasts de "no cumpliste a tiempo" / "X recibió tu mango" — se muestran
+ *    de inmediato, en batch, con sonido, como siempre.
  * 2. Efecto secundario en el propio GET: refresca participants.last_seen_at
  *    (presencia, ver src/lib/presence.ts) — no hay nada que hacer acá del
  *    lado del cliente para esto, el servidor ya lo hace en cada corrida.
- * 3. Dispara el modal de revelación de la ruleta (MangoRevealModal) cuando
- *    corresponde — SIEMPRE después del toast de "te llegó un Mango" (nunca
- *    antes, nunca en su lugar), tanto para una recepción normal como para
- *    un rebote (ambos casos usan la misma secuencia, confirmado por el
- *    usuario). `pendingReveal` en la respuesta es la verdad actual (no un
- *    evento "nuevo" como `notifications`), así que si el jugador cierra el
- *    modal sin girar, se lo vuelve a ofrecer en el próximo poll — salvo que
- *    ya lo haya descartado en ESTA carga de página (dismissedRevealsRef),
- *    en cuyo caso queda disponible solo desde el banner manual de
- *    /jugador ("Mango en espera").
+ * 3. Cola de revelación 100% automática: cada mango 'pending_reveal'
+ *    dirigido a este jugador (`pendingReveals`, verdad actual e
+ *    independiente de `notifications`) se procesa uno por uno, del más
+ *    antiguo al más nuevo — sonido → toast "te llegó un Mango" → (delay) →
+ *    MangoRevealWidget gira la ruleta solo, sin ningún click. Recién cuando
+ *    ese termina (`onDone`) arranca el ciclo completo del siguiente, nunca
+ *    se solapan dos. El widget no bloquea el resto del sitio (sin backdrop,
+ *    vive flotando en la misma esquina que los toasts) — el jugador puede
+ *    seguir navegando mientras se procesa la cola.
  */
 export function MangoNotifications({ champions }: { champions: Champion[] }) {
   const router = useRouter();
   const [toasts, setToasts] = useState<MangoNotification[]>([]);
-  const [revealMangoId, setRevealMangoId] = useState<string | null>(null);
+  const [activeRevealMangoId, setActiveRevealMangoId] = useState<string | null>(null);
   // Keys ya encoladas en ESTA carga de página, para no duplicar un toast si
   // dos polls se pisan antes de que el ack termine de confirmarse.
   const queuedKeys = useRef<Set<string>>(new Set());
-  // Mangos que el jugador cerró sin girar en ESTA carga de página — no se
-  // vuelven a ofrecer solos hasta un reload/pestaña nueva (siguen
-  // disponibles desde /jugador mientras tanto).
-  const dismissedRevealsRef = useRef<Set<string>>(new Set());
-  // Evita programar el mismo reveal dos veces si un poll llega mientras el
-  // setTimeout del poll anterior todavía no disparó.
-  const revealScheduledRef = useRef<string | null>(null);
+  // Notificaciones "received" ya vistas por el poll pero todavía no
+  // mostradas — esperan su turno en la cola de revelación en vez de
+  // aparecer todas juntas.
+  const receivedByMangoIdRef = useRef<Map<string, MangoNotification>>(new Map());
+  // Cola de mangoIds pendientes de revelar, del más antiguo al más nuevo.
+  const revealQueueRef = useRef<string[]>([]);
+  // Todos los mangoIds ya encolados alguna vez en esta carga de página —
+  // evita reencolar el mismo id en cada poll mientras sigue pendiente.
+  const knownPendingIdsRef = useRef<Set<string>>(new Set());
+  // Espejo síncrono de activeRevealMangoId — null = libre para arrancar el
+  // siguiente de la cola, no-null = ya hay uno en curso (evita solapar dos
+  // ciclos sonido→toast→ruleta si un poll llega mientras el delay del
+  // anterior todavía no disparó).
+  const activeRevealRef = useRef<string | null>(null);
   // Un solo <audio> reusado (no "new Audio()" cada vez) — el "desbloqueo" de
   // autoplay del navegador queda atado a ESTE elemento en particular, no al
   // origen en general, así que hay que reproducir SIEMPRE el mismo objeto.
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUnlockedRef = useRef(false);
+  // Evita setState después de que el componente se desmontó (setTimeout de
+  // advanceQueue puede seguir vivo un instante más).
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    // En React Strict Mode (dev) este efecto monta, desmonta y vuelve a
+    // montar de una — sin esta línea, `mountedRef` queda en `false` para
+    // siempre después de esa simulación y el setTimeout de advanceQueue()
+    // nunca más dispara setActiveRevealMangoId (bug real, no solo de dev).
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   // El polling inicial (ver comentario de arriba) puede disparar un toast
   // ANTES de que el usuario haya interactuado con la página — y los
@@ -96,6 +116,47 @@ export function MangoNotifications({ champions }: { champions: Champion[] }) {
     };
   }, []);
 
+  // Si ya hay una revelación en curso, no hace nada — se vuelve a llamar
+  // desde handleRevealDone() cuando esa termine. Así la cola nunca solapa
+  // dos ciclos sonido→toast→ruleta a la vez.
+  function advanceQueue() {
+    if (activeRevealRef.current !== null) return;
+    const nextId = revealQueueRef.current.shift();
+    if (!nextId) return;
+
+    const receivedNotif = receivedByMangoIdRef.current.get(nextId);
+    activeRevealRef.current = nextId;
+
+    if (receivedNotif) {
+      receivedByMangoIdRef.current.delete(nextId);
+      setToasts((prev) => [...prev, receivedNotif]);
+      audioRef.current?.play().catch(() => {});
+
+      fetch("/api/jugador/notifications/ack", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: [{ id: receivedNotif.id, kind: receivedNotif.kind }] }),
+      }).catch(() => null);
+
+      setTimeout(() => {
+        if (!mountedRef.current) return;
+        setActiveRevealMangoId(nextId);
+      }, REVEAL_DELAY_AFTER_TOAST_MS);
+    } else {
+      // Ya se había mostrado el toast en una carga anterior (ej. se
+      // recargó la página a mitad de la secuencia) — no repetir sonido ni
+      // aviso, ir directo a la ruleta.
+      setActiveRevealMangoId(nextId);
+    }
+  }
+
+  function handleRevealDone() {
+    activeRevealRef.current = null;
+    setActiveRevealMangoId(null);
+    router.refresh();
+    advanceQueue();
+  }
+
   useEffect(() => {
     let cancelled = false;
 
@@ -105,22 +166,21 @@ export function MangoNotifications({ champions }: { champions: Champion[] }) {
 
       const body = (await res.json().catch(() => null)) as NotificationsResponse | null;
       const notifications = body?.notifications ?? [];
-      const pendingReveal = body?.pendingReveal ?? null;
+      const pendingReveals = body?.pendingReveals ?? [];
 
-      const fresh = notifications.filter((n) => !queuedKeys.current.has(toastKey(n)));
-      let justShowedToast = false;
-
-      if (fresh.length > 0) {
-        fresh.forEach((n) => queuedKeys.current.add(toastKey(n)));
-        setToasts((prev) => [...prev, ...fresh]);
-        justShowedToast = true;
-
+      // Kinds inmediatos, sin ruleta asociada — se muestran todos juntos, como siempre.
+      const freshImmediate = notifications.filter(
+        (n) => n.kind !== "received" && !queuedKeys.current.has(toastKey(n)),
+      );
+      if (freshImmediate.length > 0) {
+        freshImmediate.forEach((n) => queuedKeys.current.add(toastKey(n)));
+        setToasts((prev) => [...prev, ...freshImmediate]);
         audioRef.current?.play().catch(() => {});
 
         const ackRes = await fetch("/api/jugador/notifications/ack", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ items: fresh.map((n) => ({ id: n.id, kind: n.kind })) }),
+          body: JSON.stringify({ items: freshImmediate.map((n) => ({ id: n.id, kind: n.kind })) }),
         }).catch(() => null);
 
         // El banner de "castigos pendientes" se arma server-side — refrescar
@@ -128,18 +188,25 @@ export function MangoNotifications({ champions }: { champions: Champion[] }) {
         if (ackRes?.ok) router.refresh();
       }
 
-      if (
-        pendingReveal &&
-        !dismissedRevealsRef.current.has(pendingReveal.mangoId) &&
-        revealScheduledRef.current !== pendingReveal.mangoId
-      ) {
-        revealScheduledRef.current = pendingReveal.mangoId;
-        const delay = justShowedToast ? REVEAL_DELAY_AFTER_TOAST_MS : 0;
-        setTimeout(() => {
-          if (cancelled) return;
-          setRevealMangoId(pendingReveal.mangoId);
-        }, delay);
-      }
+      // "received": no se muestran de inmediato — esperan su turno en la
+      // cola de revelación (advanceQueue), para que el ciclo completo
+      // sonido→toast→ruleta se repita mango por mango en vez de mostrar
+      // todos los toasts de golpe.
+      notifications
+        .filter((n) => n.kind === "received" && !queuedKeys.current.has(toastKey(n)))
+        .forEach((n) => {
+          queuedKeys.current.add(toastKey(n));
+          receivedByMangoIdRef.current.set(n.mangoId, n);
+        });
+
+      pendingReveals.forEach(({ mangoId }) => {
+        if (!knownPendingIdsRef.current.has(mangoId)) {
+          knownPendingIdsRef.current.add(mangoId);
+          revealQueueRef.current.push(mangoId);
+        }
+      });
+
+      advanceQueue();
     }
 
     checkForNotifications();
@@ -162,36 +229,17 @@ export function MangoNotifications({ champions }: { champions: Champion[] }) {
     setToasts((prev) => prev.filter((t) => toastKey(t) !== key));
   }
 
-  function handleRevealClose() {
-    if (revealMangoId) dismissedRevealsRef.current.add(revealMangoId);
-    revealScheduledRef.current = null;
-    setRevealMangoId(null);
-  }
-
-  function handleRevealed() {
-    revealScheduledRef.current = null;
-    setRevealMangoId(null);
-    router.refresh();
-  }
-
   return (
-    <>
-      <div className="pointer-events-none fixed top-4 right-4 z-[60] flex flex-col gap-2">
-        <AnimatePresence>
-          {toasts.map((toast) => (
-            <MangoToast key={toastKey(toast)} notification={toast} onDismiss={() => dismiss(toastKey(toast))} />
-          ))}
-        </AnimatePresence>
-      </div>
-      {revealMangoId && (
-        <MangoRevealModal
-          mangoId={revealMangoId}
-          champions={champions}
-          onClose={handleRevealClose}
-          onRevealed={handleRevealed}
-        />
+    <div className="pointer-events-none fixed top-4 right-4 z-[60] flex flex-col gap-2">
+      <AnimatePresence>
+        {toasts.map((toast) => (
+          <MangoToast key={toastKey(toast)} notification={toast} onDismiss={() => dismiss(toastKey(toast))} />
+        ))}
+      </AnimatePresence>
+      {activeRevealMangoId && (
+        <MangoRevealWidget mangoId={activeRevealMangoId} champions={champions} onDone={handleRevealDone} />
       )}
-    </>
+    </div>
   );
 }
 

@@ -11,6 +11,8 @@ export type MangoNotificationKind = "received" | "flagged_for_review" | "launche
 export interface MangoNotification {
   id: string;
   kind: MangoNotificationKind;
+  /** El mango detrás de esta notificación — 'received' lo usa para emparejar el toast con su turno en la cola de revelación (ver MangoNotifications). */
+  mangoId: string;
   /** 'received': quién te lo envió. 'launcher_reveal': quién lo recibió. 'flagged_for_review': no se usa (vacío). */
   otherPartyName: string;
   /**
@@ -26,14 +28,14 @@ export interface MangoNotification {
 export interface NotificationsResponse {
   notifications: MangoNotification[];
   /**
-   * Verdad actual (no un evento "nuevo" como `notifications`) de si hay un
-   * mango 'pending_reveal' esperando a este participante — independiente de
-   * si ya se mostró el toast de "received" (ese se ackea y no vuelve a
-   * aparecer; esto sigue reportándose en cada poll mientras siga pendiente,
-   * así un dismiss del modal de revelación no lo pierde — se vuelve a
-   * ofrecer solo, o desde el banner manual de /jugador).
+   * Verdad actual (no un evento "nuevo" como `notifications`) de los mangos
+   * 'pending_reveal' esperando a este participante, ordenados del más
+   * antiguo al más nuevo — independiente de si ya se mostró el toast de
+   * "received" (ese se ackea y no vuelve a aparecer; esto sigue
+   * reportándose en cada poll mientras el mango siga pendiente). El cliente
+   * los procesa de a uno, en orden, sin solapar dos revelaciones.
    */
-  pendingReveal: { mangoId: string } | null;
+  pendingReveals: { mangoId: string }[];
 }
 
 /**
@@ -106,16 +108,23 @@ export async function GET() {
       .eq("status", "pending"),
   ]);
 
+  // console.error acá (además de devolver 500): esta ruta se pollea en
+  // silencio desde cualquier página — sin esto, un error acá no deja
+  // ningún rastro visible salvo en los logs de la función serverless.
   if (receivedRes.error) {
+    console.error("notifications: fallo consultando received:", receivedRes.error.message);
     return NextResponse.json({ error: receivedRes.error.message }, { status: 500 });
   }
   if (flaggedRes.error) {
+    console.error("notifications: fallo consultando flagged:", flaggedRes.error.message);
     return NextResponse.json({ error: flaggedRes.error.message }, { status: 500 });
   }
   if (launcherRevealRes.error) {
+    console.error("notifications: fallo consultando launcherReveals:", launcherRevealRes.error.message);
     return NextResponse.json({ error: launcherRevealRes.error.message }, { status: 500 });
   }
   if (activePenaltiesRes.error) {
+    console.error("notifications: fallo consultando activePenalties:", activePenaltiesRes.error.message);
     return NextResponse.json({ error: activePenaltiesRes.error.message }, { status: 500 });
   }
 
@@ -124,9 +133,9 @@ export async function GET() {
   const launcherReveals = launcherRevealRes.data ?? [];
   const activePenalties = activePenaltiesRes.data ?? [];
 
-  let pendingReveal: { mangoId: string } | null = null;
+  let pendingReveals: { mangoId: string }[] = [];
   if (activePenalties.length > 0) {
-    const { data: pendingRevealMango } = await supabase
+    const { data: pendingRevealMangos, error: pendingRevealError } = await supabase
       .from("mangos")
       .select("id")
       .in(
@@ -134,13 +143,16 @@ export async function GET() {
         activePenalties.map((p) => p.mango_id),
       )
       .eq("status", "pending_reveal")
-      .limit(1)
-      .maybeSingle();
-    if (pendingRevealMango) pendingReveal = { mangoId: pendingRevealMango.id };
+      .order("created_at", { ascending: true });
+    if (pendingRevealError) {
+      console.error("Failed to load pending_reveal mangos:", pendingRevealError.message);
+      // No crítico para el resto de las notificaciones — se sigue igual, la cola de revelación queda vacía este poll.
+    }
+    pendingReveals = (pendingRevealMangos ?? []).map((m) => ({ mangoId: m.id }));
   }
 
   if (received.length === 0 && flagged.length === 0 && launcherReveals.length === 0) {
-    return NextResponse.json({ notifications: [], pendingReveal } satisfies NotificationsResponse);
+    return NextResponse.json({ notifications: [], pendingReveals } satisfies NotificationsResponse);
   }
 
   const penaltyRows = [...received, ...flagged];
@@ -195,6 +207,7 @@ export async function GET() {
       return {
         id: p.id,
         kind: "received",
+        mangoId: p.mango_id,
         otherPartyName: senderName,
         championName: "",
         championIconUrl: null,
@@ -206,6 +219,7 @@ export async function GET() {
       return {
         id: p.id,
         kind: "flagged_for_review",
+        mangoId: p.mango_id,
         otherPartyName: "",
         championName: resolved.name,
         championIconUrl: resolved.iconUrl,
@@ -218,6 +232,7 @@ export async function GET() {
       return {
         id: m.id,
         kind: "launcher_reveal",
+        mangoId: m.id,
         otherPartyName: recipientName,
         championName: resolved.name,
         championIconUrl: resolved.iconUrl,
@@ -225,5 +240,5 @@ export async function GET() {
     }),
   ];
 
-  return NextResponse.json({ notifications, pendingReveal } satisfies NotificationsResponse);
+  return NextResponse.json({ notifications, pendingReveals } satisfies NotificationsResponse);
 }

@@ -125,6 +125,7 @@ export async function POST(request: Request) {
       })
       .eq("id", mango.id);
     if (updateError) {
+      console.error("launch: fallo marcando el mango pending_reveal:", updateError.message);
       return NextResponse.json({ error: updateError.message }, { status: 500 });
     }
 
@@ -133,6 +134,7 @@ export async function POST(request: Request) {
       mango_id: mango.id,
     });
     if (penaltyError) {
+      console.error("launch: fallo insertando penalty_progress:", penaltyError.message);
       return NextResponse.json({ error: penaltyError.message }, { status: 500 });
     }
 
@@ -169,6 +171,7 @@ export async function POST(request: Request) {
     .single();
 
   if (bounceMangoError || !bounceMango) {
+    console.error("launch: fallo insertando el mango de rebote:", bounceMangoError?.message);
     return NextResponse.json(
       { error: bounceMangoError?.message ?? "No se pudo registrar el rebote" },
       { status: 500 },
@@ -180,6 +183,7 @@ export async function POST(request: Request) {
     mango_id: bounceMango.id,
   });
   if (bouncePenaltyError) {
+    console.error("launch: fallo insertando penalty_progress del rebote:", bouncePenaltyError.message);
     return NextResponse.json({ error: bouncePenaltyError.message }, { status: 500 });
   }
 

@@ -48,6 +48,7 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   if (mangoError) {
+    console.error("reveal: fallo consultando el mango:", mangoError.message);
     return NextResponse.json({ error: mangoError.message }, { status: 500 });
   }
   if (!mango || mango.status !== "pending_reveal") {
@@ -70,6 +71,7 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   if (penaltyError) {
+    console.error("reveal: fallo consultando penalty_progress:", penaltyError.message);
     return NextResponse.json({ error: penaltyError.message }, { status: 500 });
   }
   if (!penalty) {
@@ -85,6 +87,7 @@ export async function POST(request: Request) {
     .eq("id", mango_id)
     .eq("status", "pending_reveal"); // evita una doble-revelación por una carrera entre dos pestañas
   if (updateError) {
+    console.error("reveal: fallo marcando el mango 'sent':", updateError.message);
     return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
 
