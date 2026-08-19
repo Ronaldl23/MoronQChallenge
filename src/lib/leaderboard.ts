@@ -34,15 +34,17 @@ export interface LeaderboardEntry {
   /** true si tiene AL MENOS UN penalty_progress en status='disqualified' (confirmado por el admin). */
   isDisqualified: boolean;
   /**
-   * Suma de subidas del LP real entre snapshots consecutivos del MISMO
-   * tier/división (ventana de 7 días). Los saltos de tier/división se
-   * excluyen a propósito: el LP se resetea al subir o bajar, así que
-   * comparar el lp crudo entre snapshots de tiers distintos no tiene
-   * sentido (mostraría una "caída" enorme al ascender, por ejemplo).
+   * Promedio de LP ganado POR VICTORIA (subidas de LP entre snapshots
+   * consecutivos del MISMO tier/división, ventana de 7 días, dividido por
+   * la cantidad de esas subidas). Los saltos de tier/división se excluyen
+   * a propósito: el LP se resetea al subir o bajar, así que comparar el lp
+   * crudo entre snapshots de tiers distintos no tiene sentido (mostraría
+   * una "caída" enorme al ascender, por ejemplo). 0 si no hubo ninguna
+   * victoria con cambio de LP detectado en la ventana.
    */
-  lpGained: number;
-  /** Igual que lpGained pero para bajadas, como número positivo. */
-  lpLost: number;
+  avgLpGained: number;
+  /** Igual que avgLpGained pero promedio de LP perdido POR DERROTA (número positivo). 0 si no hubo ninguna derrota con cambio de LP detectado en la ventana. */
+  avgLpLost: number;
   /**
    * Swing acumulado de LP de las últimas partidas con cambio real de LP
    * (más vieja → más nueva), arrancando en 0 — no elo_score crudo por
@@ -156,10 +158,16 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
   ]);
 
   if (penaltyRowsRes.error) {
-    console.error("Failed to load penalty_progress:", penaltyRowsRes.error.message);
+    console.error(
+      "Failed to load penalty_progress:",
+      penaltyRowsRes.error.message,
+    );
   }
   if (inventoryRes.error) {
-    console.error("Failed to load mango inventory:", inventoryRes.error.message);
+    console.error(
+      "Failed to load mango inventory:",
+      inventoryRes.error.message,
+    );
   }
 
   const mangoCountByParticipant = new Map<string, number>();
@@ -172,7 +180,9 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
 
   const penaltyRows = penaltyRowsRes.data ?? [];
   const disqualifiedParticipantIds = new Set(
-    penaltyRows.filter((r) => r.status === "disqualified").map((r) => r.participant_id),
+    penaltyRows
+      .filter((r) => r.status === "disqualified")
+      .map((r) => r.participant_id),
   );
   const activePenaltyRows = penaltyRows.filter(
     (r) => r.status === "pending" || r.status === "flagged_for_review",
@@ -202,9 +212,14 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
 
     for (const row of activePenaltyRows) {
       const mango = mangoById.get(row.mango_id);
-      const resolved = resolveAssignedPunishment(mango?.champion_assigned ?? null, championById);
+      const resolved = resolveAssignedPunishment(
+        mango?.champion_assigned ?? null,
+        championById,
+      );
       const senderName =
-        (mango?.sent_by_participant_id && nameById.get(mango.sent_by_participant_id)) || "Alguien";
+        (mango?.sent_by_participant_id &&
+          nameById.get(mango.sent_by_participant_id)) ||
+        "Alguien";
       const list = pendingByParticipant.get(row.participant_id) ?? [];
       list.push({
         id: row.id,
@@ -224,8 +239,10 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
 
     const latest = history[history.length - 1];
 
-    let lpGained = 0;
-    let lpLost = 0;
+    let lpGainedTotal = 0;
+    let lpLostTotal = 0;
+    let winsWithLpChange = 0;
+    let lossesWithLpChange = 0;
     const gameDeltas: number[] = [];
     for (let i = 1; i < history.length; i++) {
       const prev = history[i - 1];
@@ -234,20 +251,32 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
         continue; // El LP se resetea al cambiar de tier/división: no es comparable.
       }
       const delta = curr.lp - prev.lp;
-      if (delta > 0) lpGained += delta;
-      else lpLost += Math.abs(delta);
+      if (delta > 0) {
+        lpGainedTotal += delta;
+        winsWithLpChange++;
+      } else if (delta < 0) {
+        lpLostTotal += Math.abs(delta);
+        lossesWithLpChange++;
+      }
       if (delta !== 0) gameDeltas.push(delta);
     }
 
+    const avgLpGained =
+      winsWithLpChange > 0 ? Math.round(lpGainedTotal / winsWithLpChange) : 0;
+    const avgLpLost =
+      lossesWithLpChange > 0 ? Math.round(lpLostTotal / lossesWithLpChange) : 0;
+
     const trend = gameDeltas
       .slice(-MAX_TREND_GAMES)
-      .reduce<number[]>((acc, delta) => [...acc, acc[acc.length - 1] + delta], [0]);
+      .reduce<
+        number[]
+      >((acc, delta) => [...acc, acc[acc.length - 1] + delta], [0]);
 
     entries.push({
       participant,
       latest,
-      lpGained,
-      lpLost,
+      avgLpGained,
+      avgLpLost,
       trend,
       pendingPenalties: pendingByParticipant.get(participant.id) ?? [],
       mangoCount: mangoCountByParticipant.get(participant.id) ?? 0,
@@ -258,7 +287,9 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
   entries.sort((a, b) => b.latest.elo_score - a.latest.elo_score);
 
   return {
-    entries: entries.slice(0, limit).map((entry, i) => ({ ...entry, rank: i + 1 })),
+    entries: entries
+      .slice(0, limit)
+      .map((entry, i) => ({ ...entry, rank: i + 1 })),
     lastUpdated,
   };
 }

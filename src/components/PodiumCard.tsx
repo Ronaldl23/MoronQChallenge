@@ -75,7 +75,10 @@ export function PodiumCard({
       )}
 
       <div className="relative flex flex-col gap-3 overflow-hidden rounded-2xl p-5">
-        <div className={`pointer-events-none absolute inset-0 ${style.tint}`} aria-hidden />
+        <div
+          className={`pointer-events-none absolute inset-0 ${style.tint}`}
+          aria-hidden
+        />
 
         <div className="relative flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
@@ -98,7 +101,10 @@ export function PodiumCard({
               >
                 {participant.nombre_display}
                 {participant.main_role && (
-                  <PositionIcon laneSlug={ROLE_TO_LANE_SLUG[participant.main_role]} size={14} />
+                  <PositionIcon
+                    laneSlug={ROLE_TO_LANE_SLUG[participant.main_role]}
+                    size={14}
+                  />
                 )}
               </p>
               <p className="truncate text-xs text-text-secondary">
@@ -124,7 +130,19 @@ export function PodiumCard({
             </span>{" "}
             <span className="text-sm font-medium text-text-secondary">LP</span>
           </p>
-          <OpggButton opggUrl={participant.opgg_url} inGame={participant.in_game} />
+          <div className="flex items-center gap-2">
+            <div
+              className="flex flex-col items-end gap-0.5 font-display text-xs font-semibold"
+              title="Promedio de LP por partida en los últimos 7 días: ganado por victoria (▲) y perdido por derrota (▼)"
+            >
+              <span className="text-win">▲ {entry.avgLpGained}</span>
+              <span className="text-loss">▼ {entry.avgLpLost}</span>
+            </div>
+            <OpggButton
+              opggUrl={participant.opgg_url}
+              inGame={participant.in_game}
+            />
+          </div>
         </div>
 
         <div className="relative flex flex-col gap-1.5">

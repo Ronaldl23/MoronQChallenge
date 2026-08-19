@@ -111,7 +111,7 @@ function ItemBuild({
   size?: number;
 }) {
   const slots = Array.from({ length: 7 }, (_, i) => items[i] ?? null);
-  const gap = size <= 20 ? "gap-1" : "gap-1.5";
+  const gap = size <= 16 ? "gap-0.5" : size <= 20 ? "gap-1" : "gap-1.5";
 
   return (
     <div className={`grid shrink-0 grid-cols-4 ${gap}`}>
@@ -148,21 +148,21 @@ function MatchScoreboard({
   ddragonVersion: string;
 }) {
   return (
-    <div className="flex flex-col gap-3 overflow-x-auto pb-1">
+    <div className="flex flex-col gap-2 overflow-x-auto pb-1">
       {teams.map((team) => {
         const isBlue = team.teamId === 100;
         return (
           <div
             key={team.teamId}
-            className="min-w-[600px] overflow-hidden rounded-xl border border-border-hairline bg-white/[0.02]"
+            className="min-w-[520px] overflow-hidden rounded-lg border border-border-hairline bg-white/[0.02]"
           >
             <div
-              className={`flex items-center justify-between gap-3 border-b border-border-hairline px-3 py-1.5 ${
+              className={`flex items-center justify-between gap-3 border-b border-border-hairline px-2.5 py-1 ${
                 isBlue ? "bg-sky-400/10" : "bg-rose-400/10"
               }`}
             >
               <span
-                className={`font-display text-xs font-bold uppercase ${
+                className={`font-display text-[11px] font-bold uppercase ${
                   isBlue ? "text-sky-400" : "text-rose-400"
                 }`}
               >
@@ -172,8 +172,8 @@ function MatchScoreboard({
                 </span>
               </span>
               {team.bans.length > 0 && (
-                <div className="flex items-center gap-1">
-                  <span className="text-[10px] whitespace-nowrap text-text-muted">
+                <div className="flex items-center gap-0.5">
+                  <span className="mr-0.5 text-[9px] whitespace-nowrap text-text-muted">
                     Bans
                   </span>
                   {team.bans.map((banId, i) =>
@@ -182,12 +182,12 @@ function MatchScoreboard({
                         key={`${banId}-${i}`}
                         championName={banId}
                         ddragonVersion={ddragonVersion}
-                        size={20}
+                        size={16}
                       />
                     ) : (
                       <div
                         key={`ban-empty-${i}`}
-                        className="h-5 w-5 shrink-0 rounded bg-white/5"
+                        className="h-4 w-4 shrink-0 rounded bg-white/5"
                       />
                     ),
                   )}
@@ -198,7 +198,7 @@ function MatchScoreboard({
               {team.players.map((player) => (
                 <div
                   key={player.puuid}
-                  className={`flex items-center gap-2 px-3 py-1.5 text-xs ${
+                  className={`flex items-center gap-1.5 px-2.5 py-1 text-[11px] ${
                     player.isTrackedParticipant
                       ? "bg-gold/10 ring-1 ring-inset ring-gold/50"
                       : ""
@@ -209,15 +209,15 @@ function MatchScoreboard({
                     avatarUrl={null}
                     profileIconId={player.profileIconId}
                     ddragonVersion={ddragonVersion}
-                    size={24}
+                    size={18}
                   />
                   <ChampionIcon
                     championName={player.championName}
                     ddragonVersion={ddragonVersion}
-                    size={24}
+                    size={18}
                   />
                   <span
-                    className={`w-[150px] shrink-0 truncate ${
+                    className={`w-[124px] shrink-0 truncate ${
                       player.isTrackedParticipant
                         ? "font-semibold text-gold"
                         : "text-text-primary"
@@ -225,7 +225,7 @@ function MatchScoreboard({
                   >
                     {player.riotId}
                   </span>
-                  <span className="w-[76px] shrink-0 whitespace-nowrap text-text-secondary">
+                  <span className="w-[58px] shrink-0 whitespace-nowrap text-text-secondary">
                     {player.kills}/
                     <span className="text-loss">{player.deaths}</span>/
                     {player.assists}
@@ -233,7 +233,7 @@ function MatchScoreboard({
                   <ItemBuild
                     items={player.items}
                     ddragonVersion={ddragonVersion}
-                    size={20}
+                    size={14}
                   />
                 </div>
               ))}
