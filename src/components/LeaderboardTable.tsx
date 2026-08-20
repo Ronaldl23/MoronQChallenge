@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import type { LeaderboardEntry } from "@/lib/leaderboard";
 import { ROLE_TO_LANE_SLUG } from "@/lib/lane";
@@ -24,6 +24,23 @@ export function LeaderboardTable({
   ddragonVersion: string;
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // null = orden original (por elo_score, ya viene así de getLeaderboard).
+  // "desc" = mejor a peor promedio neto de LP (más arriba = mejor);
+  // "asc" invierte. El # de cada fila NO cambia con el sort — sigue
+  // reflejando la posición real por elo, es solo el ORDEN de las filas lo
+  // que cambia, para poder ver "quién viene rindiendo mejor/peor" sin
+  // perder de vista el ranking real.
+  const [lpSortDir, setLpSortDir] = useState<"desc" | "asc" | null>(null);
+
+  const sortedEntries = useMemo(() => {
+    if (!lpSortDir) return entries;
+    const sorted = [...entries].sort((a, b) => a.netAvgLp - b.netAvgLp);
+    return lpSortDir === "desc" ? sorted.reverse() : sorted;
+  }, [entries, lpSortDir]);
+
+  function handleLpHeaderClick() {
+    setLpSortDir((prev) => (prev === "desc" ? "asc" : "desc"));
+  }
 
   return (
     <div className="min-w-0 overflow-x-auto rounded-2xl border border-border-hairline bg-surface">
@@ -46,12 +63,22 @@ export function LeaderboardTable({
             </th>
             <th className="px-4 py-2 font-medium">Mangos</th>
             <th className="px-4 py-2 font-medium">Castigos</th>
-            {/* pr-14 en vez de px-4: nudge a la izquierda respecto al contenido de abajo (▲/▼ + botón OP.GG), que visualmente "pesa" más hacia la derecha que el label solo. */}
-            <th className="py-2 pr-14 pl-4 text-right font-medium">±LP</th>
+            {/* pr-20 en vez de px-4: nudge a la izquierda respecto al contenido de abajo (▲/▼ + botón OP.GG), que visualmente "pesa" más hacia la derecha que el label solo. */}
+            <th className="py-2 pr-20 pl-4 text-right font-medium">
+              <button
+                type="button"
+                onClick={handleLpHeaderClick}
+                className="inline-flex items-center gap-1 text-text-secondary transition-colors hover:text-text-primary"
+                title="Ordenar por promedio neto de LP por partida"
+              >
+                ±LP
+                <SortIndicator direction={lpSortDir} />
+              </button>
+            </th>
           </tr>
         </thead>
         <tbody>
-          {entries.map((entry) => {
+          {sortedEntries.map((entry) => {
             const total = entry.latest.wins + entry.latest.losses;
             const winPct =
               total > 0 ? Math.round((entry.latest.wins / total) * 100) : 0;
@@ -206,5 +233,32 @@ export function LeaderboardTable({
         </tbody>
       </table>
     </div>
+  );
+}
+
+/** Mismo path del chevron que ya usa la fila del jugador para expandir/colapsar — apagado y quieto cuando no está ordenando, dorado y apuntando según la dirección activa cuando sí. */
+function SortIndicator({ direction }: { direction: "asc" | "desc" | null }) {
+  if (!direction) {
+    return (
+      <svg
+        viewBox="0 0 20 20"
+        className="h-3 w-3 shrink-0 text-text-muted"
+        fill="currentColor"
+      >
+        <path d="M5.25 7.5l4.75 5 4.75-5H5.25z" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      className={`h-3 w-3 shrink-0 text-gold transition-transform duration-150 ${
+        direction === "asc" ? "rotate-180" : ""
+      }`}
+      fill="currentColor"
+    >
+      <path d="M5.25 7.5l4.75 5 4.75-5H5.25z" />
+    </svg>
   );
 }

@@ -55,6 +55,17 @@ export default async function ParticipantesPage() {
       <FixedLogo />
       <Header />
       <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-4 pt-6 pb-10 sm:pt-24">
+        {/*
+          Countdown, título y grilla comparten este único contenedor
+          (mismo sm:pl-[336px], mismo ancho) para quedar alineados en el
+          mismo eje — antes la grilla vivía afuera de este wrapper (a
+          ancho completo) mientras el título sí estaba indentado, y el
+          resultado se veía como dos columnas distintas. Indentar también
+          la grilla acá es seguro (a diferencia del podio de la home, que
+          es una grilla FIJA de 3 columnas que se rompe si se la achica —
+          ver page.tsx): esta es auto-fill, así que con menos ancho
+          disponible simplemente entran menos columnas, sin desbordar.
+        */}
         <div className="sm:pl-[336px]">
           <div className="flex justify-center pb-4">
             <TournamentPhaseCountdown />
@@ -65,34 +76,34 @@ export default async function ParticipantesPage() {
           </h1>
 
           {participants.length === 0 && <EmptyState />}
-        </div>
 
-        {participants.length > 0 && (
-          <div
-            className={`grid ${density.gap}`}
-            style={{
-              gridTemplateColumns: `repeat(auto-fill, minmax(${density.minTile}px, 1fr))`,
-            }}
-          >
-            {participants.map((participant) => (
-              <div
-                key={participant.id}
-                className={`flex flex-col items-center gap-2 rounded-xl border border-border-hairline bg-surface text-center ${density.padding}`}
-              >
-                <ShowcasePhoto
-                  name={participant.nombre}
-                  photoUrl={participant.photo_url}
-                  size={density.avatar}
-                />
-                <span
-                  className={`w-full truncate font-medium text-text-primary ${density.text}`}
+          {participants.length > 0 && (
+            <div
+              className={`mt-6 grid ${density.gap}`}
+              style={{
+                gridTemplateColumns: `repeat(auto-fill, minmax(${density.minTile}px, 1fr))`,
+              }}
+            >
+              {participants.map((participant) => (
+                <div
+                  key={participant.id}
+                  className={`flex flex-col items-center gap-2 rounded-xl border border-border-hairline bg-surface text-center ${density.padding}`}
                 >
-                  {participant.nombre}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
+                  <ShowcasePhoto
+                    name={participant.nombre}
+                    photoUrl={participant.photo_url}
+                    size={density.avatar}
+                  />
+                  <span
+                    className={`w-full truncate font-medium text-text-primary ${density.text}`}
+                  >
+                    {participant.nombre}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </main>
     </div>
   );

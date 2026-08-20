@@ -46,6 +46,18 @@ export interface LeaderboardEntry {
   /** Igual que avgLpGained pero promedio de LP perdido POR DERROTA (número positivo). 0 si no hubo ninguna derrota con cambio de LP detectado en la ventana. */
   avgLpLost: number;
   /**
+   * Promedio neto de LP por partida jugada en la ventana (ganado en
+   * victorias menos perdido en derrotas, dividido por el total de
+   * partidas con cambio de LP detectado) — equivalente a ponderar
+   * avgLpGained/avgLpLost por winrate/lossrate de la ventana. Es el
+   * criterio que usa el header "±LP" de la tabla para ordenar: sube con
+   * más LP ganado por victoria, con más LP perdido por derrota baja, y
+   * también responde a CUÁNTO de cada uno pasa (ganar mucho pero poco
+   * seguido pesa menos que ganar seguido). 0 si no hay ninguna partida con
+   * cambio de LP detectado en la ventana.
+   */
+  netAvgLp: number;
+  /**
    * Swing acumulado de LP de las últimas partidas con cambio real de LP
    * (más vieja → más nueva), arrancando en 0 — no elo_score crudo por
    * snapshot. Cada paso es un delta de LP entre dos snapshots consecutivos
@@ -265,6 +277,11 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
       winsWithLpChange > 0 ? Math.round(lpGainedTotal / winsWithLpChange) : 0;
     const avgLpLost =
       lossesWithLpChange > 0 ? Math.round(lpLostTotal / lossesWithLpChange) : 0;
+    const gamesWithLpChange = winsWithLpChange + lossesWithLpChange;
+    const netAvgLp =
+      gamesWithLpChange > 0
+        ? Math.round((lpGainedTotal - lpLostTotal) / gamesWithLpChange)
+        : 0;
 
     const trend = gameDeltas
       .slice(-MAX_TREND_GAMES)
@@ -277,6 +294,7 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
       latest,
       avgLpGained,
       avgLpLost,
+      netAvgLp,
       trend,
       pendingPenalties: pendingByParticipant.get(participant.id) ?? [],
       mangoCount: mangoCountByParticipant.get(participant.id) ?? 0,
