@@ -24,22 +24,49 @@ export function LeaderboardTable({
   ddragonVersion: string;
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  // null = orden original (por elo_score, ya viene así de getLeaderboard).
-  // "desc" = mejor a peor promedio neto de LP (más arriba = mejor);
-  // "asc" invierte. El # de cada fila NO cambia con el sort — sigue
-  // reflejando la posición real por elo, es solo el ORDEN de las filas lo
-  // que cambia, para poder ver "quién viene rindiendo mejor/peor" sin
-  // perder de vista el ranking real.
-  const [lpSortDir, setLpSortDir] = useState<"desc" | "asc" | null>(null);
+  // null = orden original (por elo_score/rank, ya viene así de
+  // getLeaderboard). Un solo estado para ambos headers ordenables ("Jugador"
+  // y "±LP") en vez de dos independientes: activar uno pisa al otro, así
+  // que el indicador de cuál está activo nunca puede quedar ambiguo (los
+  // dos a la vez) — se deriva directamente de `column` más abajo, no hay
+  // que sincronizar nada a mano. El # de cada fila NO cambia con ningún
+  // sort — sigue reflejando la posición real por elo, es solo el ORDEN de
+  // las filas lo que cambia.
+  const [activeSort, setActiveSort] = useState<{
+    column: "player" | "lp";
+    direction: "asc" | "desc";
+  } | null>(null);
 
   const sortedEntries = useMemo(() => {
-    if (!lpSortDir) return entries;
+    if (!activeSort) return entries;
+    if (activeSort.column === "player") {
+      const sorted = [...entries].sort((a, b) => a.rank - b.rank);
+      return activeSort.direction === "asc" ? sorted : sorted.reverse();
+    }
     const sorted = [...entries].sort((a, b) => a.netAvgLp - b.netAvgLp);
-    return lpSortDir === "desc" ? sorted.reverse() : sorted;
-  }, [entries, lpSortDir]);
+    return activeSort.direction === "desc" ? sorted.reverse() : sorted;
+  }, [entries, activeSort]);
+
+  function handlePlayerHeaderClick() {
+    setActiveSort((prev) =>
+      prev?.column === "player"
+        ? {
+            column: "player",
+            direction: prev.direction === "asc" ? "desc" : "asc",
+          }
+        : { column: "player", direction: "asc" },
+    );
+  }
 
   function handleLpHeaderClick() {
-    setLpSortDir((prev) => (prev === "desc" ? "asc" : "desc"));
+    setActiveSort((prev) =>
+      prev?.column === "lp"
+        ? {
+            column: "lp",
+            direction: prev.direction === "desc" ? "asc" : "desc",
+          }
+        : { column: "lp", direction: "desc" },
+    );
   }
 
   return (
@@ -55,16 +82,32 @@ export function LeaderboardTable({
         <thead>
           <tr className="border-b border-border-hairline text-left text-xs tracking-wider text-text-secondary uppercase">
             <th className="px-4 py-2 font-medium">#</th>
-            <th className="px-4 py-2 font-medium">Jugador</th>
+            <th className="px-4 py-2 font-medium">
+              <button
+                type="button"
+                onClick={handlePlayerHeaderClick}
+                className="inline-flex items-center gap-1 text-text-secondary transition-colors hover:text-text-primary"
+                title="Ordenar por posición original del ranking"
+              >
+                Jugador
+                <SortIndicator
+                  direction={
+                    activeSort?.column === "player"
+                      ? activeSort.direction
+                      : null
+                  }
+                />
+              </button>
+            </th>
             <th className="px-4 py-2 font-medium">Rango</th>
             <th className="px-4 py-2 font-medium">V / D</th>
             <th className="hidden px-4 py-2 font-medium sm:table-cell">
               Racha
             </th>
-            <th className="px-4 py-2 font-medium">Mangos</th>
-            <th className="px-4 py-2 font-medium">Castigos</th>
-            {/* pr-20 en vez de px-4: nudge a la izquierda respecto al contenido de abajo (▲/▼ + botón OP.GG), que visualmente "pesa" más hacia la derecha que el label solo. */}
-            <th className="py-2 pr-20 pl-4 text-right font-medium">
+            <th className="px-4 py-2 text-center font-medium">Mangos</th>
+            <th className="px-4 py-2 text-center font-medium">Castigos</th>
+            {/* pr-16 en vez de px-4: nudge a la izquierda respecto al contenido de abajo (▲/▼ + botón OP.GG), que visualmente "pesa" más hacia la derecha que el label solo. */}
+            <th className="py-2 pr-16 pl-4 text-right font-medium">
               <button
                 type="button"
                 onClick={handleLpHeaderClick}
@@ -72,7 +115,11 @@ export function LeaderboardTable({
                 title="Ordenar por promedio neto de LP por partida"
               >
                 ±LP
-                <SortIndicator direction={lpSortDir} />
+                <SortIndicator
+                  direction={
+                    activeSort?.column === "lp" ? activeSort.direction : null
+                  }
+                />
               </button>
             </th>
           </tr>
@@ -184,10 +231,10 @@ export function LeaderboardTable({
                   <td className="hidden px-4 py-2 sm:table-cell">
                     <Sparkline points={entry.trend} id={entry.participant.id} />
                   </td>
-                  <td className="px-4 py-2">
+                  <td className="px-4 py-2 text-center">
                     <MangoCountBadge count={entry.mangoCount} />
                   </td>
-                  <td className="px-4 py-2">
+                  <td className="px-4 py-2 text-center">
                     <PenaltyIndicator penalties={entry.pendingPenalties} />
                   </td>
                   <td className="px-4 py-2 text-right">
