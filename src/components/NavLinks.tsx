@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 const LINKS = [
   { href: "/", label: "Ranking" },
   { href: "/reglas", label: "Reglas" },
+  { href: "/participantes", label: "Participantes" },
 ];
 
 export function NavLinks({ isPlayerLoggedIn }: { isPlayerLoggedIn: boolean }) {

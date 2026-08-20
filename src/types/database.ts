@@ -60,7 +60,11 @@ export type Participant = {
  * lanzamiento) pero todavía no se lo mostró a quien corresponde revelarlo
  * — pasa a 'sent' recién cuando esa persona completa el giro de la ruleta.
  */
-export type MangoStatus = "in_inventory" | "pending_reveal" | "sent" | "returned";
+export type MangoStatus =
+  | "in_inventory"
+  | "pending_reveal"
+  | "sent"
+  | "returned";
 
 export type Mango = {
   id: string;
@@ -87,7 +91,12 @@ export type QuestProgress = {
   updated_at: string;
 };
 
-export type PenaltyStatus = "pending" | "completed" | "flagged_for_review" | "disqualified" | "pardoned";
+export type PenaltyStatus =
+  | "pending"
+  | "completed"
+  | "flagged_for_review"
+  | "disqualified"
+  | "pardoned";
 
 export type PenaltyProgress = {
   id: string;
@@ -115,6 +124,17 @@ export type Snapshot = {
   wins: number;
   losses: number;
   elo_score: number;
+  created_at: string;
+};
+
+/**
+ * Roster público "Participantes" (nav) — nombre + foto, independiente de
+ * `Participant` (que requiere Riot ID/puuid resuelto). Ver 0012_showcase_participants.sql.
+ */
+export type ShowcaseParticipant = {
+  id: string;
+  nombre: string;
+  photo_url: string;
   created_at: string;
 };
 
@@ -263,6 +283,15 @@ export type Database = {
             referencedColumns: ["id"];
           },
         ];
+      };
+      showcase_participants: {
+        Row: ShowcaseParticipant;
+        Insert: Omit<ShowcaseParticipant, "id" | "created_at"> & {
+          id?: string;
+          created_at?: string;
+        };
+        Update: Partial<Omit<ShowcaseParticipant, "id">>;
+        Relationships: [];
       };
     };
     Views: {
