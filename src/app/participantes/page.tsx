@@ -1,6 +1,6 @@
 import { Header } from "@/components/Header";
 import { FixedLogo } from "@/components/FixedLogo";
-import { ShowcasePhoto } from "@/components/ShowcasePhoto";
+import { ParticipantsGrid } from "@/components/ParticipantsGrid";
 import { TournamentPhaseCountdown } from "@/components/TournamentPhaseCountdown";
 import { getShowcaseParticipants } from "@/lib/showcase-participants";
 
@@ -81,30 +81,7 @@ export default async function ParticipantesPage() {
           {participants.length === 0 && <EmptyState />}
 
           {participants.length > 0 && (
-            <div
-              className={`mt-6 grid ${density.gap}`}
-              style={{
-                gridTemplateColumns: `repeat(auto-fill, minmax(${density.minTile}px, 1fr))`,
-              }}
-            >
-              {participants.map((participant) => (
-                <div
-                  key={participant.id}
-                  className={`flex flex-col items-center gap-2 rounded-xl border border-border-hairline bg-surface text-center ${density.padding}`}
-                >
-                  <ShowcasePhoto
-                    name={participant.nombre}
-                    photoUrl={participant.photo_url}
-                    size={density.avatar}
-                  />
-                  <span
-                    className={`w-full truncate font-medium text-text-primary ${density.text}`}
-                  >
-                    {participant.nombre}
-                  </span>
-                </div>
-              ))}
-            </div>
+            <ParticipantsGrid participants={participants} density={density} />
           )}
         </div>
       </main>
