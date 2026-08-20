@@ -54,19 +54,22 @@ export default async function ParticipantesPage() {
     <div className="flex min-h-screen flex-col">
       <FixedLogo />
       <Header />
-      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-4 pt-6 pb-10 sm:pt-24">
+      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-4 pt-6 pb-10 sm:pt-44">
         {/*
-          Countdown, título y grilla comparten este único contenedor
-          (mismo sm:pl-[336px], mismo ancho) para quedar alineados en el
-          mismo eje — antes la grilla vivía afuera de este wrapper (a
-          ancho completo) mientras el título sí estaba indentado, y el
-          resultado se veía como dos columnas distintas. Indentar también
-          la grilla acá es seguro (a diferencia del podio de la home, que
-          es una grilla FIJA de 3 columnas que se rompe si se la achica —
-          ver page.tsx): esta es auto-fill, así que con menos ancho
-          disponible simplemente entran menos columnas, sin desbordar.
+          Sin indent horizontal (a diferencia de la home): el logo fixed
+          (200px, top-2, left-100 — ver FixedLogo.tsx) ocupa y:8 a y:208 del
+          viewport, así que sm:pt-44 (176px, sumado a los ~45px de header)
+          alcanza para que TODO el contenido de esta página —el countdown
+          incluido, que es lo más arriba— arranque ya por debajo de esa
+          franja. Sin nada superpuesto con el logo, no hace falta el
+          sm:pl-[336px] que sí necesita la home (donde el título/podio sí
+          quedan dentro de esa franja) — así el bloque completo queda
+          centrado de verdad en el ancho de main (mx-auto), no desplazado.
+          Countdown, título y grilla comparten este mismo contenedor/ancho
+          para no repetir el bug anterior de "dos columnas" (grilla a un
+          ancho, título a otro).
         */}
-        <div className="sm:pl-[336px]">
+        <div>
           <div className="flex justify-center pb-4">
             <TournamentPhaseCountdown />
           </div>
