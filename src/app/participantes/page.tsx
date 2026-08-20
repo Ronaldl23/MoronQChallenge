@@ -1,6 +1,7 @@
 import { Header } from "@/components/Header";
 import { FixedLogo } from "@/components/FixedLogo";
 import { ShowcasePhoto } from "@/components/ShowcasePhoto";
+import { TournamentPhaseCountdown } from "@/components/TournamentPhaseCountdown";
 import { getShowcaseParticipants } from "@/lib/showcase-participants";
 
 /**
@@ -55,13 +56,13 @@ export default async function ParticipantesPage() {
       <Header />
       <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 px-4 pt-6 pb-10 sm:pt-24">
         <div className="sm:pl-[336px]">
+          <div className="flex justify-center pb-4">
+            <TournamentPhaseCountdown />
+          </div>
+
           <h1 className="font-display text-3xl font-bold tracking-tight text-text-primary">
             Participantes
           </h1>
-          <p className="mt-1 text-sm text-text-secondary">
-            Quiénes participan en el torneo — roster independiente del ranking
-            de LoL.
-          </p>
 
           {participants.length === 0 && <EmptyState />}
         </div>
