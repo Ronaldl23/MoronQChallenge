@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { buildPlayerSessionCookie, PLAYER_SESSION_COOKIE } from "@/lib/player-auth";
+import {
+  buildPlayerSessionCookie,
+  PLAYER_SESSION_COOKIE,
+} from "@/lib/player-auth";
+import { normalizeLoginCode } from "@/lib/login-code";
 
 export const dynamic = "force-dynamic";
 
@@ -30,26 +34,35 @@ export async function POST(request: Request) {
   const { data: participant, error } = await supabase
     .from("participants")
     .select("id, nombre_display")
-    .eq("login_code", login_code.trim().toUpperCase())
+    .eq("login_code", normalizeLoginCode(login_code))
     .maybeSingle();
 
   if (error) {
     console.error("Login de jugador falló:", error.message);
-    return NextResponse.json({ error: "No se pudo validar el código" }, { status: 500 });
+    return NextResponse.json(
+      { error: "No se pudo validar el código" },
+      { status: 500 },
+    );
   }
 
   if (!participant) {
     return NextResponse.json({ error: "Código inválido" }, { status: 401 });
   }
 
-  const response = NextResponse.json({ nombre_display: participant.nombre_display });
-  response.cookies.set(PLAYER_SESSION_COOKIE, buildPlayerSessionCookie(participant.id), {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 30, // 30 días — no es una sesión admin, no hace falta que expire rápido
+  const response = NextResponse.json({
+    nombre_display: participant.nombre_display,
   });
+  response.cookies.set(
+    PLAYER_SESSION_COOKIE,
+    buildPlayerSessionCookie(participant.id),
+    {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: 60 * 60 * 24 * 30, // 30 días — no es una sesión admin, no hace falta que expire rápido
+    },
+  );
 
   return response;
 }

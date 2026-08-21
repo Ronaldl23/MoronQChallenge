@@ -17,3 +17,15 @@ export function generateLoginCode(): string {
   }
   return code;
 }
+
+/**
+ * generateLoginCode() ya produce códigos en mayúsculas sin espacios por
+ * construcción (ALPHABET), pero login_code también se puede editar a mano
+ * desde el Table Editor de Supabase — ahí nada garantiza mayúsculas ni
+ * recorta espacios. Normalizar el código ingresado en /api/jugador/login
+ * con esta misma función antes de comparar es lo que hace que un código
+ * copiado con case distinto o espacios de más siga haciendo match.
+ */
+export function normalizeLoginCode(code: string): string {
+  return code.trim().toUpperCase();
+}

@@ -206,9 +206,22 @@ export function ChatWidget({
   }
 
   return (
-    <div className="fixed right-4 bottom-4 z-50 flex flex-col items-end gap-3">
+    <div className="fixed right-4 bottom-4 z-[60] flex flex-col items-end gap-3">
       {isOpen && (
-        <div className="flex h-[480px] w-[calc(100vw-2rem)] max-w-[360px] flex-col overflow-hidden rounded-2xl border border-border-hairline bg-surface shadow-2xl">
+        <div
+          className={
+            // Mobile (< sm): panel casi de pantalla completa (fixed, se sale
+            // del flujo del wrapper) — a 1.5x el tamaño anterior ya no entra
+            // cómodo como card flotante en la mayoría de celulares. En sm+
+            // vuelve a ser un card flotante normal dentro del wrapper, con
+            // min() para que en ventanas de escritorio bajas (poca altura)
+            // el panel se achique en vez de salirse por arriba de la
+            // pantalla — 140px reservados para el botón, los gaps y el
+            // margen inferior/superior.
+            "fixed inset-3 z-50 flex flex-col overflow-hidden rounded-2xl border border-border-hairline bg-surface shadow-2xl " +
+            "sm:static sm:inset-auto sm:z-auto sm:h-[min(720px,calc(100vh-140px))] sm:w-[calc(100vw-2rem)] sm:max-w-[540px]"
+          }
+        >
           <div className="flex items-center justify-between border-b border-border-hairline bg-bg-elevated px-4 py-3">
             <p className="font-display text-sm font-bold tracking-wide text-text-primary uppercase">
               Chat del torneo
@@ -311,7 +324,15 @@ export function ChatWidget({
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
         aria-label={isOpen ? "Cerrar chat" : "Abrir chat"}
-        className="relative flex h-14 w-14 items-center justify-center rounded-full bg-gold text-bg shadow-lg transition-transform hover:scale-105"
+        className={
+          // En mobile el panel abierto es casi pantalla completa (ver
+          // arriba) — la burbuja flotante quedaría encimada sobre el panel,
+          // así que se oculta ahí y se confía en la X del header para
+          // cerrar. En sm+ el panel es un card chico y la burbuja sigue
+          // siendo el botón de cerrar/abrir de siempre.
+          "relative h-14 w-14 items-center justify-center rounded-full bg-gold text-bg shadow-lg transition-transform hover:scale-105 " +
+          (isOpen ? "hidden sm:flex" : "flex")
+        }
       >
         <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor">
           <path d="M4 4h16a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H8l-4.6 3.45A.5.5 0 0 1 2.6 20V6a2 2 0 0 1 1.4-1.9Z" />
