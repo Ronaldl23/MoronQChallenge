@@ -222,7 +222,7 @@ export function TierListBoard({
       onDragEnd={handleDragEnd}
     >
       <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
-        <div className="order-last flex flex-1 flex-col gap-2 lg:order-first">
+        <div className="order-last flex flex-1 flex-col gap-1.5 lg:order-first">
           {TIERS.map((tier) => (
             <TierListRow
               key={tier.id}

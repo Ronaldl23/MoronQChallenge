@@ -22,20 +22,21 @@ export function TierListRow({
   return (
     <div className="flex overflow-hidden rounded-xl border border-border-hairline bg-surface">
       {/*
-        El emblema es un <img> de tamaño fijo (no se achica solo en mobile,
-        a diferencia del resto del layout que sí es responsive) — la
-        columna tiene que ser lo bastante ancha para 160px + padding en
-        CUALQUIER viewport, así que va un solo ancho fijo en vez del
-        w-16 sm:w-28 de antes.
+        Ícono y label lado a lado (no apilados) — con 8 filas hay que
+        entrar en la altura de una sola pantalla sin scroll, y horizontal
+        gasta mucha menos altura por fila que un ícono grande arriba del
+        texto. El emblema es un <img> de tamaño fijo (no se achica solo en
+        mobile), así que la columna tiene un ancho fijo que le entra
+        cómodo en cualquier viewport.
       */}
       <div
-        className="flex w-48 shrink-0 flex-col items-center justify-center gap-1.5 p-3 text-center"
+        className="flex w-44 shrink-0 items-center gap-2 px-3 py-1.5"
         style={{
           backgroundColor: `${color}26`,
           borderRight: `2px solid ${color}55`,
         }}
       >
-        <TierEmblem tier={rankTier} size={160} />
+        <TierEmblem tier={rankTier} size={44} />
         <span
           className="font-display text-sm leading-tight font-bold tracking-wide uppercase"
           style={{ color }}
