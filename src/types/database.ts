@@ -138,6 +138,23 @@ export type ShowcaseParticipant = {
   created_at: string;
 };
 
+/**
+ * Chat global en tiempo real (Fase A), un solo salón para todos los
+ * jugadores registrados. sender_name/sender_avatar_url/sender_profile_icon_id
+ * van denormalizados (snapshot del remitente al momento de enviar) para que
+ * el evento de Realtime (solo la fila insertada, sin join) alcance para
+ * pintar el mensaje completo. Ver 0013_chat_messages.sql.
+ */
+export type ChatMessage = {
+  id: string;
+  participant_id: string;
+  sender_name: string;
+  sender_avatar_url: string | null;
+  sender_profile_icon_id: number | null;
+  message: string;
+  created_at: string;
+};
+
 export type Database = {
   public: {
     Tables: {
@@ -292,6 +309,23 @@ export type Database = {
         };
         Update: Partial<Omit<ShowcaseParticipant, "id">>;
         Relationships: [];
+      };
+      chat_messages: {
+        Row: ChatMessage;
+        Insert: Omit<ChatMessage, "id" | "created_at"> & {
+          id?: string;
+          created_at?: string;
+        };
+        Update: Partial<Omit<ChatMessage, "id">>;
+        Relationships: [
+          {
+            foreignKeyName: "chat_messages_participant_id_fkey";
+            columns: ["participant_id"];
+            isOneToOne: false;
+            referencedRelation: "participants";
+            referencedColumns: ["id"];
+          },
+        ];
       };
     };
     Views: {

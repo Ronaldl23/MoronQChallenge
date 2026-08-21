@@ -26,11 +26,11 @@ export function ParticipantsGrid({
   density: Density;
 }) {
   const [selected, setSelected] = useState<ShowcaseParticipant | null>(null);
-  // 1.5x el tamaño real de la miniatura en la tarjeta (density.avatar), no
+  // 2x el tamaño real de la miniatura en la tarjeta (density.avatar), no
   // un tamaño fijo — así el preview escala junto con la densidad de la
   // grilla (más chico en la vista densa de 30 participantes, más grande en
   // la de pocos participantes).
-  const previewSize = Math.round(density.avatar * 1.5);
+  const previewSize = Math.round(density.avatar * 2);
 
   useEffect(() => {
     if (!selected) return;

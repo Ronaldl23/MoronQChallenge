@@ -2,7 +2,10 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono, Rajdhani } from "next/font/google";
 import { getAuthenticatedParticipantId } from "@/lib/player-auth";
 import { getChampionList, type Champion } from "@/lib/champions";
+import { getDataDragonVersion } from "@/lib/ddragon";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { MangoNotifications } from "@/components/MangoNotifications";
+import { ChatWidget } from "@/components/ChatWidget";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -41,6 +44,19 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   // (ver src/lib/champions.ts), así que esto no es una llamada de red
   // nueva por cada carga de página — comparte el mismo caché que /jugador.
   let champions: Champion[] = [];
+  // Identidad del jugador logueado para ChatWidget (nombre/avatar a
+  // mostrar en el composer y para distinguir "mis" mensajes de los demás)
+  // — null si no hay sesión o el participante no existe (no debería pasar
+  // con una cookie válida, pero una fila borrada a mano no debe romper el
+  // resto del sitio).
+  let chatMe: {
+    participantId: string;
+    nombreDisplay: string;
+    avatarUrl: string | null;
+    profileIconId: number | null;
+  } | null = null;
+  let ddragonVersion: string | null = null;
+
   if (participantId) {
     try {
       champions = await getChampionList();
@@ -48,6 +64,30 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       // Sin campeones el pool visual de la ruleta queda corto (solo
       // Support de relleno) — no bloquea nada, MangoRevealModal igual
       // funciona con el resultado real que ya viene del servidor.
+    }
+
+    try {
+      const supabase = createAdminClient();
+      const [{ data: participant }, version] = await Promise.all([
+        supabase
+          .from("participants")
+          .select("nombre_display, avatar_url, profile_icon_id")
+          .eq("id", participantId)
+          .maybeSingle(),
+        getDataDragonVersion(),
+      ]);
+      ddragonVersion = version;
+      if (participant) {
+        chatMe = {
+          participantId,
+          nombreDisplay: participant.nombre_display,
+          avatarUrl: participant.avatar_url,
+          profileIconId: participant.profile_icon_id,
+        };
+      }
+    } catch {
+      // Sin esto ChatWidget simplemente no se monta (ver abajo) — el resto
+      // del sitio no depende de esta llamada.
     }
   }
 
@@ -58,6 +98,9 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="site-bg flex min-h-full flex-col text-text-primary">
         {participantId && <MangoNotifications champions={champions} />}
+        {chatMe && ddragonVersion && (
+          <ChatWidget me={chatMe} ddragonVersion={ddragonVersion} />
+        )}
         {children}
       </body>
     </html>
