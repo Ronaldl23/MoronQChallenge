@@ -8,10 +8,11 @@ import {
   PointerSensor,
   TouchSensor,
   closestCorners,
+  pointerWithin,
   useSensor,
   useSensors,
+  type CollisionDetection,
   type DragEndEvent,
-  type DragOverEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { arrayMove, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
@@ -97,6 +98,23 @@ function initialState(participants: ShowcaseParticipant[]): BoardState {
 }
 
 /**
+ * closestCorners promedia la distancia a las CUATRO esquinas de cada
+ * droppable — con filas tan compactas (56-60px) y pegadas (6px de gap)
+ * eso alcanza para que sueltes en una fila y dnd-kit reporte "over" la
+ * fila vecina (confirmado con Playwright: soltar cerca del borde de Plata
+ * o Hierro terminaba metiendo la ficha en Bronce, la fila de arriba).
+ * pointerWithin resuelve esto porque solo mira si el puntero está
+ * LITERALMENTE adentro del rectángulo de la fila — ambiguo solo si el
+ * puntero cae fuera de cualquier droppable, así que ahí cae a
+ * closestCorners como red de seguridad (ej. terminar el drag apretando
+ * una tecla, no con el puntero encima de nada).
+ */
+const collisionDetection: CollisionDetection = (args) => {
+  const pointerCollisions = pointerWithin(args);
+  return pointerCollisions.length > 0 ? pointerCollisions : closestCorners(args);
+};
+
+/**
  * Tablero de tier list "efímero": todo vive en useState, nada se manda a
  * Supabase ni a localStorage — recargar la página, navegar a otra ruta o
  * cerrar la pestaña resetea todo a "sin asignar" (a propósito, ver el
@@ -145,27 +163,41 @@ export function TierListBoard({
     setActiveId(String(event.active.id));
   }
 
-  // Mueve la ficha al contenedor de destino EN VIVO mientras se arrastra
-  // (no recién al soltar) — así el usuario ve el hueco abrirse del otro
-  // lado a medida que pasa el mouse/dedo, patrón estándar de dnd-kit para
-  // "multiple containers". El orden FINAL dentro del contenedor de destino
-  // se resuelve en handleDragEnd.
-  function handleDragOver(event: DragOverEvent) {
+  // A propósito NO hay onDragOver que mueva la ficha en vivo entre
+  // contenedores: cada fila mide bien menos que una ficha (68px vs. ~90px de
+  // TierListCard con foto+nombre), así que insertarla en vivo en la fila que
+  // el puntero va cruzando de paso la hace crecer y empuja las filas de abajo
+  // — el usuario termina soltando en una fila distinta a la que apuntaba,
+  // porque el layout se corrió debajo del cursor a mitad del arrastre. Como
+  // esto no es un tablero tipo Kanban con reordenamiento visual en vivo entre
+  // columnas, no hace falta esa preview: alcanza con resolver todo, de una,
+  // en handleDragEnd usando la posición real del puntero al soltar.
+  function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
+    setActiveId(null);
     if (!over) return;
 
     const activeId = String(active.id);
     const overId = String(over.id);
     const activeContainer = findContainer(activeId);
     const overContainer = findContainer(overId);
-    if (!activeContainer || !overContainer || activeContainer === overContainer)
-      return;
+    if (!activeContainer || !overContainer) return;
 
     setItems((prev) => {
       const activeItems = prev[activeContainer];
       const overItems = prev[overContainer];
-      const overIndex = overItems.indexOf(overId);
+      const activeIndex = activeItems.indexOf(activeId);
 
+      if (activeContainer === overContainer) {
+        const overIndex = overItems.indexOf(overId);
+        if (overIndex === -1 || activeIndex === overIndex) return prev;
+        return {
+          ...prev,
+          [overContainer]: arrayMove(overItems, activeIndex, overIndex),
+        };
+      }
+
+      const overIndex = overItems.indexOf(overId);
       const isOverContainerItself = overId === overContainer;
       const newIndex = isOverContainerItself
         ? overItems.length
@@ -183,28 +215,6 @@ export function TierListBoard({
     });
   }
 
-  function handleDragEnd(event: DragEndEvent) {
-    const { active, over } = event;
-    setActiveId(null);
-    if (!over) return;
-
-    const activeId = String(active.id);
-    const overId = String(over.id);
-    const activeContainer = findContainer(activeId);
-    const overContainer = findContainer(overId);
-    if (!activeContainer || !overContainer || activeContainer !== overContainer)
-      return;
-
-    const activeIndex = items[activeContainer].indexOf(activeId);
-    const overIndex = items[overContainer].indexOf(overId);
-    if (activeIndex !== -1 && overIndex !== -1 && activeIndex !== overIndex) {
-      setItems((prev) => ({
-        ...prev,
-        [overContainer]: arrayMove(prev[overContainer], activeIndex, overIndex),
-      }));
-    }
-  }
-
   const activeParticipant = activeId
     ? participantsById.get(activeId)
     : undefined;
@@ -216,13 +226,12 @@ export function TierListBoard({
       // cliente, y React tira un warning de hydration mismatch en cada carga.
       id="tierlist"
       sensors={sensors}
-      collisionDetection={closestCorners}
+      collisionDetection={collisionDetection}
       onDragStart={handleDragStart}
-      onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
     >
       <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
-        <div className="order-last flex flex-1 flex-col gap-1.5 lg:order-first">
+        <div className="order-last flex flex-1 flex-col gap-2 lg:order-first">
           {TIERS.map((tier) => (
             <TierListRow
               key={tier.id}

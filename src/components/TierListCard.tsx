@@ -44,7 +44,13 @@ export function TierListCard({
       style={style}
       {...(dragging ? {} : attributes)}
       {...(dragging ? {} : listeners)}
-      className={`flex w-20 shrink-0 touch-none flex-col items-center gap-1 rounded-lg border border-border-hairline bg-surface p-2 text-center select-none ${
+      // Horizontal (avatar + nombre en una sola línea) y no apilado: una
+      // ficha vertical con foto grande obliga a cada fila a crecer a ~100px
+      // apenas recibe UNA ficha, lo que en /tierlist rompe el "8 filas sin
+      // scroll" (las filas de más abajo terminan fuera del viewport, y eso
+      // dispara el auto-scroll de dnd-kit a mitad de un drag, haciendo fallar
+      // el soltado). Compacta así, una fila con ficha mide ~50-60px.
+      className={`flex w-28 shrink-0 touch-none items-center gap-1.5 rounded-lg border border-border-hairline bg-surface px-2 py-1.5 text-left select-none ${
         dragging
           ? "rotate-3 scale-105 cursor-grabbing shadow-2xl"
           : isDragging
@@ -55,9 +61,9 @@ export function TierListCard({
       <ShowcasePhoto
         name={participant.nombre}
         photoUrl={participant.photo_url}
-        size={48}
+        size={32}
       />
-      <span className="w-full truncate text-[11px] font-medium text-text-primary">
+      <span className="line-clamp-1 min-w-0 flex-1 text-[11px] font-medium text-text-primary">
         {participant.nombre}
       </span>
     </div>

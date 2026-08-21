@@ -30,13 +30,13 @@ export function TierListRow({
         cómodo en cualquier viewport.
       */}
       <div
-        className="flex w-44 shrink-0 items-center gap-2 px-3 py-1.5"
+        className="flex w-44 shrink-0 items-center gap-2 px-3 py-2"
         style={{
           backgroundColor: `${color}26`,
           borderRight: `2px solid ${color}55`,
         }}
       >
-        <TierEmblem tier={rankTier} size={44} />
+        <TierEmblem tier={rankTier} size={40} />
         <span
           className="font-display text-sm leading-tight font-bold tracking-wide uppercase"
           style={{ color }}
