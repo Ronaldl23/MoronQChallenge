@@ -49,10 +49,11 @@ export function TierListCard({
       // apenas recibe UNA ficha, lo que en /tierlist puede romper el "8
       // filas sin scroll" (las filas de más abajo terminan fuera del
       // viewport, y eso dispara el auto-scroll de dnd-kit a mitad de un
-      // drag, haciendo fallar el soltado). El avatar (80px) crece bastante
-      // más que el resto de la ficha a propósito — es lo que hay que poder
-      // reconocer de un vistazo, el nombre es secundario.
-      className={`flex w-44 shrink-0 touch-none items-center gap-2.5 rounded-lg border border-border-hairline bg-surface px-3 py-2.5 text-left select-none ${
+      // drag, haciendo fallar el soltado). El ancho de la ficha es un poco
+      // mayor que el avatar + texto mínimo para que el nombre no se corte
+      // tan agresivo (line-clamp-1 igual trunca con "..." si el nombre es
+      // muy largo, pero deja más aire que antes).
+      className={`flex w-56 shrink-0 touch-none items-center gap-2 rounded-lg border border-border-hairline bg-surface px-3 py-2 text-left select-none ${
         dragging
           ? "rotate-3 scale-105 cursor-grabbing shadow-2xl"
           : isDragging
@@ -63,7 +64,7 @@ export function TierListCard({
       <ShowcasePhoto
         name={participant.nombre}
         photoUrl={participant.photo_url}
-        size={80}
+        size={40}
       />
       <span className="line-clamp-1 min-w-0 flex-1 text-base font-medium text-text-primary">
         {participant.nombre}

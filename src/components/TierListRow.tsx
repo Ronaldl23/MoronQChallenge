@@ -20,23 +20,26 @@ export function TierListRow({
   participantsById: Map<string, ShowcaseParticipant>;
 }) {
   return (
-    <div className="flex overflow-hidden rounded-xl border border-border-hairline bg-surface">
+    <div className="flex flex-col overflow-hidden rounded-xl border border-border-hairline bg-surface sm:flex-row">
       {/*
-        Ícono y label lado a lado (no apilados) — con 8 filas hay que
-        entrar en la altura de una sola pantalla sin scroll, y horizontal
+        Ícono y label lado a lado en desktop (sm:flex-row) — con 8 filas hay
+        que entrar en la altura de una sola pantalla sin scroll, y horizontal
         gasta mucha menos altura por fila que un ícono grande arriba del
-        texto. El emblema es un <img> de tamaño fijo (no se achica solo en
-        mobile), así que la columna tiene un ancho fijo que le entra
-        cómodo en cualquier viewport.
+        texto. En mobile en cambio SE APILA (flex-col por default, el emblema
+        ahora es grande — 120px — y una columna fija de ese ancho no entra
+        cómoda en un viewport angosto: dejaba casi sin espacio la drop-zone,
+        y una ficha soltada ahí terminaba cortada fuera de pantalla). Mobile
+        no tenía el requisito de "sin scroll" que sí tiene desktop, así que
+        apilar acá es gratis.
       */}
       <div
-        className="flex w-64 shrink-0 items-center gap-3 px-4 py-3"
+        className="flex shrink-0 items-center gap-1.5 border-b-2 px-2 py-1.5 sm:w-72 sm:border-r-2 sm:border-b-0"
         style={{
           backgroundColor: `${color}26`,
-          borderRight: `2px solid ${color}55`,
+          borderColor: `${color}55`,
         }}
       >
-        <TierEmblem tier={rankTier} size={60} />
+        <TierEmblem tier={rankTier} size={120} />
         <span
           className="font-display text-xl leading-tight font-bold tracking-wide uppercase"
           style={{ color }}
