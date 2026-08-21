@@ -85,11 +85,12 @@ export function TierListCard({
       // apenas recibe UNA ficha, lo que en /tierlist puede romper el "8
       // filas sin scroll" (las filas de más abajo terminan fuera del
       // viewport, y eso dispara el auto-scroll de dnd-kit a mitad de un
-      // drag, haciendo fallar el soltado). El ancho de la ficha es un poco
-      // mayor que el avatar + texto mínimo para que el nombre no se corte
-      // tan agresivo (line-clamp-1 igual trunca con "..." si el nombre es
-      // muy largo, pero deja más aire que antes).
-      className={`flex w-56 shrink-0 touch-none items-center gap-2 rounded-lg border border-border-hairline bg-surface px-3 py-2 text-left select-none ${stateClassName}`}
+      // drag, haciendo fallar el soltado). w-56 (224px) hacía que con el
+      // drop-zone actual (~450px) entrara UNA sola ficha por línea — se
+      // veían "apiladas" en columna aunque el contenedor ya usaba
+      // flex-wrap, porque cada ficha por sí sola ocupaba casi todo el
+      // ancho. w-40 deja entrar 2-3 por línea antes de wrappear.
+      className={`flex w-40 shrink-0 touch-none items-center gap-2 rounded-lg border border-border-hairline bg-surface px-2 py-2 text-left select-none ${stateClassName}`}
     >
       <ShowcasePhoto
         name={participant.nombre}
