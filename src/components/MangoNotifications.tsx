@@ -60,10 +60,17 @@ export function MangoNotifications({ champions }: { champions: Champion[] }) {
   // ciclos sonido→toast→ruleta si un poll llega mientras el delay del
   // anterior todavía no disparó).
   const activeRevealRef = useRef<string | null>(null);
-  // Un solo <audio> reusado (no "new Audio()" cada vez) — el "desbloqueo" de
-  // autoplay del navegador queda atado a ESTE elemento en particular, no al
+  // Dos <audio> reusados (no "new Audio()" cada vez) — el "desbloqueo" de
+  // autoplay del navegador queda atado a CADA elemento en particular, no al
   // origen en general, así que hay que reproducir SIEMPRE el mismo objeto.
+  // TomaMango.mp3 es EXCLUSIVO del flujo sonido→toast→ruleta automática de
+  // "te llegó un Mango y tenés que revelarlo" (advanceQueue, más abajo) —
+  // cualquier otro aviso (le avisamos al lanzador que su mango llegó a
+  // destino, "no cumpliste a tiempo", o un "received" viejo que ya se
+  // resolvió por otro lado y no dispara ruleta) usa el sonido genérico de
+  // evento, el mismo que las notificaciones de sistema del chat.
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const eventAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioUnlockedRef = useRef(false);
   // Evita setState después de que el componente se desmontó (setTimeout de
   // advanceQueue puede seguir vivo un instante más).
@@ -91,21 +98,28 @@ export function MangoNotifications({ champions }: { champions: Champion[] }) {
   // sesión, incluso cuando se lo vuelve a llamar fuera de un gesto (poll).
   useEffect(() => {
     audioRef.current = new Audio("/TomaMango.mp3");
+    eventAudioRef.current = new Audio("/NotificacionEvento.mp3");
 
-    function unlockAudio() {
-      if (audioUnlockedRef.current) return;
-      const audio = audioRef.current;
-      if (!audio) return;
-      audio
+    function unlockOne(audio: HTMLAudioElement) {
+      return audio
         .play()
         .then(() => {
           audio.pause();
           audio.currentTime = 0;
-          audioUnlockedRef.current = true;
+          return true;
         })
-        .catch(() => {
-          // Sigue bloqueado — se reintenta con la próxima interacción.
-        });
+        .catch(() => false);
+    }
+
+    function unlockAudio() {
+      if (audioUnlockedRef.current) return;
+      const audios = [audioRef.current, eventAudioRef.current];
+      if (audios.some((audio) => !audio)) return;
+      Promise.all(audios.map((audio) => unlockOne(audio!))).then((results) => {
+        // Solo se marca desbloqueado si los dos sonidos realmente
+        // arrancaron — si no, se reintenta con la próxima interacción.
+        if (results.every(Boolean)) audioUnlockedRef.current = true;
+      });
     }
 
     const events: Array<keyof DocumentEventMap> = ["click", "keydown", "touchstart"];
@@ -185,7 +199,12 @@ export function MangoNotifications({ champions }: { champions: Champion[] }) {
       if (freshImmediate.length > 0) {
         freshImmediate.forEach((n) => queuedKeys.current.add(toastKey(n)));
         setToasts((prev) => [...prev, ...freshImmediate]);
-        audioRef.current?.play().catch(() => {});
+        // TomaMango.mp3 es solo para el flujo de "te llegó un Mango y lo
+        // vas a revelar ya" (advanceQueue, más abajo) — este batch es todo
+        // lo demás (flagged_for_review, launcher_reveal, o un "received"
+        // viejo que ya no va a disparar la ruleta), así que usa el sonido
+        // genérico de evento.
+        eventAudioRef.current?.play().catch(() => {});
 
         const ackRes = await fetch("/api/jugador/notifications/ack", {
           method: "POST",
