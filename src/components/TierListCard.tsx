@@ -14,10 +14,19 @@ import type { ShowcaseParticipant } from "@/types/database";
 export function TierListCard({
   participant,
   dragging = false,
+  compact = false,
 }: {
   participant: ShowcaseParticipant;
   /** true en la copia que vive dentro de DragOverlay — sin listeners propios, solo estilo "levantada". */
   dragging?: boolean;
+  /**
+   * true en el panel "Sin asignar": grilla densa (foto arriba, nombre abajo,
+   * chica) para que entren muchos participantes visibles a la vez y sea
+   * fácil encontrar a quién arrastrar — calca la estructura de referencia
+   * que pasó el usuario. Las filas de tier siguen usando la ficha horizontal
+   * (foto + nombre en una línea), pensada para una sola ficha por vez.
+   */
+  compact?: boolean;
 }) {
   const {
     attributes,
@@ -38,6 +47,33 @@ export function TierListCard({
         transition,
       };
 
+  const stateClassName = dragging
+    ? "rotate-3 scale-105 cursor-grabbing shadow-2xl"
+    : isDragging
+      ? "opacity-30"
+      : "cursor-grab shadow-sm hover:border-gold/40 hover:bg-surface-hover";
+
+  if (compact) {
+    return (
+      <div
+        ref={dragging ? undefined : setNodeRef}
+        style={style}
+        {...(dragging ? {} : attributes)}
+        {...(dragging ? {} : listeners)}
+        className={`flex w-[72px] shrink-0 touch-none flex-col items-center gap-1 rounded-lg border border-border-hairline bg-surface p-1.5 text-center select-none ${stateClassName}`}
+      >
+        <ShowcasePhoto
+          name={participant.nombre}
+          photoUrl={participant.photo_url}
+          size={48}
+        />
+        <span className="line-clamp-1 w-full text-[10px] font-medium text-text-primary">
+          {participant.nombre}
+        </span>
+      </div>
+    );
+  }
+
   return (
     <div
       ref={dragging ? undefined : setNodeRef}
@@ -53,13 +89,7 @@ export function TierListCard({
       // mayor que el avatar + texto mínimo para que el nombre no se corte
       // tan agresivo (line-clamp-1 igual trunca con "..." si el nombre es
       // muy largo, pero deja más aire que antes).
-      className={`flex w-56 shrink-0 touch-none items-center gap-2 rounded-lg border border-border-hairline bg-surface px-3 py-2 text-left select-none ${
-        dragging
-          ? "rotate-3 scale-105 cursor-grabbing shadow-2xl"
-          : isDragging
-            ? "opacity-30"
-            : "cursor-grab shadow-sm hover:border-gold/40 hover:bg-surface-hover"
-      }`}
+      className={`flex w-56 shrink-0 touch-none items-center gap-2 rounded-lg border border-border-hairline bg-surface px-3 py-2 text-left select-none ${stateClassName}`}
     >
       <ShowcasePhoto
         name={participant.nombre}

@@ -17,12 +17,15 @@ export function TierListContainer({
   participantsById,
   className = "",
   emptyHint,
+  compactCards = false,
 }: {
   id: string;
   items: string[];
   participantsById: Map<string, ShowcaseParticipant>;
   className?: string;
   emptyHint?: string;
+  /** true en el panel "Sin asignar" — grilla densa, ver TierListCard. */
+  compactCards?: boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id });
 
@@ -37,7 +40,13 @@ export function TierListContainer({
         {items.map((participantId) => {
           const participant = participantsById.get(participantId);
           if (!participant) return null;
-          return <TierListCard key={participantId} participant={participant} />;
+          return (
+            <TierListCard
+              key={participantId}
+              participant={participant}
+              compact={compactCards}
+            />
+          );
         })}
       </SortableContext>
       {items.length === 0 && emptyHint && (

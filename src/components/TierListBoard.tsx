@@ -231,7 +231,7 @@ export function TierListBoard({
       onDragEnd={handleDragEnd}
     >
       <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
-        <div className="order-last flex flex-1 flex-col gap-2 lg:order-first">
+        <div className="order-last flex flex-1 flex-col gap-1.5 lg:order-first">
           {TIERS.map((tier) => (
             <TierListRow
               key={tier.id}
@@ -245,7 +245,15 @@ export function TierListBoard({
           ))}
         </div>
 
-        <div className="flex flex-col gap-3 rounded-xl border border-border-hairline bg-surface p-4 lg:sticky lg:top-20 lg:w-96 lg:shrink-0">
+        {/*
+          Grilla densa (no lista vertical de fichas anchas): con fichas
+          chicas (72px, foto arriba + nombre abajo) entran bastantes por
+          fila, así se ve de un vistazo a TODOS los participantes
+          disponibles para arrastrar — calca la estructura de referencia
+          que pasó el usuario. Panel más ancho que antes para que ese grid
+          tenga aire (~6 columnas en desktop).
+        */}
+        <div className="flex flex-col gap-3 rounded-xl border border-border-hairline bg-surface p-3 lg:sticky lg:top-20 lg:w-[520px] lg:shrink-0">
           <p className="font-display text-sm font-bold tracking-wider text-text-secondary uppercase">
             Sin asignar ({items[UNASSIGNED].length})
           </p>
@@ -254,6 +262,7 @@ export function TierListBoard({
             items={items[UNASSIGNED]}
             participantsById={participantsById}
             emptyHint="Arrastra a alguien de vuelta acá"
+            compactCards
           />
         </div>
       </div>
