@@ -1,7 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 const LINKS = [
   { href: "/", label: "Ranking" },
@@ -11,9 +12,26 @@ const LINKS = [
 
 export function NavLinks({ isPlayerLoggedIn }: { isPlayerLoggedIn: boolean }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  async function handleLogout() {
+    setLoggingOut(true);
+    try {
+      await fetch("/api/jugador/logout", { method: "POST" });
+    } finally {
+      // router.refresh() además de push: layout.tsx decide qué montar
+      // (ChatWidget, MangoNotifications, el texto Inventario/Login) leyendo
+      // la cookie del lado del servidor en cada request — sin el refresh,
+      // el árbol de Server Components ya cacheado por el router seguiría
+      // mostrando el estado logueado hasta la próxima navegación real.
+      router.push("/");
+      router.refresh();
+    }
+  }
 
   return (
-    <nav className="flex items-center gap-6 font-display text-sm font-semibold tracking-wide uppercase">
+    <nav className="flex flex-wrap items-center gap-x-6 gap-y-2 font-display text-sm font-semibold tracking-wide uppercase">
       {LINKS.map((link) => {
         const active = pathname === link.href;
         return (
@@ -43,6 +61,16 @@ export function NavLinks({ isPlayerLoggedIn }: { isPlayerLoggedIn: boolean }) {
       >
         {isPlayerLoggedIn ? "Inventario" : "Login"}
       </Link>
+      {isPlayerLoggedIn && (
+        <button
+          type="button"
+          onClick={handleLogout}
+          disabled={loggingOut}
+          className="text-xs font-medium text-text-muted normal-case transition-colors hover:text-loss disabled:opacity-50"
+        >
+          {loggingOut ? "Saliendo..." : "Cerrar sesión"}
+        </button>
+      )}
     </nav>
   );
 }
