@@ -18,11 +18,12 @@ import { LeaderboardTable } from "@/components/LeaderboardTable";
 const FACEBOOK_GROUP_URL = "https://www.facebook.com/groups/1538676923078524";
 
 export default async function Home() {
-  const [{ entries, lastUpdated }, ddragonVersion] = await Promise.all([
-    getLeaderboard(),
-    getDataDragonVersion(),
-  ]);
+  const [{ entries, unrankedEntries, lastUpdated }, ddragonVersion] =
+    await Promise.all([getLeaderboard(), getDataDragonVersion()]);
+  // El podio SOLO mira `entries` (con snapshot/LP real) — nunca
+  // unrankedEntries, aunque haya menos de 3 participantes con rango.
   const podium = entries.slice(0, 3);
+  const hasAnyEntries = entries.length > 0 || unrankedEntries.length > 0;
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -76,10 +77,10 @@ export default async function Home() {
             <LastUpdated iso={lastUpdated} />
           </div>
 
-          {entries.length === 0 && <EmptyState />}
+          {!hasAnyEntries && <EmptyState />}
         </div>
 
-        {entries.length > 0 && (
+        {hasAnyEntries && (
           <>
             {podium.length > 0 && (
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -88,7 +89,11 @@ export default async function Home() {
                 ))}
               </div>
             )}
-            <LeaderboardTable entries={entries} ddragonVersion={ddragonVersion} />
+            <LeaderboardTable
+              entries={entries}
+              unrankedEntries={unrankedEntries}
+              ddragonVersion={ddragonVersion}
+            />
           </>
         )}
       </main>

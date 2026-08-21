@@ -74,8 +74,31 @@ export interface LeaderboardEntry {
 const TREND_WINDOW_DAYS = 7;
 const MAX_TREND_GAMES = 10;
 
+/**
+ * Participante sin ningún snapshot en la ventana de TREND_WINDOW_DAYS —
+ * típicamente porque todavía no jugó ninguna ranked SoloQ esta temporada
+ * (unranked en league-v4, ver /api/update-rankings: ahí ni se inserta
+ * snapshot para estos casos). Sin Snapshot no hay tier/división/LP/winrate
+ * que mostrar — solo datos propios del participante, independientes del
+ * rango.
+ */
+export interface UnrankedLeaderboardEntry {
+  participant: PublicParticipant;
+  pendingPenalties: PendingPenaltySummary[];
+  mangoCount: number;
+  isDisqualified: boolean;
+}
+
 export interface Leaderboard {
   entries: LeaderboardEntry[];
+  /**
+   * Participantes sin rango, para que el torneo pueda confirmar antes de
+   * arrancar que todos quedaron bien registrados aunque todavía no tengan
+   * partidas — SIEMPRE van al final de la tabla y NUNCA entran al podio
+   * (no hay LP real con qué compararlos), por eso viven en un array aparte
+   * en vez de mezclarse con `entries`.
+   */
+  unrankedEntries: UnrankedLeaderboardEntry[];
   /** created_at del snapshot más reciente de todo el leaderboard, para el indicador "actualizado hace X". */
   lastUpdated: string | null;
 }
@@ -95,11 +118,11 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
 
   if (participantsError) {
     console.error("Failed to load participants:", participantsError.message);
-    return { entries: [], lastUpdated: null };
+    return { entries: [], unrankedEntries: [], lastUpdated: null };
   }
 
   if (!participants || participants.length === 0) {
-    return { entries: [], lastUpdated: null };
+    return { entries: [], unrankedEntries: [], lastUpdated: null };
   }
 
   const windowStart = new Date(
@@ -132,7 +155,7 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
 
     if (snapshotsError) {
       console.error("Failed to load snapshots:", snapshotsError.message);
-      return { entries: [], lastUpdated: null };
+      return { entries: [], unrankedEntries: [], lastUpdated: null };
     }
 
     snapshots.push(...(page ?? []));
@@ -244,10 +267,22 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
   }
 
   const entries: Omit<LeaderboardEntry, "rank">[] = [];
+  const unrankedEntries: UnrankedLeaderboardEntry[] = [];
 
   for (const participant of participants) {
     const history = historyByParticipant.get(participant.id);
-    if (!history || history.length === 0) continue;
+    if (!history || history.length === 0) {
+      // Sin snapshot en la ventana = todavía no jugó ranked (o
+      // /api/update-rankings nunca corrió para él) — va a la lista aparte,
+      // nunca a `entries` (que alimenta el podio).
+      unrankedEntries.push({
+        participant,
+        pendingPenalties: pendingByParticipant.get(participant.id) ?? [],
+        mangoCount: mangoCountByParticipant.get(participant.id) ?? 0,
+        isDisqualified: disqualifiedParticipantIds.has(participant.id),
+      });
+      continue;
+    }
 
     const latest = history[history.length - 1];
 
@@ -303,11 +338,18 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
   }
 
   entries.sort((a, b) => b.latest.elo_score - a.latest.elo_score);
+  // Sin LP con qué ordenarlos entre sí — alfabético, mismo criterio que
+  // /participantes, para un orden estable y predecible en vez de lo que sea
+  // que devuelva la query.
+  unrankedEntries.sort((a, b) =>
+    a.participant.nombre_display.localeCompare(b.participant.nombre_display, "es"),
+  );
 
   return {
     entries: entries
       .slice(0, limit)
       .map((entry, i) => ({ ...entry, rank: i + 1 })),
+    unrankedEntries,
     lastUpdated,
   };
 }

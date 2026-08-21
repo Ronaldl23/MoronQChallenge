@@ -2,7 +2,7 @@
 
 import { Fragment, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import type { LeaderboardEntry } from "@/lib/leaderboard";
+import type { LeaderboardEntry, UnrankedLeaderboardEntry } from "@/lib/leaderboard";
 import { ROLE_TO_LANE_SLUG } from "@/lib/lane";
 import { DisqualifiedBadge } from "./DisqualifiedBadge";
 import { MangoCountBadge } from "./MangoCountBadge";
@@ -18,9 +18,12 @@ import { WinrateBar } from "./WinrateBar";
 
 export function LeaderboardTable({
   entries,
+  unrankedEntries = [],
   ddragonVersion,
 }: {
   entries: LeaderboardEntry[];
+  /** Sin rango todavía (no jugó ranked esta temporada) — siempre al final, fuera del sort de las columnas de abajo. */
+  unrankedEntries?: UnrankedLeaderboardEntry[];
   ddragonVersion: string;
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -277,6 +280,77 @@ export function LeaderboardTable({
               </Fragment>
             );
           })}
+          {/*
+            Sin rango todavía (no jugó ranked esta temporada) — SIEMPRE acá
+            abajo, ajenas al sort de los headers de arriba (no tienen LP con
+            qué ordenarse) y nunca cuentan para el podio (eso solo mira
+            `entries`, ver page.tsx).
+          */}
+          {unrankedEntries.map((entry) => (
+            <tr
+              key={entry.participant.id}
+              className="border-b border-border-hairline last:border-0"
+            >
+              <td className="px-4 py-2 font-display font-semibold text-text-muted">
+                —
+              </td>
+              <td className="px-4 py-2">
+                <div className="flex items-center gap-3">
+                  <div className="relative shrink-0">
+                    <ProfileIcon
+                      name={entry.participant.nombre_display}
+                      avatarUrl={entry.participant.avatar_url}
+                      profileIconId={entry.participant.profile_icon_id}
+                      ddragonVersion={ddragonVersion}
+                      size={32}
+                    />
+                    {entry.isDisqualified && <DisqualifiedBadge />}
+                  </div>
+                  <div className="min-w-0">
+                    <p
+                      className={`flex items-center gap-1.5 truncate text-[15px] font-bold ${entry.isDisqualified ? "text-text-muted" : "text-text-primary"}`}
+                    >
+                      {entry.participant.nombre_display}
+                      {entry.participant.main_role && (
+                        <PositionIcon
+                          laneSlug={ROLE_TO_LANE_SLUG[entry.participant.main_role]}
+                          size={14}
+                        />
+                      )}
+                    </p>
+                    <p className="truncate text-xs text-text-secondary">
+                      {entry.participant.riot_game_name}#
+                      {entry.participant.riot_tag}
+                    </p>
+                  </div>
+                </div>
+              </td>
+              <td className="px-4 py-2">
+                <span className="inline-flex items-center rounded-md border border-border-hairline px-2 py-0.5 font-display text-xs font-semibold tracking-wide whitespace-nowrap text-text-muted">
+                  Sin rango
+                </span>
+              </td>
+              <td className="px-4 py-2 text-text-muted">—</td>
+              <td className="hidden px-4 py-2 text-text-muted sm:table-cell">
+                —
+              </td>
+              <td className="px-4 py-2 text-center">
+                <MangoCountBadge count={entry.mangoCount} />
+              </td>
+              <td className="px-4 py-2 text-center">
+                <PenaltyIndicator penalties={entry.pendingPenalties} />
+              </td>
+              <td className="py-2 pr-16 pl-4 text-right">
+                <div className="flex items-center justify-end gap-2">
+                  <span className="hidden text-text-muted sm:inline">—</span>
+                  <OpggButton
+                    opggUrl={entry.participant.opgg_url}
+                    inGame={entry.participant.in_game}
+                  />
+                </div>
+              </td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>
