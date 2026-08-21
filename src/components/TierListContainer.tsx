@@ -29,7 +29,7 @@ export function TierListContainer({
   return (
     <div
       ref={setNodeRef}
-      className={`flex min-h-[58px] flex-1 flex-wrap items-center gap-1.5 rounded-lg p-1.5 transition-colors ${
+      className={`flex min-h-[90px] flex-1 flex-wrap items-center gap-2.5 rounded-lg p-2 transition-colors ${
         isOver ? "bg-gold/10" : ""
       } ${className}`}
     >

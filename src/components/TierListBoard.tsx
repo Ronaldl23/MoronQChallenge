@@ -245,8 +245,8 @@ export function TierListBoard({
           ))}
         </div>
 
-        <div className="flex flex-col gap-2 rounded-xl border border-border-hairline bg-surface p-3 lg:sticky lg:top-20 lg:w-72 lg:shrink-0">
-          <p className="font-display text-xs font-bold tracking-wider text-text-secondary uppercase">
+        <div className="flex flex-col gap-3 rounded-xl border border-border-hairline bg-surface p-4 lg:sticky lg:top-20 lg:w-96 lg:shrink-0">
+          <p className="font-display text-sm font-bold tracking-wider text-text-secondary uppercase">
             Sin asignar ({items[UNASSIGNED].length})
           </p>
           <TierListContainer
