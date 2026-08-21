@@ -22,8 +22,48 @@ interface Me {
 }
 
 /**
- * Widget flotante de chat global (Fase A, sin notificaciones de sistema
- * todavía — eso es Fase B). Un solo salón compartido: se suscribe a
+ * Fila de un mensaje de sistema ('mango_event' / 'rank_event') — centrada,
+ * sin el tratamiento de burbuja mía/ajena de un mensaje de jugador (no le
+ * corresponde a nadie en particular, es un anuncio para todo el salón), con
+ * un ícono de evento en vez del avatar de un participante.
+ */
+function SystemChatMessageRow({ msg }: { msg: ChatMessage }) {
+  return (
+    <div className="flex items-center justify-center gap-2 py-1">
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center">
+        {msg.type === "mango_event" ? (
+          // eslint-disable-next-line @next/next/no-img-element -- ícono de evento fijo, no una foto de perfil dinámica
+          <img
+            src="/MangoAngry.png"
+            alt=""
+            className="h-6 w-6 object-contain"
+          />
+        ) : (
+          <svg
+            viewBox="0 0 20 20"
+            className={`h-4 w-4 ${msg.rank_direction === "up" ? "text-win" : "text-loss"}`}
+            fill="currentColor"
+            aria-hidden
+          >
+            {msg.rank_direction === "up" ? (
+              <path d="M10 3.5a1 1 0 0 1 .78.375l5.5 6.875A1 1 0 0 1 15.5 12.5H12v4.5a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1v-4.5H4.5a1 1 0 0 1-.78-1.625l5.5-6.875A1 1 0 0 1 10 3.5Z" />
+            ) : (
+              <path d="M10 16.5a1 1 0 0 1-.78-.375l-5.5-6.875A1 1 0 0 1 4.5 7.5H8V3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v4.5h3.5a1 1 0 0 1 .78 1.625l-5.5 6.875a1 1 0 0 1-.78.375Z" />
+            )}
+          </svg>
+        )}
+      </span>
+      <p className="text-center text-xs text-text-secondary italic">
+        {msg.message}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Widget flotante de chat global. Un solo salón compartido, con mensajes de
+ * jugador ('user') y de sistema ('mango_event'/'rank_event', Fase B — ver
+ * SystemChatMessageRow) intercalados en el mismo historial. Se suscribe a
  * Realtime apenas monta (no recién al abrir el panel) para poder sonar y
  * marcar no-leídos incluso con el chat cerrado o la pestaña sin foco.
  * Solo se monta en el layout cuando hay sesión de /jugador activa — el
@@ -48,7 +88,11 @@ export function ChatWidget({
   // forma quedaría con el isOpen de ese primer render (closure vieja).
   const isOpenRef = useRef(isOpen);
   const hasFocusRef = useRef(true);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  // Mensajes escritos por jugadores vs. eventos de sistema (mango
+  // revelado, ascenso/descenso de liga) suenan distinto — ver el
+  // comentario en la suscripción de Realtime más abajo.
+  const messageAudioRef = useRef<HTMLAudioElement | null>(null);
+  const eventAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioUnlockedRef = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -83,22 +127,30 @@ export function ChatWidget({
   // navegador lo recuerda habilitado para cuando de verdad haga falta
   // sonar (llegada de un mensaje nuevo), que puede pasar sin gesto previo.
   useEffect(() => {
-    audioRef.current = new Audio("/NotificacionMensaje.mp3");
+    messageAudioRef.current = new Audio("/NotificacionMensaje.mp3");
+    eventAudioRef.current = new Audio("/NotificacionEvento.mp3");
 
-    function unlockAudio() {
-      if (audioUnlockedRef.current) return;
-      const audio = audioRef.current;
-      if (!audio) return;
-      audio
+    function unlockOne(audio: HTMLAudioElement) {
+      return audio
         .play()
         .then(() => {
           audio.pause();
           audio.currentTime = 0;
-          audioUnlockedRef.current = true;
+          return true;
         })
-        .catch(() => {
-          // Sigue bloqueado — se reintenta con la próxima interacción.
-        });
+        .catch(() => false);
+    }
+
+    function unlockAudio() {
+      if (audioUnlockedRef.current) return;
+      const audios = [messageAudioRef.current, eventAudioRef.current];
+      if (audios.some((audio) => !audio)) return;
+      Promise.all(audios.map((audio) => unlockOne(audio!))).then((results) => {
+        // Solo se marca desbloqueado si los dos sonidos realmente
+        // arrancaron — si no, se reintenta con la próxima interacción
+        // (igual que el comportamiento original con un solo audio).
+        if (results.every(Boolean)) audioUnlockedRef.current = true;
+      });
     }
 
     const events: Array<keyof DocumentEventMap> = [
@@ -157,13 +209,26 @@ export function ChatWidget({
             prev.some((m) => m.id === incoming.id) ? prev : [...prev, incoming],
           );
 
+          // Para 'mango_event' el participant_id es siempre el RECEPTOR del
+          // mango — como ya escuchó TomaMango.mp3 en su notificación
+          // personal (MangoNotifications), esta comparación de paso lo
+          // excluye del sonido/badge del chat: el anuncio es informativo
+          // para todos los demás, no para quien ya se enteró por su cuenta.
           const isFromSomeoneElse =
             incoming.participant_id !== me.participantId;
           const shouldNotify =
             isFromSomeoneElse && (!isOpenRef.current || !hasFocusRef.current);
           if (shouldNotify) {
             setUnreadCount((prev) => prev + 1);
-            audioRef.current?.play().catch(() => {});
+            // Eventos de sistema NUNCA usan TomaMango.mp3 (ese sonido es
+            // exclusivo de la notificación personal) — acá siempre es
+            // NotificacionMensaje.mp3 (mensajes de jugador) o
+            // NotificacionEvento.mp3 (mango_event/rank_event).
+            const audio =
+              incoming.type === "user"
+                ? messageAudioRef.current
+                : eventAudioRef.current;
+            audio?.play().catch(() => {});
           }
         },
       )
@@ -245,6 +310,9 @@ export function ChatWidget({
               </p>
             )}
             {messages.map((msg) => {
+              if (msg.type !== "user") {
+                return <SystemChatMessageRow key={msg.id} msg={msg} />;
+              }
               const isMine = msg.participant_id === me.participantId;
               return (
                 <div

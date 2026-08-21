@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { calculateEloScore } from "@/lib/elo";
+import { calculateEloScore, rankOrdinal } from "@/lib/elo";
+import { postRankEventChatMessage } from "@/lib/chat-system-messages";
 import {
   calculateKda,
   processNewMatches,
@@ -560,6 +561,20 @@ export async function GET(request: Request) {
         lp: soloQueue.leaguePoints,
       });
 
+      // Se pide ANTES de insertar el snapshot nuevo — si se pidiera después,
+      // el snapshot recién insertado ya sería "el más reciente" y se estaría
+      // comparando contra sí mismo. Comparar siempre contra el
+      // inmediatamente anterior (no contra "el de ayer" ni nada por el
+      // estilo) es lo que evita notificar de nuevo si el jugador se queda
+      // quieto varias corridas en el mismo tier/división.
+      const { data: previousSnapshot } = await supabase
+        .from("snapshots")
+        .select("tier, division")
+        .eq("participant_id", participant.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
       const { error: insertError } = await supabase.from("snapshots").insert({
         participant_id: participant.id,
         tier,
@@ -569,6 +584,39 @@ export async function GET(request: Request) {
         losses: soloQueue.losses,
         elo_score,
       });
+
+      // Anuncio público en el chat — best-effort, no debe tirar abajo el
+      // resto de la corrida. Sin snapshot previo (primera corrida para este
+      // participante) no hay nada que comparar, así que no cuenta como
+      // "cambio". rankOrdinal (no elo_score) decide la dirección: elo_score
+      // mezcla LP, que se resetea al cruzar de tier — comparar elo_score
+      // directamente podría marcar como "descenso" un ascenso real de
+      // Master a Grandmaster si el LP arranca más bajo del otro lado.
+      if (
+        !insertError &&
+        previousSnapshot &&
+        (previousSnapshot.tier !== tier || previousSnapshot.division !== division)
+      ) {
+        try {
+          const direction =
+            rankOrdinal(tier, division) >
+            rankOrdinal(previousSnapshot.tier, previousSnapshot.division)
+              ? "up"
+              : "down";
+          await postRankEventChatMessage(supabase, {
+            participantId: participant.id,
+            participantName: participant.nombre_display,
+            tier,
+            division,
+            direction,
+          });
+        } catch (err) {
+          console.error(
+            `update-rankings: fallo publicando el evento de rango de ${participant.nombre_display} en el chat:`,
+            err,
+          );
+        }
+      }
 
       results.push({
         participant_id: participant.id,

@@ -139,6 +139,18 @@ export type ShowcaseParticipant = {
 };
 
 /**
+ * 'user': mensaje escrito por un jugador (el default). 'mango_event' /
+ * 'rank_event': fila generada por el servidor (mango revelado, ascenso o
+ * descenso de tier/división) — ChatWidget la pinta con un ícono de evento
+ * en vez de un avatar, sin el tratamiento de burbuja mía/ajena. Ver
+ * 0015_chat_system_events.sql.
+ */
+export type ChatMessageType = "user" | "mango_event" | "rank_event";
+
+/** Solo aplica a type = 'rank_event' — qué flecha (verde/roja) mostrar. */
+export type RankEventDirection = "up" | "down";
+
+/**
  * Chat global en tiempo real (Fase A), un solo salón para todos los
  * jugadores registrados. sender_name/sender_avatar_url/sender_profile_icon_id
  * van denormalizados (snapshot del remitente al momento de enviar) para que
@@ -153,6 +165,8 @@ export type ChatMessage = {
   sender_profile_icon_id: number | null;
   message: string;
   created_at: string;
+  type: ChatMessageType;
+  rank_direction: RankEventDirection | null;
 };
 
 export type Database = {
@@ -312,9 +326,14 @@ export type Database = {
       };
       chat_messages: {
         Row: ChatMessage;
-        Insert: Omit<ChatMessage, "id" | "created_at"> & {
+        Insert: Omit<
+          ChatMessage,
+          "id" | "created_at" | "type" | "rank_direction"
+        > & {
           id?: string;
           created_at?: string;
+          type?: ChatMessageType;
+          rank_direction?: RankEventDirection | null;
         };
         Update: Partial<Omit<ChatMessage, "id">>;
         Relationships: [

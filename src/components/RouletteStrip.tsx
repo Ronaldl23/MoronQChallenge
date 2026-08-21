@@ -168,7 +168,6 @@ export function RouletteStrip({
             transition: transitioning
               ? `transform ${spinDurationMs}ms cubic-bezier(0.16, 1, 0.3, 1)`
               : "none",
-            animation: transitioning ? `roulette-blur ${spinDurationMs}ms linear` : "none",
           }}
           onTransitionEnd={() => {
             if (settled.current) return;

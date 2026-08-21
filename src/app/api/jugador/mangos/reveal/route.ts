@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getAuthenticatedParticipantId } from "@/lib/player-auth";
 import { getChampionList, type Champion } from "@/lib/champions";
 import { resolveAssignedPunishment } from "@/lib/mango-launch";
+import { postMangoEventChatMessage } from "@/lib/chat-system-messages";
 
 export const dynamic = "force-dynamic";
 
@@ -43,7 +44,7 @@ export async function POST(request: Request) {
 
   const { data: mango, error: mangoError } = await supabase
     .from("mangos")
-    .select("id, status, champion_assigned")
+    .select("id, status, champion_assigned, sent_by_participant_id")
     .eq("id", mango_id)
     .maybeSingle();
 
@@ -81,15 +82,21 @@ export async function POST(request: Request) {
     );
   }
 
-  const { error: updateError } = await supabase
+  // .select("id") además del filtro: así se sabe si ESTA request fue la que
+  // de verdad hizo el flip (filas devueltas) o si llegó tarde a la carrera
+  // entre dos pestañas (0 filas, sin error) — el anuncio en el chat solo
+  // debe publicarse una vez, no en cada intento de revelación.
+  const { data: updatedRows, error: updateError } = await supabase
     .from("mangos")
     .update({ status: "sent" })
     .eq("id", mango_id)
-    .eq("status", "pending_reveal"); // evita una doble-revelación por una carrera entre dos pestañas
+    .eq("status", "pending_reveal") // evita una doble-revelación por una carrera entre dos pestañas
+    .select("id");
   if (updateError) {
     console.error("reveal: fallo marcando el mango 'sent':", updateError.message);
     return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
+  const didTransition = (updatedRows?.length ?? 0) > 0;
 
   let champions: Champion[] = [];
   try {
@@ -105,6 +112,32 @@ export async function POST(request: Request) {
     name: resolved.name,
     iconUrl: resolved.iconUrl ?? "/MangoAngry.png",
   };
+
+  // Anuncio público en el chat — best-effort, no debe romper la revelación
+  // si falla. sent_by_participant_id puede ser null en teoría (tipo de la
+  // columna), aunque en la práctica launch/route.ts siempre lo completa;
+  // sin remitente no hay a quién nombrar, así que se omite el anuncio.
+  if (didTransition && mango.sent_by_participant_id) {
+    try {
+      const { data: people } = await supabase
+        .from("participants")
+        .select("id, nombre_display")
+        .in("id", [participantId, mango.sent_by_participant_id]);
+      const nameById = new Map((people ?? []).map((p) => [p.id, p.nombre_display]));
+      const receptorName = nameById.get(participantId);
+      const remitenteName = nameById.get(mango.sent_by_participant_id);
+      if (receptorName && remitenteName) {
+        await postMangoEventChatMessage(supabase, {
+          receptorParticipantId: participantId,
+          receptorName,
+          remitenteName,
+          prizeLabel: resolved.name,
+        });
+      }
+    } catch (err) {
+      console.error("reveal: fallo publicando el evento de mango en el chat:", err);
+    }
+  }
 
   return NextResponse.json({ champion: result });
 }
