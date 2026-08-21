@@ -19,28 +19,73 @@ import { TierListCard } from "./TierListCard";
 import { TierListContainer } from "./TierListContainer";
 import { TierListRow } from "./TierListRow";
 import { TIER_COLOR, TIER_LABEL } from "@/lib/tiers";
-import type { ShowcaseParticipant } from "@/types/database";
+import type { RankTier, ShowcaseParticipant } from "@/types/database";
 
 const UNASSIGNED = "UNASSIGNED";
 
 /**
- * Un solo tier "Retador / Master" en vez de tres filas separadas (Challenger/
- * Grandmaster/Master, como en el RankTier real del sitio) — es un tier list
- * para jugar y sacar captura, no un mapeo literal de rango; separarlos solo
- * iba a dejar dos de las tres filas de arriba casi siempre vacías. El resto
- * de los tiers SÍ reusan la escala real (mismos labels/colores que
- * TierBadge/TierEmblem en el resto del sitio).
+ * Solo "Master" arriba de todo, sin Challenger/Grandmaster — es un tier
+ * list para jugar y sacar captura, no un mapeo literal de rango, así que
+ * un solo escalón "de elite" alcanza. El resto reusa la escala real
+ * (mismos labels/colores/emblemas que TierBadge/TierEmblem en el resto
+ * del sitio) vía rankTier, que además es lo que le pasa el ícono
+ * correspondiente a TierEmblem en cada fila.
  */
-const TIERS = [
-  { id: "APEX", label: "Retador / Master", color: TIER_COLOR.CHALLENGER },
-  { id: "DIAMOND", label: TIER_LABEL.DIAMOND, color: TIER_COLOR.DIAMOND },
-  { id: "EMERALD", label: TIER_LABEL.EMERALD, color: TIER_COLOR.EMERALD },
-  { id: "PLATINUM", label: TIER_LABEL.PLATINUM, color: TIER_COLOR.PLATINUM },
-  { id: "GOLD", label: TIER_LABEL.GOLD, color: TIER_COLOR.GOLD },
-  { id: "SILVER", label: TIER_LABEL.SILVER, color: TIER_COLOR.SILVER },
-  { id: "BRONZE", label: TIER_LABEL.BRONZE, color: TIER_COLOR.BRONZE },
-  { id: "IRON", label: TIER_LABEL.IRON, color: TIER_COLOR.IRON },
-] as const;
+const TIERS: {
+  id: string;
+  label: string;
+  color: string;
+  rankTier: RankTier;
+}[] = [
+  {
+    id: "MASTER",
+    label: "Master",
+    color: TIER_COLOR.MASTER,
+    rankTier: "MASTER",
+  },
+  {
+    id: "DIAMOND",
+    label: TIER_LABEL.DIAMOND,
+    color: TIER_COLOR.DIAMOND,
+    rankTier: "DIAMOND",
+  },
+  {
+    id: "EMERALD",
+    label: TIER_LABEL.EMERALD,
+    color: TIER_COLOR.EMERALD,
+    rankTier: "EMERALD",
+  },
+  {
+    id: "PLATINUM",
+    label: TIER_LABEL.PLATINUM,
+    color: TIER_COLOR.PLATINUM,
+    rankTier: "PLATINUM",
+  },
+  {
+    id: "GOLD",
+    label: TIER_LABEL.GOLD,
+    color: TIER_COLOR.GOLD,
+    rankTier: "GOLD",
+  },
+  {
+    id: "SILVER",
+    label: TIER_LABEL.SILVER,
+    color: TIER_COLOR.SILVER,
+    rankTier: "SILVER",
+  },
+  {
+    id: "BRONZE",
+    label: TIER_LABEL.BRONZE,
+    color: TIER_COLOR.BRONZE,
+    rankTier: "BRONZE",
+  },
+  {
+    id: "IRON",
+    label: TIER_LABEL.IRON,
+    color: TIER_COLOR.IRON,
+    rankTier: "IRON",
+  },
+];
 
 type ContainerId = (typeof TIERS)[number]["id"] | typeof UNASSIGNED;
 type BoardState = Record<ContainerId, string[]>;
@@ -184,6 +229,7 @@ export function TierListBoard({
               id={tier.id}
               label={tier.label}
               color={tier.color}
+              rankTier={tier.rankTier}
               items={items[tier.id]}
               participantsById={participantsById}
             />

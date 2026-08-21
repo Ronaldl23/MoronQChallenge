@@ -25,13 +25,8 @@ export default async function TierListPage() {
       <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-4 px-4 pt-6 pb-10 sm:pt-44">
         <div>
           <h1 className="font-display text-3xl font-bold tracking-tight text-text-primary">
-            Tier List
+            Tierlist MoronQChallenge
           </h1>
-          <p className="mt-1 text-sm text-text-secondary">
-            Arrastra a los participantes al tier que le corresponda. Es solo
-            para jugar y sacar captura — nada se guarda, así que al recargar la
-            página vuelve a empezar de cero.
-          </p>
         </div>
 
         {participants.length === 0 ? (
