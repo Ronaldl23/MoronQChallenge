@@ -8,6 +8,7 @@ const LINKS = [
   { href: "/", label: "Ranking" },
   { href: "/reglas", label: "Reglas" },
   { href: "/participantes", label: "Participantes" },
+  { href: "/tierlist", label: "Tier List" },
 ];
 
 export function NavLinks({ isPlayerLoggedIn }: { isPlayerLoggedIn: boolean }) {
