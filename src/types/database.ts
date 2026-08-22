@@ -176,6 +176,40 @@ export type ChatMessage = {
   rank_direction: RankEventDirection | null;
 };
 
+/**
+ * Invitado externo con acceso EXCLUSIVO a /pickem — sin relación con
+ * `participants` (no es necesariamente un jugador) ni con el sistema de
+ * Mangos. display_name lo tipea el admin a mano; access_code se genera
+ * igual que participants.login_code. Ver 0017_pickem.sql.
+ */
+export type PickemGuest = {
+  id: string;
+  display_name: string;
+  access_code: string;
+  created_at: string;
+};
+
+/**
+ * Un pick guardado — exactamente uno de participant_id/guest_id está
+ * seteado (nunca ambos, nunca ninguno). predicted_order es el array
+ * ORDENADO de showcase_participants.id, posición 1 primero.
+ */
+export type PickemPick = {
+  id: string;
+  participant_id: string | null;
+  guest_id: string | null;
+  predicted_order: string[];
+  created_at: string;
+  updated_at: string;
+};
+
+/** Fila única — switch manual de "resultados revelados" (nunca automático por fecha). */
+export type PickemSettings = {
+  id: true;
+  results_revealed: boolean;
+  revealed_at: string | null;
+};
+
 export type Database = {
   public: {
     Tables: {
@@ -354,6 +388,51 @@ export type Database = {
             referencedColumns: ["id"];
           },
         ];
+      };
+      pickem_guests: {
+        Row: PickemGuest;
+        Insert: Omit<PickemGuest, "id" | "created_at"> & {
+          id?: string;
+          created_at?: string;
+        };
+        Update: Partial<Omit<PickemGuest, "id">>;
+        Relationships: [];
+      };
+      pickem_picks: {
+        Row: PickemPick;
+        Insert: Omit<
+          PickemPick,
+          "id" | "created_at" | "updated_at" | "participant_id" | "guest_id"
+        > & {
+          id?: string;
+          created_at?: string;
+          updated_at?: string;
+          participant_id?: string | null;
+          guest_id?: string | null;
+        };
+        Update: Partial<Omit<PickemPick, "id">>;
+        Relationships: [
+          {
+            foreignKeyName: "pickem_picks_participant_id_fkey";
+            columns: ["participant_id"];
+            isOneToOne: true;
+            referencedRelation: "participants";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "pickem_picks_guest_id_fkey";
+            columns: ["guest_id"];
+            isOneToOne: true;
+            referencedRelation: "pickem_guests";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      pickem_settings: {
+        Row: PickemSettings;
+        Insert: Partial<PickemSettings>;
+        Update: Partial<PickemSettings>;
+        Relationships: [];
       };
     };
     Views: {

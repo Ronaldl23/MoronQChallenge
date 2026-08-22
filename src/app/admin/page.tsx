@@ -3,6 +3,7 @@ import { AdminLoginForm } from "./AdminLoginForm";
 import { AddParticipantForm } from "./AddParticipantForm";
 import { AddShowcaseParticipantForm } from "./AddShowcaseParticipantForm";
 import { PenaltyReviewPanel } from "./PenaltyReviewPanel";
+import { PickemAdminPanel } from "./PickemAdminPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,7 @@ export default async function AdminPage() {
         {authenticated ? <AddParticipantForm /> : <AdminLoginForm />}
         {authenticated && <AddShowcaseParticipantForm />}
         {authenticated && <PenaltyReviewPanel />}
+        {authenticated && <PickemAdminPanel />}
       </main>
     </div>
   );

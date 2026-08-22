@@ -9,6 +9,7 @@ const LINKS = [
   { href: "/reglas", label: "Reglas" },
   { href: "/participantes", label: "Participantes" },
   { href: "/tierlist", label: "Tier List" },
+  { href: "/pickem", label: "Pick'em" },
 ];
 
 export function NavLinks({ isPlayerLoggedIn }: { isPlayerLoggedIn: boolean }) {
