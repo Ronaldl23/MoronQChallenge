@@ -102,6 +102,7 @@ export default async function PickemPage() {
                 <PickemOrderedList
                   order={savedOrder}
                   participantsById={participantsById}
+                  columns={2}
                   resultStatuses={
                     settings.resultsRevealed
                       ? computePickemResultStatus(savedOrder, participantsById, finalRankByName)

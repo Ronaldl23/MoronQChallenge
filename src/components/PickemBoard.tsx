@@ -16,8 +16,8 @@ import {
 import {
   SortableContext,
   arrayMove,
+  rectSortingStrategy,
   sortableKeyboardCoordinates,
-  verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { PickemDraggableItem } from "./PickemDraggableItem";
 import type { ShowcaseParticipant } from "@/types/database";
@@ -26,10 +26,20 @@ type SaveStatus = { type: "idle" } | { type: "saving" } | { type: "saved" } | { 
 
 /**
  * Lista única ordenada 1..N (no tiers) — a diferencia de TierListBoard acá
- * alcanza con un solo DndContext/SortableContext vertical: no hay
- * contenedores múltiples, así que closestCenter (el criterio estándar de
- * dnd-kit para listas simples) sirve sin el pointerWithin/closestCorners
- * combinado que necesita /tierlist para sus filas angostas.
+ * alcanza con un solo DndContext/SortableContext: no hay contenedores
+ * múltiples, así que closestCenter (el criterio estándar de dnd-kit para
+ * listas simples) sirve sin el pointerWithin/closestCorners combinado que
+ * necesita /tierlist para sus filas angostas.
+ *
+ * Partida visualmente en DOS columnas (1..mitad a la izquierda,
+ * mitad+1..N a la derecha) para que el roster completo entre en la
+ * pantalla sin scroll — con 20+ participantes en una sola columna larga
+ * "daba dolor de cabeza" (pedido explícito). Es solo presentación: las DOS
+ * columnas comparten un único SortableContext con `items={order}` (el
+ * array completo) y rectSortingStrategy (consciente de grillas 2D, a
+ * diferencia de verticalListSortingStrategy que asume una sola columna)
+ * — dnd-kit calcula el reordenamiento por la posición real en pantalla de
+ * cada ficha, sin importar en qué <ol> del DOM viva.
  */
 export function PickemBoard({
   roster,
@@ -87,6 +97,25 @@ export function PickemBoard({
   }
 
   const activeParticipant = activeId ? participantsById.get(activeId) : undefined;
+  const half = Math.ceil(order.length / 2);
+  const leftColumn = order.slice(0, half);
+  const rightColumn = order.slice(half);
+
+  function renderColumn(items: string[], rankOffset: number) {
+    return (
+      <ol className="flex flex-col gap-1.5">
+        {items.map((participantId, index) => {
+          const participant = participantsById.get(participantId);
+          if (!participant) return null;
+          return (
+            <li key={participantId}>
+              <PickemDraggableItem rank={rankOffset + index + 1} participant={participant} />
+            </li>
+          );
+        })}
+      </ol>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -97,18 +126,11 @@ export function PickemBoard({
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >
-        <SortableContext items={order} strategy={verticalListSortingStrategy}>
-          <ol className="flex flex-col gap-1.5">
-            {order.map((participantId, index) => {
-              const participant = participantsById.get(participantId);
-              if (!participant) return null;
-              return (
-                <li key={participantId}>
-                  <PickemDraggableItem rank={index + 1} participant={participant} />
-                </li>
-              );
-            })}
-          </ol>
+        <SortableContext items={order} strategy={rectSortingStrategy}>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {renderColumn(leftColumn, 0)}
+            {renderColumn(rightColumn, half)}
+          </div>
         </SortableContext>
 
         <DragOverlay>
