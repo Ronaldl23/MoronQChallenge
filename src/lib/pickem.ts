@@ -126,10 +126,15 @@ export async function getFinalRankByName(): Promise<Map<string, number>> {
   return map;
 }
 
-export interface CommunityPickemEntry {
-  ownerLabel: string;
-  order: string[];
-}
+export type CommunityPickemEntry =
+  | {
+      ownerType: "participant";
+      ownerLabel: string;
+      avatarUrl: string | null;
+      profileIconId: number | null;
+      order: string[];
+    }
+  | { ownerType: "guest"; ownerLabel: string; order: string[] };
 
 /** Todas las personas que YA guardaron un pick — quien no guardó ninguno simplemente no aparece acá (pedido explícito, sin placeholders vacíos). */
 export async function getCommunityPickem(): Promise<CommunityPickemEntry[]> {
@@ -148,28 +153,43 @@ export async function getCommunityPickem(): Promise<CommunityPickemEntry[]> {
 
   const [participantsRes, guestsRes] = await Promise.all([
     participantIds.length
-      ? supabase.from("participants").select("id, nombre_display").in("id", participantIds)
-      : Promise.resolve({ data: [] as { id: string; nombre_display: string }[] }),
+      ? supabase
+          .from("participants")
+          .select("id, nombre_display, avatar_url, profile_icon_id")
+          .in("id", participantIds)
+      : Promise.resolve({
+          data: [] as { id: string; nombre_display: string; avatar_url: string | null; profile_icon_id: number | null }[],
+        }),
     guestIds.length
       ? supabase.from("pickem_guests").select("id, display_name").in("id", guestIds)
       : Promise.resolve({ data: [] as { id: string; display_name: string }[] }),
   ]);
 
-  const nameByParticipantId = new Map((participantsRes.data ?? []).map((p) => [p.id, p.nombre_display]));
+  const participantById = new Map((participantsRes.data ?? []).map((p) => [p.id, p]));
   const nameByGuestId = new Map((guestsRes.data ?? []).map((g) => [g.id, g.display_name]));
 
   const entries: CommunityPickemEntry[] = picks
-    .map((pick) => {
-      const ownerLabel = pick.participant_id
-        ? nameByParticipantId.get(pick.participant_id)
-        : pick.guest_id
-          ? nameByGuestId.get(pick.guest_id)
-          : undefined;
-      // Owner borrado (participante/invitado eliminado después) — el pick
-      // igual existe (ON DELETE CASCADE no dispara solo por faltar el
-      // nombre), pero sin nombre no hay nada que mostrar de forma útil.
-      if (!ownerLabel) return null;
-      return { ownerLabel, order: pick.predicted_order };
+    .map((pick): CommunityPickemEntry | null => {
+      if (pick.participant_id) {
+        const participant = participantById.get(pick.participant_id);
+        // Owner borrado (participante eliminado después) — el pick igual
+        // existe (ON DELETE CASCADE no dispara solo por faltar el nombre),
+        // pero sin nombre no hay nada que mostrar de forma útil.
+        if (!participant) return null;
+        return {
+          ownerType: "participant",
+          ownerLabel: participant.nombre_display,
+          avatarUrl: participant.avatar_url,
+          profileIconId: participant.profile_icon_id,
+          order: pick.predicted_order,
+        };
+      }
+      if (pick.guest_id) {
+        const ownerLabel = nameByGuestId.get(pick.guest_id);
+        if (!ownerLabel) return null;
+        return { ownerType: "guest", ownerLabel, order: pick.predicted_order };
+      }
+      return null;
     })
     .filter((e): e is CommunityPickemEntry => e !== null);
 

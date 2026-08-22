@@ -2,23 +2,31 @@
 
 import { useState } from "react";
 import { PickemOrderedList } from "./PickemOrderedList";
+import { ProfileIcon } from "./ProfileIcon";
 import type { ShowcaseParticipant } from "@/types/database";
+import type { CommunityPickemEntry } from "@/lib/pickem";
 import type { PickemPositionStatus } from "@/lib/pickem-logic";
 
 /**
  * Fila colapsable — arranca CERRADA a propósito (pedido explícito: con
- * varios pick'ems ya guardados, mostrar todos expandidos a la vez de una
- * marea de fichas chiquitas apiladas). El botón muestra "Mirar Pick'em de
- * X" tal cual — cada persona se abre/cierra por separado, sin afectar a
- * las demás.
+ * varios pick'ems ya guardados, mostrar todos expandidos a la vez es una
+ * marea de fichas chiquitas apiladas). Cada persona se abre/cierra por
+ * separado (el click en toda la fila alterna, la flecha indica el estado).
+ *
+ * Jugadores: foto de perfil (mismo ProfileIcon que el resto del sitio,
+ * avatar manual > ícono de invocador > iniciales) + "Pick'em [Nombre]".
+ * Invitados: sin foto (no tienen una) — solo su nombre, pedido explícito
+ * ("que sea el nombre del invitado y ya").
  */
 export function PickemCommunityCard({
-  ownerLabel,
+  entry,
+  ddragonVersion,
   order,
   participantsById,
   resultStatuses,
 }: {
-  ownerLabel: string;
+  entry: CommunityPickemEntry;
+  ddragonVersion: string;
   order: string[];
   participantsById: Map<string, ShowcaseParticipant>;
   resultStatuses: PickemPositionStatus[] | null;
@@ -31,11 +39,26 @@ export function PickemCommunityCard({
         type="button"
         onClick={() => setExpanded((prev) => !prev)}
         aria-expanded={expanded}
-        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+        className="flex w-full items-center gap-2.5 px-3 py-2 text-left"
       >
-        <span className="font-display text-sm font-bold tracking-wide text-text-primary">
-          {expanded ? "Ocultar" : "Mirar"} Pick&apos;em de {ownerLabel}
-        </span>
+        {entry.ownerType === "participant" ? (
+          <>
+            <ProfileIcon
+              name={entry.ownerLabel}
+              avatarUrl={entry.avatarUrl}
+              profileIconId={entry.profileIconId}
+              ddragonVersion={ddragonVersion}
+              size={28}
+            />
+            <span className="min-w-0 flex-1 truncate font-display text-sm font-bold tracking-wide text-text-primary">
+              Pick&apos;em {entry.ownerLabel}
+            </span>
+          </>
+        ) : (
+          <span className="min-w-0 flex-1 truncate font-display text-sm font-bold tracking-wide text-text-primary">
+            {entry.ownerLabel}
+          </span>
+        )}
         <svg
           viewBox="0 0 20 20"
           className={`h-4 w-4 shrink-0 text-text-muted transition-transform ${expanded ? "rotate-180" : ""}`}
@@ -50,7 +73,7 @@ export function PickemCommunityCard({
         </svg>
       </button>
       {expanded && (
-        <div className="px-4 pb-4">
+        <div className="px-3 pb-3">
           <PickemOrderedList
             order={order}
             participantsById={participantsById}

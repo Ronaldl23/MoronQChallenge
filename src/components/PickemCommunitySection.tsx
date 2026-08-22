@@ -16,11 +16,13 @@ export function PickemCommunitySection({
   participantsById,
   finalRankByName,
   resultsRevealed,
+  ddragonVersion,
 }: {
   entries: CommunityPickemEntry[];
   participantsById: Map<string, ShowcaseParticipant>;
   finalRankByName: Map<string, number>;
   resultsRevealed: boolean;
+  ddragonVersion: string;
 }) {
   return (
     <section className="flex flex-col gap-4">
@@ -40,7 +42,8 @@ export function PickemCommunitySection({
           {entries.map((entry) => (
             <PickemCommunityCard
               key={entry.ownerLabel}
-              ownerLabel={entry.ownerLabel}
+              entry={entry}
+              ddragonVersion={ddragonVersion}
               order={entry.order}
               participantsById={participantsById}
               resultStatuses={

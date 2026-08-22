@@ -9,6 +9,7 @@ import {
   getSavedPickOrder,
   isPickemLocked,
 } from "@/lib/pickem";
+import { getDataDragonVersion } from "@/lib/ddragon";
 import { Header } from "@/components/Header";
 import { FixedLogo } from "@/components/FixedLogo";
 import { PickemBoard } from "@/components/PickemBoard";
@@ -19,10 +20,11 @@ import { PickemGuestLogoutButton } from "@/components/PickemGuestLogoutButton";
 export const dynamic = "force-dynamic";
 
 export default async function PickemPage() {
-  const [identity, roster, settings] = await Promise.all([
+  const [identity, roster, settings, ddragonVersion] = await Promise.all([
     getPickemViewerIdentity(),
     getPickemRoster(),
     getPickemSettings(),
+    getDataDragonVersion(),
   ]);
 
   const locked = isPickemLocked();
@@ -125,6 +127,7 @@ export default async function PickemPage() {
           participantsById={participantsById}
           finalRankByName={finalRankByName}
           resultsRevealed={settings.resultsRevealed}
+          ddragonVersion={ddragonVersion}
         />
       </main>
     </div>
