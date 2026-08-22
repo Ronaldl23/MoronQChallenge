@@ -1,4 +1,4 @@
-import { PickemOrderedList } from "./PickemOrderedList";
+import { PickemCommunityCard } from "./PickemCommunityCard";
 import { computePickemResultStatus } from "@/lib/pickem";
 import type { CommunityPickemEntry } from "@/lib/pickem";
 import type { ShowcaseParticipant } from "@/types/database";
@@ -6,6 +6,10 @@ import type { ShowcaseParticipant } from "@/types/database";
 /**
  * "Pick'em de la comunidad" — pública, sin sesión. Solo lista a quien YA
  * guardó un pick (sin placeholders vacíos para el resto, pedido explícito).
+ * Lista compacta de filas colapsables (una por persona) en vez de una
+ * grilla de tarjetas siempre abiertas — con varios pick'ems guardados esa
+ * grilla se sentía abrumadora ("me pierdo, me mareo"), así que acá cada
+ * fila arranca cerrada y se abre individualmente.
  */
 export function PickemCommunitySection({
   entries,
@@ -32,25 +36,19 @@ export function PickemCommunitySection({
       </div>
 
       {entries.length > 0 && (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="flex max-w-xl flex-col gap-2">
           {entries.map((entry) => (
-            <div
+            <PickemCommunityCard
               key={entry.ownerLabel}
-              className="flex flex-col gap-3 rounded-xl border border-border-hairline bg-bg-elevated p-4"
-            >
-              <p className="font-display text-sm font-bold tracking-wide text-text-primary uppercase">
-                Pick&apos;em de {entry.ownerLabel}
-              </p>
-              <PickemOrderedList
-                order={entry.order}
-                participantsById={participantsById}
-                resultStatuses={
-                  resultsRevealed
-                    ? computePickemResultStatus(entry.order, participantsById, finalRankByName)
-                    : null
-                }
-              />
-            </div>
+              ownerLabel={entry.ownerLabel}
+              order={entry.order}
+              participantsById={participantsById}
+              resultStatuses={
+                resultsRevealed
+                  ? computePickemResultStatus(entry.order, participantsById, finalRankByName)
+                  : null
+              }
+            />
           ))}
         </div>
       )}

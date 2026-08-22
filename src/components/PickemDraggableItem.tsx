@@ -36,13 +36,13 @@ export function PickemDraggableItem({
       style={style}
       {...(dragging ? {} : attributes)}
       {...(dragging ? {} : listeners)}
-      className={`flex touch-none items-center gap-3 rounded-lg border border-border-hairline bg-surface px-3 py-2 select-none ${stateClassName}`}
+      className={`flex touch-none items-center gap-3 rounded-lg border border-border-hairline bg-surface px-3 py-2.5 select-none ${stateClassName}`}
     >
-      <span className="w-6 shrink-0 text-right font-display text-sm font-bold text-text-muted">
+      <span className="w-7 shrink-0 text-right font-display text-base font-bold text-text-muted">
         {rank}
       </span>
-      <ShowcasePhoto name={participant.nombre} photoUrl={participant.photo_url} size={32} />
-      <span className="line-clamp-1 min-w-0 flex-1 text-sm font-medium text-text-primary">
+      <ShowcasePhoto name={participant.nombre} photoUrl={participant.photo_url} size={36} />
+      <span className="line-clamp-1 min-w-0 flex-1 text-base font-medium text-text-primary">
         {participant.nombre}
       </span>
       <svg viewBox="0 0 20 20" className="h-4 w-4 shrink-0 text-text-muted" fill="currentColor" aria-hidden>

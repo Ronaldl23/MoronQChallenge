@@ -25,7 +25,7 @@ export function PickemOrderedList({
   resultStatuses?: PickemPositionStatus[] | null;
 }) {
   return (
-    <ol className="flex flex-col gap-1.5">
+    <ol className="flex flex-col gap-2">
       {order.map((participantId, index) => {
         const participant = participantsById.get(participantId);
         if (!participant) return null;
@@ -33,15 +33,15 @@ export function PickemOrderedList({
         return (
           <li
             key={participantId}
-            className={`flex items-center gap-3 rounded-lg border px-3 py-2 ${
+            className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 ${
               status ? STATUS_CLASSNAME[status] : "border-border-hairline bg-surface"
             }`}
           >
-            <span className="w-6 shrink-0 text-right font-display text-sm font-bold text-text-muted">
+            <span className="w-7 shrink-0 text-right font-display text-base font-bold text-text-muted">
               {index + 1}
             </span>
-            <ShowcasePhoto name={participant.nombre} photoUrl={participant.photo_url} size={32} />
-            <span className="line-clamp-1 min-w-0 flex-1 text-sm font-medium text-text-primary">
+            <ShowcasePhoto name={participant.nombre} photoUrl={participant.photo_url} size={36} />
+            <span className="line-clamp-1 min-w-0 flex-1 text-base font-medium text-text-primary">
               {participant.nombre}
             </span>
           </li>
