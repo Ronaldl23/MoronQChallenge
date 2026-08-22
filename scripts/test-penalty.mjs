@@ -9,12 +9,21 @@
 //   node --experimental-strip-types scripts/test-penalty.mjs
 //
 import { processPenaltyMatches, PENALTY_GAME_LIMIT } from "../src/lib/penalty.ts";
-import { SUPPORT_ASSIGNMENT as SUPPORT_ASSIGNMENT_FROM_MANGO_LAUNCH } from "../src/lib/mango-launch.ts";
+import {
+  SUPPORT_ASSIGNMENT as SUPPORT_ASSIGNMENT_FROM_MANGO_LAUNCH,
+  NO_FLASH_ASSIGNMENT as NO_FLASH_ASSIGNMENT_FROM_MANGO_LAUNCH,
+} from "../src/lib/mango-launch.ts";
 import { MIN_MATCH_DURATION_SECONDS as MIN_MATCH_DURATION_SECONDS_FROM_QUESTS } from "../src/lib/quests.ts";
 
 // penalty.ts duplica este valor a propósito (ver comentario ahí) — este test
 // es lo que garantiza que no se desincronice del original en mango-launch.ts.
 const SUPPORT_ASSIGNMENT = SUPPORT_ASSIGNMENT_FROM_MANGO_LAUNCH;
+
+// Mismo patrón — penalty.ts duplica NO_FLASH_ASSIGNMENT y el mapeo de ids
+// numéricos de hechizo (ver comentario ahí); este test garantiza que el
+// sentinel al menos siga sincronizado (el mapeo numérico se ejercita con
+// los tests de hechizo de abajo, comparando contra los ids reales de Riot).
+const NO_FLASH_ASSIGNMENT = NO_FLASH_ASSIGNMENT_FROM_MANGO_LAUNCH;
 
 // Mismo patrón — penalty.ts duplica MIN_MATCH_DURATION_SECONDS de quests.ts
 // (ver comentario ahí); este test garantiza que ambos sigan sincronizados.
@@ -42,15 +51,35 @@ function penalty(id, championAssigned, { createdAt = BASE_DATE } = {}) {
   return { id, championAssigned, createdAt };
 }
 
+// summoner1Id/summoner2Id: 0 por defecto (ningún hechizo real de Riot usa
+// ese id) — así un test de castigo de campeón/Support que no pasa estos
+// campos explícito nunca "cumple" un castigo de hechizo por accidente.
 function match(
   id,
-  { playedAt, championPlayed = "Ahri", teamPosition = "MIDDLE", gameDurationSeconds = NORMAL_GAME_DURATION_SECONDS },
+  {
+    playedAt,
+    championPlayed = "Ahri",
+    teamPosition = "MIDDLE",
+    summoner1Id = 0,
+    summoner2Id = 0,
+    gameDurationSeconds = NORMAL_GAME_DURATION_SECONDS,
+  },
 ) {
-  return { matchId: id, playedAt, championPlayed, teamPosition, gameDurationSeconds };
+  return { matchId: id, playedAt, championPlayed, teamPosition, summoner1Id, summoner2Id, gameDurationSeconds };
 }
 // Remake: duración corta (por defecto 3 min) es lo único que importa acá.
-function remakeMatch(id, { playedAt, championPlayed = "Ahri", teamPosition = "MIDDLE", gameDurationSeconds = 180 }) {
-  return { matchId: id, playedAt, championPlayed, teamPosition, gameDurationSeconds };
+function remakeMatch(
+  id,
+  {
+    playedAt,
+    championPlayed = "Ahri",
+    teamPosition = "MIDDLE",
+    summoner1Id = 0,
+    summoner2Id = 0,
+    gameDurationSeconds = 180,
+  },
+) {
+  return { matchId: id, playedAt, championPlayed, teamPosition, summoner1Id, summoner2Id, gameDurationSeconds };
 }
 
 function at(hoursAfterBase) {
@@ -272,6 +301,66 @@ function statusOf(result, id) {
   );
   assertEqual(statusOf(result, "a"), "pending", "solo 2 partidas reales sin cumplir (el remake no cuenta): sigue pending");
   assertEqual(result.gamesWithoutCompliance, 2, "el contador refleja solo las 2 partidas reales");
+}
+
+// --- 18. Castigo de hechizo puntual ("Fantasma" = SummonerHaste, id numérico 6): cumple con ese hechizo en CUALQUIERA de los dos slots ---
+{
+  const result = run(
+    [penalty("p1", "SummonerHaste")],
+    [match("m1", { playedAt: at(1), summoner1Id: 4, summoner2Id: 6 })],
+  );
+  assertEqual(statusOf(result, "p1"), "completed", "castigo de hechizo: cumple con SummonerHaste en el segundo slot");
+}
+
+// --- 19. Castigo de hechizo puntual: NO cumple si ninguno de los dos slots es el hechizo pedido ---
+{
+  const result = run(
+    [penalty("p1", "SummonerHaste")],
+    [match("m1", { playedAt: at(1), summoner1Id: 4, summoner2Id: 7 })],
+  );
+  assertEqual(statusOf(result, "p1"), "pending", "castigo de hechizo: Flash+Curar no cumple el pedido de Fantasma");
+}
+
+// --- 20. Castigo "sin Flash": cumple con CUALQUIER combinación de los otros dos hechizos ---
+{
+  const result = run(
+    [penalty("p1", NO_FLASH_ASSIGNMENT)],
+    [match("m1", { playedAt: at(1), summoner1Id: 7, summoner2Id: 14 })],
+  );
+  assertEqual(statusOf(result, "p1"), "completed", "castigo sin Flash: cumple con Curar+Incendiar (ninguno es Flash)");
+}
+
+// --- 21. Castigo "sin Flash": NO cumple si Flash está en CUALQUIERA de los dos slots ---
+{
+  const result = run(
+    [penalty("p1", NO_FLASH_ASSIGNMENT)],
+    [match("m1", { playedAt: at(1), summoner1Id: 7, summoner2Id: 4 })],
+  );
+  assertEqual(statusOf(result, "p1"), "pending", "castigo sin Flash: Curar+Flash no cumple, Flash está en el segundo slot");
+}
+
+// --- 22. Grupo mixto (campeón + hechizo + sin Flash) pendientes a la vez: una partida solo cumple UNO de los tres ---
+{
+  const penalties = [
+    penalty("champ", "Teemo"),
+    penalty("spell", "SummonerSmite"), // Hoz, id 11
+    penalty("noflash", NO_FLASH_ASSIGNMENT),
+  ];
+  const matches = [match("m1", { playedAt: at(1), championPlayed: "Ahri", summoner1Id: 11, summoner2Id: 4 })];
+  const result = run(penalties, matches);
+  assertEqual(statusOf(result, "champ"), "pending", "grupo mixto: no jugó Teemo, sigue pendiente");
+  assertEqual(statusOf(result, "spell"), "completed", "grupo mixto: llevó Hoz (id 11) en el primer slot, se cumple");
+  assertEqual(statusOf(result, "noflash"), "pending", "grupo mixto: llevó Flash en el segundo slot, sin Flash NO se cumple");
+}
+
+// --- 23. Remake tampoco cumple un castigo de hechizo aunque el hechizo coincida ---
+{
+  const result = run(
+    [penalty("a", "SummonerSmite")],
+    [remakeMatch("m1", { playedAt: at(1), summoner1Id: 11, summoner2Id: 4 })],
+  );
+  assertEqual(statusOf(result, "a"), "pending", "remake con el hechizo correcto: NO cumple, se ignora por completo");
+  assertEqual(result.gamesWithoutCompliance, 0, "remake: tampoco suma al contador (castigo de hechizo)");
 }
 
 assertEqual(PENALTY_GAME_LIMIT, 3, "PENALTY_GAME_LIMIT es 3 (regla confirmada por el usuario)");

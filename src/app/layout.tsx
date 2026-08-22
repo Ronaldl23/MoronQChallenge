@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono, Rajdhani } from "next/font/google";
 import { getAuthenticatedParticipantId } from "@/lib/player-auth";
 import { getChampionList, type Champion } from "@/lib/champions";
+import { getSummonerSpellList, type SummonerSpell } from "@/lib/summoner-spells";
 import { getDataDragonVersion } from "@/lib/ddragon";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { MangoNotifications } from "@/components/MangoNotifications";
@@ -44,6 +45,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   // (ver src/lib/champions.ts), así que esto no es una llamada de red
   // nueva por cada carga de página — comparte el mismo caché que /jugador.
   let champions: Champion[] = [];
+  let spells: SummonerSpell[] = [];
   // Identidad del jugador logueado para ChatWidget (nombre/avatar a
   // mostrar en el composer y para distinguir "mis" mensajes de los demás)
   // — null si no hay sesión o el participante no existe (no debería pasar
@@ -59,9 +61,9 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
 
   if (participantId) {
     try {
-      champions = await getChampionList();
+      [champions, spells] = await Promise.all([getChampionList(), getSummonerSpellList()]);
     } catch {
-      // Sin campeones el pool visual de la ruleta queda corto (solo
+      // Sin campeones/hechizos el pool visual de la ruleta queda corto (solo
       // Support de relleno) — no bloquea nada, MangoRevealModal igual
       // funciona con el resultado real que ya viene del servidor.
     }
@@ -97,7 +99,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       className={`${geistSans.variable} ${geistMono.variable} ${rajdhani.variable} h-full antialiased`}
     >
       <body className="site-bg flex min-h-full flex-col text-text-primary">
-        {participantId && <MangoNotifications champions={champions} />}
+        {participantId && <MangoNotifications champions={champions} spells={spells} />}
         {chatMe && ddragonVersion && (
           <ChatWidget me={chatMe} ddragonVersion={ddragonVersion} />
         )}

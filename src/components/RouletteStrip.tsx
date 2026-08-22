@@ -1,18 +1,22 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { PunishmentIcon } from "./PunishmentIcon";
 
 export interface RouletteItem {
   key: string;
   label: string;
   iconUrl: string;
-  /** Estilo distinto para marcadores especiales — "bounce" (MANGO DEVUELTO) y "support" (castigo Support). */
-  variant?: "bounce" | "support";
+  /** Estilo distinto para marcadores especiales — "bounce" (MANGO DEVUELTO), "support" (castigo Support) y "spell" (hechizo de invocador obligatorio, incluido "sin Flash"). */
+  variant?: "bounce" | "support" | "spell";
+  /** true en el ítem "sin Flash" — superpone una X en CSS sobre el ícono de Flash (ver PunishmentIcon), nunca un ícono nuevo. */
+  noFlash?: boolean;
 }
 
 const VARIANT_RING: Record<NonNullable<RouletteItem["variant"]>, string> = {
   bounce: "ring-2 ring-loss",
   support: "ring-2 ring-gold",
+  spell: "ring-2 ring-live",
 };
 
 const ITEM_WIDTH = 96;
@@ -188,13 +192,11 @@ export function RouletteStrip({
                 className="flex shrink-0 flex-col items-center justify-center gap-1 py-3"
                 style={{ width: ITEM_WIDTH }}
               >
-                {/* eslint-disable-next-line @next/next/no-img-element -- CDN externo (Data Dragon) o asset local, lista dinámica */}
-                <img
-                  src={item.iconUrl}
-                  alt=""
-                  width={56}
-                  height={56}
-                  className={`h-14 w-14 rounded-lg object-cover shadow-md transition-shadow duration-300 ${
+                <PunishmentIcon
+                  iconUrl={item.iconUrl}
+                  noFlash={item.noFlash}
+                  size={56}
+                  imgClassName={`h-14 w-14 rounded-lg object-cover shadow-md transition-shadow duration-300 ${
                     isWinner
                       ? "shadow-[0_0_26px_-2px_var(--gold)] ring-2 ring-gold [animation:roulette-win-pop_0.55s_cubic-bezier(0.34,1.56,0.64,1)_forwards]"
                       : item.variant

@@ -2,8 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { Champion } from "@/lib/champions";
-import { SUPPORT_ASSIGNMENT, SUPPORT_ICON_URL } from "@/lib/mango-launch";
+import type { SummonerSpell } from "@/lib/summoner-spells";
+import {
+  SUPPORT_ASSIGNMENT,
+  SUPPORT_ICON_URL,
+  NO_FLASH_ASSIGNMENT,
+  MANDATORY_SPELL_IDS,
+} from "@/lib/mango-launch";
 import { RouletteStrip, type RouletteItem } from "@/components/RouletteStrip";
+import { PunishmentIcon } from "@/components/PunishmentIcon";
 
 const SUPPORT_ITEM: RouletteItem = {
   key: "support",
@@ -12,15 +19,29 @@ const SUPPORT_ITEM: RouletteItem = {
   variant: "support",
 };
 
+const MANDATORY_SPELL_ID_SET: Set<string> = new Set(MANDATORY_SPELL_IDS);
+
 interface ChampionResult {
   id: string;
   name: string;
   iconUrl: string;
+  noFlash?: boolean;
 }
 
-/** El id pseudo-campeón "SUPPORT" que devuelve el servidor necesita el anillo dorado de SUPPORT_ITEM, no el genérico. */
+/**
+ * El id pseudo-campeón "SUPPORT" que devuelve el servidor necesita el
+ * anillo dorado de SUPPORT_ITEM, no el genérico. Un id de hechizo (o
+ * NO_FLASH_ASSIGNMENT) necesita el anillo "spell" — y en el caso de "sin
+ * Flash", el flag `noFlash` para que RouletteStrip le superponga la X.
+ */
 function championToRouletteItem(champion: ChampionResult): RouletteItem {
   if (champion.id === SUPPORT_ASSIGNMENT) return SUPPORT_ITEM;
+  if (champion.id === NO_FLASH_ASSIGNMENT) {
+    return { key: "no-flash", label: champion.name, iconUrl: champion.iconUrl, variant: "spell", noFlash: true };
+  }
+  if (MANDATORY_SPELL_ID_SET.has(champion.id)) {
+    return { key: champion.id, label: champion.name, iconUrl: champion.iconUrl, variant: "spell" };
+  }
   return { key: champion.id, label: champion.name, iconUrl: champion.iconUrl };
 }
 
@@ -40,8 +61,8 @@ const ERROR_DISPLAY_MS = 4_000;
  * (/api/jugador/mangos/reveal) y anima la MISMA ruleta que antes vivía en
  * LaunchModal. Nunca incluye el balde de rebote: para cuando cualquier
  * mango llega a 'pending_reveal', el rebote (si hubo) ya se resolvió
- * íntegro server-side — lo que se revela acá siempre es un campeón puntual
- * o Support.
+ * íntegro server-side — lo que se revela acá siempre es un campeón puntual,
+ * Support, o un hechizo de invocador obligatorio (incluido "sin Flash").
  *
  * Arranca sola al montar (sin botón "Girar la ruleta" — el jugador no
  * tiene que hacer nada) y no bloquea el resto del sitio: vive flotando en
@@ -54,10 +75,12 @@ const ERROR_DISPLAY_MS = 4_000;
 export function MangoRevealWidget({
   mangoId,
   champions,
+  spells,
   onDone,
 }: {
   mangoId: string;
   champions: Champion[];
+  spells: SummonerSpell[];
   onDone: () => void;
 }) {
   const [step, setStep] = useState<Step | null>({ phase: "revealing" });
@@ -70,15 +93,35 @@ export function MangoRevealWidget({
     label: c.name,
     iconUrl: c.iconUrl,
   }));
-  // Support pesa 20% real (vs. ~0.4% de un campeón puntual): unas cuantas
-  // copias más en el pool visual para que se sienta acorde, aunque el
-  // resultado real ya lo decidió el servidor — esto es solo relleno.
+  const spellById = new Map(spells.map((s) => [s.id, s]));
+  const flashIconUrl = spellById.get("SummonerFlash")?.iconUrl ?? "";
+  const spellItems: RouletteItem[] = MANDATORY_SPELL_IDS.flatMap((id) => {
+    const spell = spellById.get(id);
+    if (!spell) return [];
+    const item: RouletteItem = { key: spell.id, label: spell.name, iconUrl: spell.iconUrl, variant: "spell" };
+    return [item];
+  });
+  const noFlashItem: RouletteItem = {
+    key: "no-flash",
+    label: "Sin Flash",
+    iconUrl: flashIconUrl,
+    variant: "spell",
+    noFlash: true,
+  };
+  // Support pesa 20% real y hechizo 60% (vs. ~0.06% de un campeón puntual,
+  // ahora que bajó a 10% repartido entre ~170): unas cuantas copias más en
+  // el pool visual para que se sientan acordes, aunque el resultado real ya
+  // lo decidió el servidor — esto es solo relleno.
   const poolWithSupport: RouletteItem[] = [
     ...championItems,
     SUPPORT_ITEM,
     SUPPORT_ITEM,
     SUPPORT_ITEM,
     SUPPORT_ITEM,
+    ...spellItems.flatMap((item) => [item, item, item]),
+    noFlashItem,
+    noFlashItem,
+    noFlashItem,
   ];
 
   function finish() {
@@ -170,11 +213,12 @@ export function MangoRevealWidget({
 
       {step.phase === "revealed" && (
         <div className="flex items-center gap-3">
-          {/* eslint-disable-next-line @next/next/no-img-element -- CDN externo (Data Dragon / Community Dragon) */}
-          <img
-            src={step.champion.iconUrl}
+          <PunishmentIcon
+            iconUrl={step.champion.iconUrl}
+            noFlash={step.champion.noFlash}
+            size={48}
+            imgClassName="h-12 w-12 shrink-0 rounded-lg object-cover ring-2 ring-gold"
             alt={step.champion.name}
-            className="h-12 w-12 shrink-0 rounded-lg object-cover ring-2 ring-gold"
           />
           <div className="min-w-0 flex-1">
             <p className="font-display text-xs font-bold text-gold">Te tocó</p>

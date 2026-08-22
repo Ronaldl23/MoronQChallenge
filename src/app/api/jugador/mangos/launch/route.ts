@@ -2,12 +2,14 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAuthenticatedParticipantId } from "@/lib/player-auth";
 import { getChampionList } from "@/lib/champions";
+import { getSummonerSpellList } from "@/lib/summoner-spells";
 import {
   rollFirstOutcome,
   rollPenaltyOutcome,
   DAILY_RECEIVE_LIMIT,
   hoursAgoIso,
   SUPPORT_ASSIGNMENT,
+  NO_FLASH_ASSIGNMENT,
   type PunishmentOutcome,
 } from "@/lib/mango-launch";
 
@@ -22,7 +24,9 @@ export const dynamic = "force-dynamic";
  * su propia sesión (ver /api/jugador/mangos/reveal).
  */
 function toStoredAssignment(outcome: PunishmentOutcome): string {
-  return outcome.kind === "support" ? SUPPORT_ASSIGNMENT : outcome.champion.id;
+  if (outcome.kind === "support") return SUPPORT_ASSIGNMENT;
+  if (outcome.kind === "spell") return outcome.noFlash ? NO_FLASH_ASSIGNMENT : outcome.spell.id;
+  return outcome.champion.id;
 }
 
 export async function POST(request: Request) {
@@ -104,16 +108,17 @@ export async function POST(request: Request) {
   }
 
   let champions;
+  let spells;
   try {
-    champions = await getChampionList();
+    [champions, spells] = await Promise.all([getChampionList(), getSummonerSpellList()]);
   } catch (err) {
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "No se pudo cargar la lista de campeones" },
+      { error: err instanceof Error ? err.message : "No se pudo cargar la lista de campeones/hechizos" },
       { status: 502 },
     );
   }
 
-  const outcome = rollFirstOutcome(champions);
+  const outcome = rollFirstOutcome(champions, spells);
 
   if (outcome.kind !== "bounce") {
     const { error: updateError } = await supabase
@@ -156,7 +161,7 @@ export async function POST(request: Request) {
   // blanco nuevo que alguien eligió a propósito. El objetivo original NUNCA
   // se entera de nada de esto: ni mango, ni penalty_progress, ni revelación
   // — el rebote es invisible para él, igual que en el diseño anterior.
-  const bounceOutcome = rollPenaltyOutcome(champions);
+  const bounceOutcome = rollPenaltyOutcome(champions, spells);
 
   const { data: bounceMango, error: bounceMangoError } = await supabase
     .from("mangos")

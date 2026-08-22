@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getChampionList, type Champion } from "@/lib/champions";
+import { getSummonerSpellList, type SummonerSpell } from "@/lib/summoner-spells";
 import { resolveAssignedPunishment } from "@/lib/mango-launch";
 import { computeLpStats, TREND_WINDOW_DAYS } from "@/lib/lp-stats";
 import type { Participant, Snapshot } from "@/types/database";
@@ -238,18 +239,21 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
     const nameById = new Map(participants.map((p) => [p.id, p.nombre_display]));
 
     let champions: Champion[] = [];
+    let spells: SummonerSpell[] = [];
     try {
-      champions = await getChampionList();
+      [champions, spells] = await Promise.all([getChampionList(), getSummonerSpellList()]);
     } catch {
-      // Sin campeones se cae al id crudo dentro de resolveAssignedPunishment.
+      // Sin campeones/hechizos se cae al id crudo dentro de resolveAssignedPunishment.
     }
     const championById = new Map(champions.map((c) => [c.id, c]));
+    const spellById = new Map(spells.map((s) => [s.id, s]));
 
     for (const row of activePenaltyRows) {
       const mango = mangoById.get(row.mango_id);
       const resolved = resolveAssignedPunishment(
         mango?.champion_assigned ?? null,
         championById,
+        spellById,
       );
       const senderName =
         (mango?.sent_by_participant_id &&

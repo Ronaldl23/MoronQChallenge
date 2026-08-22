@@ -107,6 +107,9 @@ interface RiotMatchParticipant {
   championName: string;
   /** "TOP" | "JUNGLE" | "MIDDLE" | "BOTTOM" | "UTILITY" — ídem, para el castigo "Support". */
   teamPosition: string;
+  /** Ids NUMÉRICOS de Riot (no el id de texto de Data Dragon) de los dos hechizos de invocador llevados — para el castigo de hechizo obligatorio (o "sin Flash"). */
+  summoner1Id: number;
+  summoner2Id: number;
 }
 
 interface RiotMatchDetail {
@@ -285,6 +288,8 @@ async function processParticipantQuests({
       playedAt: new Date(match.info.gameEndTimestamp).toISOString(),
       championPlayed: mp.championName,
       teamPosition: mp.teamPosition,
+      summoner1Id: mp.summoner1Id,
+      summoner2Id: mp.summoner2Id,
       gameDurationSeconds: match.info.gameDuration,
     });
   }

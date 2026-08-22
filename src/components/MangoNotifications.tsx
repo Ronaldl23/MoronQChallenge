@@ -4,8 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
 import type { Champion } from "@/lib/champions";
+import type { SummonerSpell } from "@/lib/summoner-spells";
 import type { MangoNotification, NotificationsResponse } from "@/app/api/jugador/notifications/route";
 import { MangoRevealWidget } from "./MangoRevealWidget";
+import { PunishmentIcon } from "./PunishmentIcon";
 
 const POLL_INTERVAL_MS = 20_000;
 const TOAST_AUTO_DISMISS_MS = 8_000;
@@ -39,7 +41,13 @@ function toastKey(n: MangoNotification): string {
  *    vive flotando en la misma esquina que los toasts) — el jugador puede
  *    seguir navegando mientras se procesa la cola.
  */
-export function MangoNotifications({ champions }: { champions: Champion[] }) {
+export function MangoNotifications({
+  champions,
+  spells,
+}: {
+  champions: Champion[];
+  spells: SummonerSpell[];
+}) {
   const router = useRouter();
   const [toasts, setToasts] = useState<MangoNotification[]>([]);
   const [activeRevealMangoId, setActiveRevealMangoId] = useState<string | null>(null);
@@ -268,7 +276,12 @@ export function MangoNotifications({ champions }: { champions: Champion[] }) {
         ))}
       </AnimatePresence>
       {activeRevealMangoId && (
-        <MangoRevealWidget mangoId={activeRevealMangoId} champions={champions} onDone={handleRevealDone} />
+        <MangoRevealWidget
+          mangoId={activeRevealMangoId}
+          champions={champions}
+          spells={spells}
+          onDone={handleRevealDone}
+        />
       )}
     </div>
   );
@@ -300,11 +313,11 @@ function MangoToast({
           : "border-gold/50 shadow-[0_0_40px_-12px_var(--gold)]"
       }`}
     >
-      {/* eslint-disable-next-line @next/next/no-img-element -- asset local o CDN externo (Data Dragon / Community Dragon) */}
-      <img
-        src={notification.championIconUrl ?? "/MangoAngry.png"}
-        alt=""
-        className="h-12 w-12 shrink-0 rounded-lg object-cover"
+      <PunishmentIcon
+        iconUrl={notification.championIconUrl ?? "/MangoAngry.png"}
+        noFlash={notification.noFlash}
+        size={48}
+        imgClassName="h-12 w-12 shrink-0 rounded-lg object-cover"
       />
       <div className="min-w-0 flex-1">
         {notification.kind === "flagged_for_review" && (

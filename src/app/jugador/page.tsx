@@ -1,11 +1,13 @@
 import { getAuthenticatedParticipantId } from "@/lib/player-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getChampionList, type Champion } from "@/lib/champions";
+import { getSummonerSpellList, type SummonerSpell } from "@/lib/summoner-spells";
 import { DAILY_RECEIVE_LIMIT, hoursAgoIso, resolveAssignedPunishment } from "@/lib/mango-launch";
 import { QUEST_TARGETS } from "@/lib/quests";
 import { PENALTY_GAME_LIMIT } from "@/lib/penalty";
 import { isOnline } from "@/lib/presence";
 import { Header } from "@/components/Header";
+import { PunishmentIcon } from "@/components/PunishmentIcon";
 import { FixedLogo } from "@/components/FixedLogo";
 import { PlayerLoginForm } from "./PlayerLoginForm";
 import { InventoryPanel } from "./InventoryPanel";
@@ -130,18 +132,21 @@ export default async function JugadorPage() {
   }));
 
   let champions: Champion[] = [];
+  let spells: SummonerSpell[] = [];
   try {
-    champions = await getChampionList();
+    [champions, spells] = await Promise.all([getChampionList(), getSummonerSpellList()]);
   } catch {
-    // Se maneja en MangoRevealModal: sin campeones no se puede tirar la ruleta.
+    // Se maneja en MangoRevealModal: sin campeones/hechizos no se puede tirar la ruleta.
   }
   const championById = new Map(champions.map((c) => [c.id, c]));
+  const spellById = new Map(spells.map((s) => [s.id, s]));
 
   const pendingPenalties = pendingPenaltiesResult.data ?? [];
 
   let pendingPunishments: {
     name: string;
     iconUrl: string | null;
+    noFlash?: boolean;
     senderName: string;
   }[] = [];
   if (pendingPenalties.length > 0) {
@@ -170,7 +175,7 @@ export default async function JugadorPage() {
       .filter((p) => mangoById.get(p.mango_id)?.status !== "pending_reveal")
       .map((p) => {
         const mango = mangoById.get(p.mango_id);
-        const resolved = resolveAssignedPunishment(mango?.champion_assigned ?? null, championById);
+        const resolved = resolveAssignedPunishment(mango?.champion_assigned ?? null, championById, spellById);
         const senderName =
           (mango?.sent_by_participant_id && senderNameById.get(mango.sent_by_participant_id)) ||
           "Alguien";
@@ -204,11 +209,11 @@ export default async function JugadorPage() {
                 key={`${punishment.name}-${i}`}
                 className="flex items-center gap-3 rounded-xl border border-loss/40 bg-bg-elevated px-3 py-2 text-sm font-medium text-text-primary"
               >
-                {/* eslint-disable-next-line @next/next/no-img-element -- CDN externo (Data Dragon / Community Dragon) */}
-                <img
-                  src={punishment.iconUrl ?? "/MangoAngry.png"}
-                  alt=""
-                  className="h-8 w-8 shrink-0 rounded-full object-cover"
+                <PunishmentIcon
+                  iconUrl={punishment.iconUrl ?? "/MangoAngry.png"}
+                  noFlash={punishment.noFlash}
+                  size={32}
+                  imgClassName="h-8 w-8 shrink-0 rounded-full object-cover"
                 />
                 <span>
                   <span className="text-text-secondary">{punishment.senderName} te envió:</span>{" "}

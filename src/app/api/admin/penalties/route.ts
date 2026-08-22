@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isAdminAuthenticated } from "@/lib/admin-auth";
 import { getChampionList, type Champion } from "@/lib/champions";
+import { getSummonerSpellList, type SummonerSpell } from "@/lib/summoner-spells";
 import { resolveAssignedPunishment } from "@/lib/mango-launch";
 
 export const dynamic = "force-dynamic";
@@ -13,6 +14,7 @@ export interface FlaggedPenalty {
   senderName: string;
   championName: string;
   championIconUrl: string | null;
+  noFlash?: boolean;
   createdAt: string;
 }
 
@@ -68,16 +70,18 @@ export async function GET(request: Request) {
   const nameById = new Map((participants ?? []).map((p) => [p.id, p.nombre_display]));
 
   let champions: Champion[] = [];
+  let spells: SummonerSpell[] = [];
   try {
-    champions = await getChampionList();
+    [champions, spells] = await Promise.all([getChampionList(), getSummonerSpellList()]);
   } catch {
-    // Sin campeones no podemos resolver el nombre — se cae al id crudo abajo.
+    // Sin campeones/hechizos no podemos resolver el nombre — se cae al id crudo abajo.
   }
   const championById = new Map(champions.map((c) => [c.id, c]));
+  const spellById = new Map(spells.map((s) => [s.id, s]));
 
   const penalties: FlaggedPenalty[] = flagged.map((f) => {
     const mango = mangoById.get(f.mango_id);
-    const resolved = resolveAssignedPunishment(mango?.champion_assigned ?? null, championById);
+    const resolved = resolveAssignedPunishment(mango?.champion_assigned ?? null, championById, spellById);
     const senderName =
       (mango?.sent_by_participant_id && nameById.get(mango.sent_by_participant_id)) || "Alguien";
     return {
@@ -87,6 +91,7 @@ export async function GET(request: Request) {
       senderName,
       championName: resolved.name,
       championIconUrl: resolved.iconUrl,
+      noFlash: resolved.noFlash,
       createdAt: f.created_at,
     };
   });

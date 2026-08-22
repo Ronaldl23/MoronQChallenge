@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { FlaggedPenalty } from "@/app/api/admin/penalties/route";
+import { PunishmentIcon } from "@/components/PunishmentIcon";
 
 type LoadState = { type: "loading" } | { type: "error"; message: string } | { type: "loaded" };
 
@@ -124,11 +125,11 @@ export function PenaltyReviewPanel() {
                   className="flex flex-col gap-2 rounded bg-zinc-50 p-3 dark:bg-zinc-800/60 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div className="flex items-center gap-3">
-                    {/* eslint-disable-next-line @next/next/no-img-element -- CDN externo (Data Dragon / Community Dragon) */}
-                    <img
-                      src={p.championIconUrl ?? "/MangoAngry.png"}
-                      alt=""
-                      className="h-10 w-10 shrink-0 rounded object-cover"
+                    <PunishmentIcon
+                      iconUrl={p.championIconUrl ?? "/MangoAngry.png"}
+                      noFlash={p.noFlash}
+                      size={40}
+                      imgClassName="h-10 w-10 shrink-0 rounded object-cover"
                     />
                     <div className="text-sm text-zinc-700 dark:text-zinc-300">
                       <p className="font-medium text-black dark:text-zinc-50">

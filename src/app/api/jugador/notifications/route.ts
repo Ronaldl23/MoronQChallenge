@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAuthenticatedParticipantId } from "@/lib/player-auth";
 import { getChampionList, type Champion } from "@/lib/champions";
+import { getSummonerSpellList, type SummonerSpell } from "@/lib/summoner-spells";
 import { resolveAssignedPunishment } from "@/lib/mango-launch";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +24,8 @@ export interface MangoNotification {
    */
   championName: string;
   championIconUrl: string | null;
+  /** true si el castigo es "jugar SIN Flash" — el cliente le superpone la X sobre el ícono de Flash (ver PunishmentIcon). */
+  noFlash?: boolean;
 }
 
 export interface NotificationsResponse {
@@ -202,14 +205,16 @@ export async function GET() {
   const nameById = new Map((participantsData ?? []).map((p) => [p.id, p.nombre_display]));
 
   let champions: Champion[] = [];
+  let spells: SummonerSpell[] = [];
   if (flagged.length > 0 || launcherReveals.length > 0 || receivedNeedsChampionResolution) {
     try {
-      champions = await getChampionList();
+      [champions, spells] = await Promise.all([getChampionList(), getSummonerSpellList()]);
     } catch {
-      // Sin campeones se cae al id crudo dentro de resolveAssignedPunishment.
+      // Sin campeones/hechizos se cae al id crudo dentro de resolveAssignedPunishment.
     }
   }
   const championById = new Map(champions.map((c) => [c.id, c]));
+  const spellById = new Map(spells.map((s) => [s.id, s]));
 
   const notifications: MangoNotification[] = [
     ...received.map((p): MangoNotification => {
@@ -231,7 +236,7 @@ export async function GET() {
           championIconUrl: null,
         };
       }
-      const resolved = resolveAssignedPunishment(mango.champion_assigned, championById);
+      const resolved = resolveAssignedPunishment(mango.champion_assigned, championById, spellById);
       return {
         id: p.id,
         kind: "received",
@@ -239,11 +244,12 @@ export async function GET() {
         otherPartyName: senderName,
         championName: resolved.name,
         championIconUrl: resolved.iconUrl,
+        noFlash: resolved.noFlash,
       };
     }),
     ...flagged.map((p): MangoNotification => {
       const mango = mangoById.get(p.mango_id);
-      const resolved = resolveAssignedPunishment(mango?.champion_assigned ?? null, championById);
+      const resolved = resolveAssignedPunishment(mango?.champion_assigned ?? null, championById, spellById);
       return {
         id: p.id,
         kind: "flagged_for_review",
@@ -251,10 +257,11 @@ export async function GET() {
         otherPartyName: "",
         championName: resolved.name,
         championIconUrl: resolved.iconUrl,
+        noFlash: resolved.noFlash,
       };
     }),
     ...launcherReveals.map((m): MangoNotification => {
-      const resolved = resolveAssignedPunishment(m.champion_assigned, championById);
+      const resolved = resolveAssignedPunishment(m.champion_assigned, championById, spellById);
       const recipientId = recipientByMangoId.get(m.id);
       const recipientName = (recipientId && nameById.get(recipientId)) || "Alguien";
       return {
@@ -264,6 +271,7 @@ export async function GET() {
         otherPartyName: recipientName,
         championName: resolved.name,
         championIconUrl: resolved.iconUrl,
+        noFlash: resolved.noFlash,
       };
     }),
   ];

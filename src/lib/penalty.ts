@@ -17,6 +17,33 @@ const SUPPORT_ASSIGNMENT = "SUPPORT";
 const MIN_MATCH_DURATION_SECONDS = 300;
 
 /**
+ * Mismo valor que NO_FLASH_ASSIGNMENT en src/lib/mango-launch.ts —
+ * duplicado a propósito, mismo motivo que SUPPORT_ASSIGNMENT arriba.
+ */
+const NO_FLASH_ASSIGNMENT = "NO_FLASH";
+
+/**
+ * Id numérico de Riot (summoner1Id/summoner2Id de match-v5) para cada
+ * hechizo de invocador del pool de castigo, más Flash — estos números son
+ * estables desde hace años en la API de Riot (no vienen de Data Dragon,
+ * que solo expone el id de texto tipo "SummonerHaste"; el número es lo que
+ * de verdad trae cada partida). Duplicado a propósito, mismo motivo que
+ * SUPPORT_ASSIGNMENT/MIN_MATCH_DURATION_SECONDS arriba — mantiene este
+ * módulo sin imports para poder correrlo directo con Node.
+ */
+const SPELL_KEY_BY_ASSIGNMENT: Record<string, number> = {
+  SummonerHaste: 6, // Fantasma
+  SummonerHeal: 7, // Curar
+  SummonerBarrier: 21, // Barrera
+  SummonerBoost: 1, // Purificar
+  SummonerExhaust: 3, // Debilitar
+  SummonerTeleport: 12, // Teletransporte
+  SummonerDot: 14, // Incendiar
+  SummonerSmite: 11, // Hoz
+};
+const FLASH_SPELL_KEY = 4;
+
+/**
  * Lógica pura de cumplimiento de castigos — sin Riot ni Supabase acá a
  * propósito, mismo criterio que src/lib/quests.ts (testeable con secuencias
  * simuladas, ver scripts/test-penalty.mjs).
@@ -58,13 +85,16 @@ export interface PenaltyMatchOutcome {
   championPlayed: string;
   /** teamPosition crudo de match-v5 ("TOP" | "JUNGLE" | "MIDDLE" | "BOTTOM" | "UTILITY", puede venir vacío en casos raros). */
   teamPosition: string;
+  /** summoner1Id/summoner2Id crudos de match-v5 (ids NUMÉRICOS de Riot, no el id de texto de Data Dragon) — para el castigo de hechizo de invocador obligatorio (o "sin Flash"). */
+  summoner1Id: number;
+  summoner2Id: number;
   /** gameDuration crudo de match-v5, en segundos. Menos de MIN_MATCH_DURATION_SECONDS = remake, se ignora por completo (no gasta ventana ni cumple nada). */
   gameDurationSeconds: number;
 }
 
 export interface PendingPenalty {
   id: string;
-  /** champion_assigned tal cual está en `mangos` — SUPPORT_ASSIGNMENT o un id de campeón puntual. */
+  /** champion_assigned tal cual está en `mangos` — SUPPORT_ASSIGNMENT, NO_FLASH_ASSIGNMENT, un id de hechizo (ej. "SummonerHaste"), o un id de campeón puntual. */
   championAssigned: string;
   /** Mismo formato normalizado que `playedAt` de PenaltyMatchOutcome — ver esa nota. */
   createdAt: string;
@@ -89,11 +119,22 @@ export interface ProcessPenaltyMatchesResult {
 
 /**
  * Si el castigo es SUPPORT_ASSIGNMENT, se cumple con CUALQUIER campeón
- * siempre que teamPosition sea UTILITY; si es un campeón puntual, se cumple
- * jugando exactamente ese campeón (sin importar la línea).
+ * siempre que teamPosition sea UTILITY. Si es NO_FLASH_ASSIGNMENT, se
+ * cumple si NINGUNO de los dos slots de hechizo fue Flash (cualquier otra
+ * combinación de los dos hechizos restantes vale). Si es un hechizo
+ * puntual del pool (ver SPELL_KEY_BY_ASSIGNMENT), se cumple si ese hechizo
+ * está en CUALQUIERA de los dos slots. Si no, es un campeón puntual: se
+ * cumple jugando exactamente ese campeón (sin importar la línea).
  */
 function isCompliant(championAssigned: string, match: PenaltyMatchOutcome): boolean {
   if (championAssigned === SUPPORT_ASSIGNMENT) return match.teamPosition === "UTILITY";
+  if (championAssigned === NO_FLASH_ASSIGNMENT) {
+    return match.summoner1Id !== FLASH_SPELL_KEY && match.summoner2Id !== FLASH_SPELL_KEY;
+  }
+  const requiredSpellKey = SPELL_KEY_BY_ASSIGNMENT[championAssigned];
+  if (requiredSpellKey !== undefined) {
+    return match.summoner1Id === requiredSpellKey || match.summoner2Id === requiredSpellKey;
+  }
   return match.championPlayed === championAssigned;
 }
 

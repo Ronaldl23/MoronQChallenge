@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAuthenticatedParticipantId } from "@/lib/player-auth";
 import { getChampionList, type Champion } from "@/lib/champions";
+import { getSummonerSpellList, type SummonerSpell } from "@/lib/summoner-spells";
 import { resolveAssignedPunishment } from "@/lib/mango-launch";
 import { postMangoEventChatMessage } from "@/lib/chat-system-messages";
 
@@ -11,6 +12,8 @@ interface ChampionResult {
   id: string;
   name: string;
   iconUrl: string;
+  /** true si el castigo es "jugar SIN Flash" — el cliente le superpone la X sobre el ícono de Flash (ver PunishmentIcon), nunca un ícono nuevo. */
+  noFlash?: boolean;
 }
 
 /**
@@ -99,18 +102,21 @@ export async function POST(request: Request) {
   const didTransition = (updatedRows?.length ?? 0) > 0;
 
   let champions: Champion[] = [];
+  let spells: SummonerSpell[] = [];
   try {
-    champions = await getChampionList();
+    [champions, spells] = await Promise.all([getChampionList(), getSummonerSpellList()]);
   } catch {
     // resolveAssignedPunishment cae al id crudo si no hay lista — igual se puede revelar.
   }
   const championById = new Map(champions.map((c) => [c.id, c]));
-  const resolved = resolveAssignedPunishment(mango.champion_assigned, championById);
+  const spellById = new Map(spells.map((s) => [s.id, s]));
+  const resolved = resolveAssignedPunishment(mango.champion_assigned, championById, spellById);
 
   const result: ChampionResult = {
     id: mango.champion_assigned!,
     name: resolved.name,
     iconUrl: resolved.iconUrl ?? "/MangoAngry.png",
+    noFlash: resolved.noFlash,
   };
 
   // Anuncio público en el chat — best-effort, no debe romper la revelación
