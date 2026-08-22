@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAuthenticatedParticipantId } from "@/lib/player-auth";
+import { isChatOpenAt } from "@/lib/chat-lock";
+import { TOURNAMENT_START_DATE, TOURNAMENT_END_DATE } from "@/lib/config";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +18,17 @@ export async function POST(request: Request) {
   const participantId = await getAuthenticatedParticipantId();
   if (!participantId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // Chequeo real de la ventana del chat — el widget ya deshabilita el
+  // formulario antes de esto, pero eso es solo cosmético: esta comparación
+  // server-side es la que de verdad impide escribir fuera de la ventana
+  // del torneo (antes de que arranque, o después de que termine).
+  if (!isChatOpenAt(Date.now(), TOURNAMENT_START_DATE, TOURNAMENT_END_DATE)) {
+    return NextResponse.json(
+      { error: "El chat solo está abierto durante el torneo" },
+      { status: 403 },
+    );
   }
 
   let body: unknown;

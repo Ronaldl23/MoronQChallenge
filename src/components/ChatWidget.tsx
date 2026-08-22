@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { ProfileIcon } from "./ProfileIcon";
+import { isChatOpenAt } from "@/lib/chat-lock";
+import { TOURNAMENT_START_DATE, TOURNAMENT_END_DATE } from "@/lib/config";
 import type { ChatMessage } from "@/types/database";
 
 const MAX_MESSAGE_LENGTH = 500;
@@ -82,6 +84,38 @@ export function ChatWidget({
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
+
+  // Ventana de escritura del torneo — el historial siempre se puede leer,
+  // pero el formulario se deshabilita fuera de [inicio, fin). El chequeo
+  // real (que nadie pueda escribir con un POST directo) vive server-side
+  // en /api/chat/send; esto es solo la comodidad de la UI. null en el
+  // primer render (server y cliente por igual, mismo criterio que
+  // useCountdown) para evitar un mismatch de hidratación por reloj — se
+  // recalcula en un efecto, con un chequeo periódico para que el chat se
+  // habilite solo con que la persona lo deje abierto justo cuando arranca
+  // el torneo, sin necesitar un refresh.
+  const [now, setNow] = useState<number | null>(null);
+  useEffect(() => {
+    const tick = () => setNow(Date.now());
+    // setTimeout(0) en vez de llamar setNow directo acá: un setState
+    // síncrono dentro del cuerpo del efecto dispara un re-render en
+    // cascada (regla react-hooks/set-state-in-effect) — deferirlo evita
+    // eso sin que la persona note ninguna demora real.
+    const timeoutId = setTimeout(tick, 0);
+    const intervalId = setInterval(tick, 60_000);
+    return () => {
+      clearTimeout(timeoutId);
+      clearInterval(intervalId);
+    };
+  }, []);
+  const chatOpen =
+    now !== null && isChatOpenAt(now, TOURNAMENT_START_DATE, TOURNAMENT_END_DATE);
+  const closedReason =
+    now === null || chatOpen
+      ? null
+      : now < new Date(TOURNAMENT_START_DATE).getTime()
+        ? "El chat se abre el día del torneo."
+        : "El chat cerró — el torneo ya terminó.";
 
   // Espejos síncronos de isOpen/foco para leer el valor ACTUAL dentro del
   // callback de Realtime, que se registra una sola vez al montar y de otra
@@ -247,7 +281,7 @@ export function ChatWidget({
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     const trimmed = draft.trim();
-    if (!trimmed || sending) return;
+    if (!trimmed || sending || !chatOpen) return;
 
     setSending(true);
     setSendError(null);
@@ -357,6 +391,9 @@ export function ChatWidget({
             onSubmit={handleSubmit}
             className="flex flex-col gap-1 border-t border-border-hairline p-3"
           >
+            {closedReason && (
+              <p className="px-1 pb-1 text-xs font-medium text-gold">{closedReason}</p>
+            )}
             <div className="flex items-center gap-2">
               <input
                 value={draft}
@@ -364,13 +401,13 @@ export function ChatWidget({
                   setDraft(event.target.value.slice(0, MAX_MESSAGE_LENGTH))
                 }
                 maxLength={MAX_MESSAGE_LENGTH}
-                placeholder="Escribe un mensaje..."
-                disabled={sending}
+                placeholder={chatOpen ? "Escribe un mensaje..." : "El chat está cerrado"}
+                disabled={sending || !chatOpen}
                 className="flex-1 rounded-full border border-border-hairline bg-bg px-3.5 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-gold/50 focus:outline-none disabled:opacity-60"
               />
               <button
                 type="submit"
-                disabled={sending || !draft.trim()}
+                disabled={sending || !chatOpen || !draft.trim()}
                 aria-label="Enviar mensaje"
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gold text-bg transition-opacity disabled:opacity-40"
               >
