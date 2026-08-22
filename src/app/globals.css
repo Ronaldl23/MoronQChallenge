@@ -24,6 +24,7 @@
   --win: #4ade80;
   --loss: #ef4d6e;
   --live: #d7f23c;
+  --aegis: #5aa9e6;
 }
 
 @theme inline {
@@ -50,6 +51,7 @@
   --color-win: var(--win);
   --color-loss: var(--loss);
   --color-live: var(--live);
+  --color-aegis: var(--aegis);
 
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);

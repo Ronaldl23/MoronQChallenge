@@ -4,6 +4,7 @@ import { Fragment, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import type { LeaderboardEntry, UnrankedLeaderboardEntry } from "@/lib/leaderboard";
 import { ROLE_TO_LANE_SLUG } from "@/lib/lane";
+import { AegisIndicator } from "./AegisIndicator";
 import { DisqualifiedBadge } from "./DisqualifiedBadge";
 import { MangoCountBadge } from "./MangoCountBadge";
 import { MatchHistory } from "./MatchHistory";
@@ -39,6 +40,17 @@ export function LeaderboardTable({
     column: "player" | "lp";
     direction: "asc" | "desc";
   } | null>(null);
+
+  // Toggle de la columna V/D — solo estado de sesión del navegador (se
+  // resetea al recargar), aplica a TODA la tabla a la vez, no por fila.
+  // "detail" = "246V - 240D" (el modo de siempre). "net" = un solo número
+  // de victorias netas (V - D), en verde si es positivo y rojo si es
+  // negativo.
+  const [vdMode, setVdMode] = useState<"detail" | "net">("detail");
+
+  function handleVdToggle() {
+    setVdMode((prev) => (prev === "detail" ? "net" : "detail"));
+  }
 
   const sortedEntries = useMemo(() => {
     if (!activeSort) return entries;
@@ -103,12 +115,27 @@ export function LeaderboardTable({
               </button>
             </th>
             <th className="px-4 py-2 font-medium">Rango</th>
-            <th className="px-4 py-2 font-medium">V / D</th>
+            <th className="px-4 py-2 font-medium">
+              <button
+                type="button"
+                onClick={handleVdToggle}
+                className="inline-flex items-center gap-1 text-text-secondary transition-colors hover:text-text-primary"
+                title={
+                  vdMode === "detail"
+                    ? "Cambiar a victorias netas (V - D)"
+                    : "Cambiar a victorias - derrotas"
+                }
+              >
+                {vdMode === "detail" ? "V / D" : "Netas"}
+                <ToggleIndicator />
+              </button>
+            </th>
             <th className="hidden px-4 py-2 font-medium sm:table-cell">
               Racha
             </th>
             <th className="px-4 py-2 text-center font-medium">Mangos</th>
             <th className="px-4 py-2 text-center font-medium">Castigos</th>
+            <th className="px-4 py-2 text-center font-medium">Aegis</th>
             {/* pr-16 en vez de px-4: nudge a la izquierda respecto al contenido de abajo (▲/▼ + botón OP.GG), que visualmente "pesa" más hacia la derecha que el label solo. */}
             <th className="py-2 pr-16 pl-4 text-right font-medium">
               <button
@@ -218,18 +245,25 @@ export function LeaderboardTable({
                     </div>
                   </td>
                   <td className="px-4 py-2">
-                    <div className="flex w-28 flex-col gap-1.5">
-                      <div className="flex items-center justify-between text-xs whitespace-nowrap text-text-secondary">
-                        <span>{winPct}%</span>
-                        <span>
-                          {entry.latest.wins}V - {entry.latest.losses}D
-                        </span>
+                    {vdMode === "detail" ? (
+                      <div className="flex w-28 flex-col gap-1.5">
+                        <div className="flex items-center justify-between text-xs whitespace-nowrap text-text-secondary">
+                          <span>{winPct}%</span>
+                          <span>
+                            {entry.latest.wins}V - {entry.latest.losses}D
+                          </span>
+                        </div>
+                        <WinrateBar
+                          wins={entry.latest.wins}
+                          losses={entry.latest.losses}
+                        />
                       </div>
-                      <WinrateBar
+                    ) : (
+                      <NetWins
                         wins={entry.latest.wins}
                         losses={entry.latest.losses}
                       />
-                    </div>
+                    )}
                   </td>
                   <td className="hidden px-4 py-2 sm:table-cell">
                     <Sparkline points={entry.trend} id={entry.participant.id} />
@@ -239,6 +273,9 @@ export function LeaderboardTable({
                   </td>
                   <td className="px-4 py-2 text-center">
                     <PenaltyIndicator penalties={entry.pendingPenalties} />
+                  </td>
+                  <td className="px-4 py-2 text-center">
+                    <AegisIndicator count={entry.participant.aegis_count} />
                   </td>
                   <td className="px-4 py-2 text-right">
                     <div className="flex items-center justify-end gap-2">
@@ -260,7 +297,7 @@ export function LeaderboardTable({
                 <AnimatePresence>
                   {isExpanded && (
                     <tr>
-                      <td colSpan={8} className="p-0">
+                      <td colSpan={9} className="p-0">
                         <motion.div
                           initial={{ height: 0, opacity: 0 }}
                           animate={{ height: "auto", opacity: 1 }}
@@ -340,6 +377,9 @@ export function LeaderboardTable({
               <td className="px-4 py-2 text-center">
                 <PenaltyIndicator penalties={entry.pendingPenalties} />
               </td>
+              <td className="px-4 py-2 text-center">
+                <AegisIndicator count={entry.participant.aegis_count} />
+              </td>
               <td className="py-2 pr-16 pl-4 text-right">
                 <div className="flex items-center justify-end gap-2">
                   <span className="hidden text-text-muted sm:inline">—</span>
@@ -354,6 +394,35 @@ export function LeaderboardTable({
         </tbody>
       </table>
     </div>
+  );
+}
+
+/** Modo alternativo del toggle V/D: un solo número de victorias netas (V - D), verde si es positivo, rojo si es negativo, neutro en 0. */
+function NetWins({ wins, losses }: { wins: number; losses: number }) {
+  const net = wins - losses;
+  const colorClassName =
+    net > 0 ? "text-win" : net < 0 ? "text-loss" : "text-text-secondary";
+
+  return (
+    <span className={`font-display text-base font-bold ${colorClassName}`}>
+      {net > 0 ? `+${net}` : net}
+    </span>
+  );
+}
+
+/** Ícono de flechas cruzadas — señala que el header es un TOGGLE (cambia el modo de toda la columna), no un sort. */
+function ToggleIndicator() {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      className="h-3 w-3 shrink-0 text-text-muted"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+    >
+      <path d="M4 7h10l-2.5-2.5M16 13H6l2.5 2.5" />
+    </svg>
   );
 }
 

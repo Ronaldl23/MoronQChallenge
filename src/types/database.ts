@@ -53,6 +53,13 @@ export type Participant = {
   penalty_games_without_compliance: number;
   /** Última vez que el poll de MangoNotifications corrió para este jugador — null hasta el primer poll de esa sesión. "Online" = dentro de los últimos ONLINE_WINDOW_MS (ver src/lib/presence.ts). */
   last_seen_at: string | null;
+  /**
+   * Contador de "probables Aegis of Valor" — victorias donde /api/update-rankings
+   * estimó que a este jugador le tocó el bonus de doble LP por autofill (ver
+   * src/lib/aegis.ts). A diferencia de penalty_games_without_compliance, ES
+   * pública: se muestra en el leaderboard y el podio (ver 0016_aegis_counter.sql).
+   */
+  aegis_count: number;
 };
 
 /**
@@ -184,6 +191,7 @@ export type Database = {
           | "login_code"
           | "penalty_games_without_compliance"
           | "last_seen_at"
+          | "aegis_count"
         > & {
           id?: string;
           profile_icon_id?: number | null;
@@ -193,6 +201,7 @@ export type Database = {
           login_code?: string | null;
           penalty_games_without_compliance?: number;
           last_seen_at?: string | null;
+          aegis_count?: number;
         };
         Update: Partial<Omit<Participant, "id">>;
         Relationships: [];

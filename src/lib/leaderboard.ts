@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getChampionList, type Champion } from "@/lib/champions";
 import { resolveAssignedPunishment } from "@/lib/mango-launch";
+import { computeLpStats, TREND_WINDOW_DAYS } from "@/lib/lp-stats";
 import type { Participant, Snapshot } from "@/types/database";
 
 /**
@@ -71,7 +72,6 @@ export interface LeaderboardEntry {
   trend: number[];
 }
 
-const TREND_WINDOW_DAYS = 7;
 const MAX_TREND_GAMES = 10;
 
 /**
@@ -113,7 +113,7 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
   const { data: participants, error: participantsError } = await supabase
     .from("participants")
     .select(
-      "id, nombre_display, riot_game_name, riot_tag, puuid, region_platform, profile_icon_id, avatar_url, opgg_url, in_game, main_role",
+      "id, nombre_display, riot_game_name, riot_tag, puuid, region_platform, profile_icon_id, avatar_url, opgg_url, in_game, main_role, aegis_count",
     );
 
   if (participantsError) {
@@ -286,37 +286,8 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
 
     const latest = history[history.length - 1];
 
-    let lpGainedTotal = 0;
-    let lpLostTotal = 0;
-    let winsWithLpChange = 0;
-    let lossesWithLpChange = 0;
-    const gameDeltas: number[] = [];
-    for (let i = 1; i < history.length; i++) {
-      const prev = history[i - 1];
-      const curr = history[i];
-      if (prev.tier !== curr.tier || prev.division !== curr.division) {
-        continue; // El LP se resetea al cambiar de tier/división: no es comparable.
-      }
-      const delta = curr.lp - prev.lp;
-      if (delta > 0) {
-        lpGainedTotal += delta;
-        winsWithLpChange++;
-      } else if (delta < 0) {
-        lpLostTotal += Math.abs(delta);
-        lossesWithLpChange++;
-      }
-      if (delta !== 0) gameDeltas.push(delta);
-    }
-
-    const avgLpGained =
-      winsWithLpChange > 0 ? Math.round(lpGainedTotal / winsWithLpChange) : 0;
-    const avgLpLost =
-      lossesWithLpChange > 0 ? Math.round(lpLostTotal / lossesWithLpChange) : 0;
-    const gamesWithLpChange = winsWithLpChange + lossesWithLpChange;
-    const netAvgLp =
-      gamesWithLpChange > 0
-        ? Math.round((lpGainedTotal - lpLostTotal) / gamesWithLpChange)
-        : 0;
+    const { avgLpGained, avgLpLost, netAvgLp, gameDeltas } =
+      computeLpStats(history);
 
     const trend = gameDeltas
       .slice(-MAX_TREND_GAMES)

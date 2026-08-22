@@ -3,6 +3,7 @@
 import { motion } from "motion/react";
 import type { LeaderboardEntry } from "@/lib/leaderboard";
 import { ROLE_TO_LANE_SLUG } from "@/lib/lane";
+import { AegisIndicator } from "./AegisIndicator";
 import { DisqualifiedBadge } from "./DisqualifiedBadge";
 import { MangoCountBadge } from "./MangoCountBadge";
 import { OpggButton } from "./OpggButton";
@@ -115,6 +116,7 @@ export function PodiumCard({
           <div className="flex shrink-0 items-center gap-1.5">
             <PenaltyIndicator penalties={entry.pendingPenalties} />
             <MangoCountBadge count={entry.mangoCount} />
+            <AegisIndicator count={participant.aegis_count} />
           </div>
         </div>
 

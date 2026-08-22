@@ -5,12 +5,15 @@ import { calculateEloScore, rankOrdinal } from "@/lib/elo";
 import { postRankEventChatMessage } from "@/lib/chat-system-messages";
 import {
   calculateKda,
+  MIN_MATCH_DURATION_SECONDS,
   processNewMatches,
   QUEST_TARGETS,
   QUEST_TYPES,
   type MatchOutcome,
 } from "@/lib/quests";
 import { processPenaltyMatches, type PenaltyMatchOutcome, type PendingPenalty } from "@/lib/penalty";
+import { isProbableAegisProc } from "@/lib/aegis";
+import { computeLpStats, TREND_WINDOW_DAYS } from "@/lib/lp-stats";
 import { platformToContinent } from "@/lib/riot";
 import type { Database, QuestProgress, QuestType, RankDivision, RankTier } from "@/types/database";
 
@@ -182,6 +185,24 @@ function findNewMatchIds(
 }
 
 /**
+ * Señal que el motor de misiones le pasa al sistema "Aegis" (ver
+ * src/lib/aegis.ts): cuántas partidas ranked SoloQ nuevas se detectaron
+ * esta corrida, y si esa partida fue una victoria no-remake cuando se
+ * puede aislar exactamente 1. null en los campos que no se pudieron
+ * determinar (Riot no respondió, no aplica, etc.) — el caller trata eso
+ * como "no evaluar Aegis esta corrida", nunca como 0.
+ */
+interface AegisMatchSignal {
+  newMatchCount: number | null;
+  singleNewMatchIsNonRemakeWin: boolean | null;
+}
+
+const UNKNOWN_AEGIS_SIGNAL: AegisMatchSignal = {
+  newMatchCount: null,
+  singleNewMatchIsNonRemakeWin: null,
+};
+
+/**
  * Aislado a propósito: se llama con su propio try/catch desde el loop
  * principal — si Riot falla acá, o hay un error de datos, no debe tocar el
  * resto de la actualización de ese participante ni de los demás.
@@ -199,9 +220,9 @@ async function processParticipantQuests({
     penalty_games_without_compliance: number;
   };
   riotApiKey: string;
-}): Promise<void> {
+}): Promise<AegisMatchSignal> {
   const continent = platformToContinent(participant.region_platform);
-  if (!continent) return;
+  if (!continent) return UNKNOWN_AEGIS_SIGNAL;
 
   const questRows = new Map<QuestType, QuestProgress>(
     await Promise.all(
@@ -221,14 +242,14 @@ async function processParticipantQuests({
     riotApiKey,
   );
   await sleep(RIOT_REQUEST_DELAY_MS);
-  if (!idsRes.ok) return; // best-effort — se reintenta en la próxima corrida
+  if (!idsRes.ok) return UNKNOWN_AEGIS_SIGNAL; // best-effort — se reintenta en la próxima corrida
 
   const recentIds = (await idsRes.json()) as string[];
   const newMatchIds = findNewMatchIds(recentIds, referenceRow.last_processed_match_id).slice(
     0,
     MAX_NEW_MATCHES_PER_RUN,
   );
-  if (newMatchIds.length === 0) return;
+  if (newMatchIds.length === 0) return { newMatchCount: 0, singleNewMatchIsNonRemakeWin: null };
 
   const outcomes: MatchOutcome[] = [];
   // Misma partida, mismo fetch — Fase 4 (cumplimiento de castigos) reusa
@@ -268,7 +289,20 @@ async function processParticipantQuests({
     });
   }
 
-  if (outcomes.length === 0) return;
+  // Señal para Aegis: solo tiene sentido cuando se detectó EXACTAMENTE 1
+  // partida ranked nueva Y se pudo bajar su detalle (outcomes[0] — el
+  // fetch pudo haber fallado). Con 0 o 2+ partidas nuevas, o sin detalle,
+  // queda en null: el caller (GET) lo trata como "no evaluar Aegis".
+  const signal: AegisMatchSignal = {
+    newMatchCount: newMatchIds.length,
+    singleNewMatchIsNonRemakeWin:
+      newMatchIds.length === 1 && outcomes.length === 1
+        ? outcomes[0].win &&
+          outcomes[0].gameDurationSeconds >= MIN_MATCH_DURATION_SECONDS
+        : null,
+  };
+
+  if (outcomes.length === 0) return signal;
 
   await processParticipantPenalties({
     supabase,
@@ -314,6 +348,8 @@ async function processParticipantQuests({
     );
     if (mangoInsertError) throw mangoInsertError;
   }
+
+  return signal;
 }
 
 /**
@@ -441,7 +477,9 @@ export async function GET(request: Request) {
   const supabase = createAdminClient();
   const { data: participants, error } = await supabase
     .from("participants")
-    .select("id, puuid, region_platform, nombre_display, penalty_games_without_compliance");
+    .select(
+      "id, puuid, region_platform, nombre_display, penalty_games_without_compliance, aegis_count",
+    );
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -514,8 +552,9 @@ export async function GET(request: Request) {
     // try/catch: si falla acá, no debe afectar el snapshot de rango de este
     // participante ni tocar a los demás. Sus propias llamadas a Riot ya
     // espacian con sleep(RIOT_REQUEST_DELAY_MS) internamente.
+    let aegisSignal: AegisMatchSignal = UNKNOWN_AEGIS_SIGNAL;
     try {
-      await processParticipantQuests({ supabase, participant, riotApiKey });
+      aegisSignal = await processParticipantQuests({ supabase, participant, riotApiKey });
     } catch (err) {
       console.error(
         `Motor de misiones falló para ${participant.nombre_display}:`,
@@ -569,11 +608,30 @@ export async function GET(request: Request) {
       // quieto varias corridas en el mismo tier/división.
       const { data: previousSnapshot } = await supabase
         .from("snapshots")
-        .select("tier, division")
+        .select("tier, division, lp")
         .eq("participant_id", participant.id)
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
+
+      // Sistema Aegis (ver src/lib/aegis.ts): promedio HISTÓRICO de LP
+      // ganado por victoria, calculado ANTES de la partida nueva de esta
+      // corrida (misma ventana y mismo cálculo que ±LP en el leaderboard,
+      // ver computeLpStats) — se pide acá, no después de insertar el
+      // snapshot nuevo, para que ese promedio nunca incluya la partida que
+      // se está evaluando.
+      const aegisWindowStart = new Date(
+        Date.now() - TREND_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+      ).toISOString();
+      const { data: recentHistory } = await supabase
+        .from("snapshots")
+        .select("tier, division, lp")
+        .eq("participant_id", participant.id)
+        .gte("created_at", aegisWindowStart)
+        .order("created_at", { ascending: true });
+      const { avgLpGained: historicalAvgLpGained } = computeLpStats(
+        recentHistory ?? [],
+      );
 
       const { error: insertError } = await supabase.from("snapshots").insert({
         participant_id: participant.id,
@@ -584,6 +642,43 @@ export async function GET(request: Request) {
         losses: soloQueue.losses,
         elo_score,
       });
+
+      // Sistema Aegis: LP ganado en la única partida nueva de esta corrida
+      // = delta entre el snapshot de ahora y el inmediatamente anterior,
+      // solo si son del mismo tier/división (si no, el LP se resetea y no
+      // es comparable) y existe un snapshot previo. Best-effort, igual que
+      // el anuncio de chat de abajo — un error acá no debe tumbar el resto
+      // de la corrida de este participante.
+      if (!insertError) {
+        try {
+          const lpGainedThisMatch =
+            previousSnapshot &&
+            previousSnapshot.tier === tier &&
+            previousSnapshot.division === division
+              ? soloQueue.leaguePoints - previousSnapshot.lp
+              : null;
+
+          if (
+            isProbableAegisProc({
+              newMatchCount: aegisSignal.newMatchCount,
+              singleNewMatchIsNonRemakeWin: aegisSignal.singleNewMatchIsNonRemakeWin,
+              lpGainedThisMatch,
+              historicalAvgLpGained,
+            })
+          ) {
+            const { error: aegisError } = await supabase
+              .from("participants")
+              .update({ aegis_count: participant.aegis_count + 1 })
+              .eq("id", participant.id);
+            if (aegisError) throw aegisError;
+          }
+        } catch (err) {
+          console.error(
+            `Aegis: fallo actualizando el contador de ${participant.nombre_display}:`,
+            err instanceof Error ? err.message : err,
+          );
+        }
+      }
 
       // Anuncio público en el chat — best-effort, no debe tirar abajo el
       // resto de la corrida. Sin snapshot previo (primera corrida para este
