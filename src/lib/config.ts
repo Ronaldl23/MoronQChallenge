@@ -7,15 +7,16 @@ export const TOURNAMENT_NAME = "MoronQChallenge";
  * visite — la conversión a hora local la hace el motor de Date del
  * navegador, no algo que tengamos que calcular acá.
  *
- * Real: lunes 24 de agosto de 2026, 8:00 PM hora de Venezuela (UTC-4) =
- * 2026-08-25T00:00:00Z.
+ * Real: lunes 24 de agosto de 2026, 4:00 AM hora de Venezuela (UTC-4) =
+ * 2026-08-24T08:00:00Z (arranque real confirmado — reemplaza al horario
+ * originalmente anunciado de las 8:00 PM).
  */
-export const TOURNAMENT_START_DATE = "2026-08-25T00:00:00Z";
+export const TOURNAMENT_START_DATE = "2026-08-24T08:00:00Z";
 
 /**
  * Fin del torneo: exactamente 1 mes calendario después del inicio (24 de
- * agosto → 24 de septiembre, mismo horario — 2026-09-25T00:00:00Z ==
- * 24 de septiembre de 2026, 8:00 PM Venezuela). Se calcula a partir de
+ * agosto → 24 de septiembre, mismo horario — 2026-09-24T08:00:00Z ==
+ * 24 de septiembre de 2026, 4:00 AM Venezuela). Se calcula a partir de
  * TOURNAMENT_START_DATE en vez de hardcodear una segunda fecha suelta, para
  * que ambas no puedan desincronizarse si el inicio cambia.
  */
@@ -34,8 +35,8 @@ export const TOURNAMENT_END_DATE = addOneCalendarMonthUTC(
  * TOURNAMENT_START_DATE. El Pick'em es algo casual para la comunidad, no
  * parte del torneo competitivo en sí, así que se le da un margen de 3 días
  * después del inicio real del torneo para quien no llegó a cargar su pick
- * a tiempo (24 → 27 de agosto, mismo horario — 2026-08-28T00:00:00Z == 27
- * de agosto de 2026, 8:00 PM Venezuela). Solo isPickemLocked() (ver
+ * a tiempo (24 → 27 de agosto, mismo horario — 2026-08-27T08:00:00Z == 27
+ * de agosto de 2026, 4:00 AM Venezuela). Solo isPickemLocked() (ver
  * src/lib/pickem.ts) usa esta fecha — hasTournamentStarted()/
  * hasTournamentEnded() (src/lib/tournament-schedule.ts), el countdown del
  * header, /participantes y el chat siguen atados a TOURNAMENT_START_DATE/
