@@ -1,6 +1,5 @@
 import { NavLinks } from "./NavLinks";
 import { Countdown } from "./Countdown";
-import { TOURNAMENT_START_DATE } from "@/lib/config";
 import { getAuthenticatedParticipantId } from "@/lib/player-auth";
 
 export async function Header() {
@@ -20,7 +19,7 @@ export async function Header() {
       */}
       <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-4 py-3 pr-6 pl-6 sm:pl-[336px]">
         <NavLinks isPlayerLoggedIn={isPlayerLoggedIn} />
-        <Countdown targetDate={TOURNAMENT_START_DATE} />
+        <Countdown />
       </div>
     </header>
   );

@@ -73,12 +73,15 @@ assertEqual(
 // normalizePickemName — mismatch de mayúsculas/espacios no debería romper el match
 assertEqual(normalizePickemName("  Ana  "), "ana", "normaliza espacios y mayúsculas");
 
-// isPickemLockedAt — puro respecto a `now`/`lockAtIso`, sin depender del reloj real
-const LOCK_AT = "2026-08-25T00:00:00Z"; // mismo valor que TOURNAMENT_START_DATE
+// isPickemLockedAt — puro respecto a `now`/`lockAtIso`, sin depender del reloj
+// real ni de ninguna constante particular de la app (quien la llama, en
+// src/lib/pickem.ts, le pasa PICKEM_LOCK_DATE — ver src/lib/config.ts — pero
+// acá el valor es arbitrario a propósito, solo para probar el predicado).
+const LOCK_AT = "2026-08-28T00:00:00Z";
 const START = new Date(LOCK_AT).getTime();
-assertEqual(isPickemLockedAt(START - 1000, LOCK_AT), false, "1s antes del inicio -> no bloqueado");
-assertEqual(isPickemLockedAt(START, LOCK_AT), true, "justo en el inicio -> bloqueado");
-assertEqual(isPickemLockedAt(START + 1000, LOCK_AT), true, "1s después del inicio -> bloqueado");
+assertEqual(isPickemLockedAt(START - 1000, LOCK_AT), false, "1s antes del límite -> no bloqueado");
+assertEqual(isPickemLockedAt(START, LOCK_AT), true, "justo en el límite -> bloqueado");
+assertEqual(isPickemLockedAt(START + 1000, LOCK_AT), true, "1s después del límite -> bloqueado");
 
 console.log(`\n${passed} pasaron, ${failed} fallaron`);
 if (failed > 0) process.exit(1);

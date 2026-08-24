@@ -17,11 +17,12 @@ export async function POST(request: Request) {
 
   // Chequeo real de bloqueo — la UI ya deshabilita el botón antes de esto,
   // pero eso es solo cosmético: esta comparación server-side es la que de
-  // verdad impide guardar/editar una vez que arrancó el torneo, sin
+  // verdad impide guardar/editar una vez que pasó PICKEM_LOCK_DATE (3 días
+  // de gracia después del inicio del torneo, ver src/lib/config.ts), sin
   // importar si quien pega acá es jugador o invitado.
   if (isPickemLocked()) {
     return NextResponse.json(
-      { error: "El Pick'em ya está bloqueado — el torneo arrancó" },
+      { error: "El Pick'em ya está bloqueado — pasó la fecha límite" },
       { status: 403 },
     );
   }

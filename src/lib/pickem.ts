@@ -2,7 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getAuthenticatedParticipantId } from "@/lib/player-auth";
 import { getAuthenticatedGuestId } from "@/lib/pickem-guest-auth";
 import { getLeaderboard } from "@/lib/leaderboard";
-import { TOURNAMENT_START_DATE } from "@/lib/config";
+import { PICKEM_LOCK_DATE } from "@/lib/config";
 import { isPickemLockedAt, normalizePickemName } from "@/lib/pickem-logic";
 import type { ShowcaseParticipant } from "@/types/database";
 
@@ -14,7 +14,9 @@ export {
 } from "@/lib/pickem-logic";
 
 /**
- * A partir de TOURNAMENT_START_DATE nadie puede guardar/editar su pick —
+ * A partir de PICKEM_LOCK_DATE (3 días de gracia después de que arranca el
+ * torneo — el Pick'em es algo casual, no parte de la competencia en sí, ver
+ * el comentario en src/lib/config.ts) nadie puede guardar/editar su pick —
  * ni jugadores ni invitados, sin excepción (el pedido original es
  * explícito: "sin importar si son jugadores o invitados"). Se evalúa
  * server-side en /api/pickem/save (la fuente de verdad real) y también
@@ -23,7 +25,7 @@ export {
  * quien realmente lo hace cumplir).
  */
 export function isPickemLocked(now: number = Date.now()): boolean {
-  return isPickemLockedAt(now, TOURNAMENT_START_DATE);
+  return isPickemLockedAt(now, PICKEM_LOCK_DATE);
 }
 
 export interface PickemViewerIdentity {

@@ -10,7 +10,7 @@ import {
   isPickemLocked,
 } from "@/lib/pickem";
 import { getDataDragonVersion } from "@/lib/ddragon";
-import { TOURNAMENT_START_DATE } from "@/lib/config";
+import { PICKEM_LOCK_DATE } from "@/lib/config";
 import { Header } from "@/components/Header";
 import { FixedLogo } from "@/components/FixedLogo";
 import { PickemBoard } from "@/components/PickemBoard";
@@ -31,6 +31,14 @@ export default async function PickemPage() {
 
   const locked = isPickemLocked();
   const participantsById = new Map(roster.map((p) => [p.id, p]));
+  // Zona horaria fija (no la del server) para que la fecha mostrada no
+  // dependa de dónde corre el proceso — mismo huso que el resto de los
+  // comentarios de fecha del torneo (Venezuela, UTC-4).
+  const pickemLockDateLabel = new Date(PICKEM_LOCK_DATE).toLocaleDateString("es", {
+    day: "numeric",
+    month: "long",
+    timeZone: "America/Caracas",
+  });
 
   const [savedOrder, communityEntries, finalRankByName] = await Promise.all([
     identity ? getSavedPickOrder(identity) : Promise.resolve(null),
@@ -40,13 +48,13 @@ export default async function PickemPage() {
 
   return (
     <div className="flex min-h-screen flex-col">
-      {/* Sin esto, alguien que deja /pickem abierto ANTES del inicio del
-          torneo ve el tablero editable indefinidamente hasta que recargue
-          a mano — el countdown del header sigue tickeando en tiempo real,
-          pero esta página (Server Component) solo recalcula
-          isPickemLocked() en cada request nuevo. Programa un refresh
-          exacto para el instante de inicio, sin sondear. */}
-      {!locked && <TournamentBoundaryRefresh atIso={TOURNAMENT_START_DATE} />}
+      {/* Sin esto, alguien que deja /pickem abierto ANTES de la fecha límite
+          ve el tablero editable indefinidamente hasta que recargue a mano —
+          esta página (Server Component) solo recalcula isPickemLocked() en
+          cada request nuevo. Programa un refresh exacto para PICKEM_LOCK_DATE
+          (3 días después del inicio del torneo, no el inicio en sí — ver el
+          comentario en src/lib/config.ts), sin sondear. */}
+      {!locked && <TournamentBoundaryRefresh atIso={PICKEM_LOCK_DATE} />}
       <FixedLogo />
       <Header />
       <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-8 px-6 pt-6 pb-10 sm:pt-44">
@@ -61,7 +69,7 @@ export default async function PickemPage() {
 
         {locked && (
           <p className="rounded-lg border border-gold/40 bg-gold/10 px-4 py-2 text-sm font-medium text-gold">
-            El Pick&apos;em está bloqueado — el torneo ya arrancó, no se puede editar.
+            El Pick&apos;em está bloqueado — pasó el {pickemLockDateLabel}, no se puede editar.
           </p>
         )}
         {settings.resultsRevealed && (
@@ -124,7 +132,7 @@ export default async function PickemPage() {
 
               {locked && !savedOrder && (
                 <p className="text-sm text-text-secondary">
-                  No guardaste tu Pick&apos;em antes de que arrancara el torneo.
+                  No guardaste tu Pick&apos;em antes del {pickemLockDateLabel}.
                 </p>
               )}
             </div>

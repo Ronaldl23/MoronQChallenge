@@ -32,21 +32,40 @@ assertEqual(isChatOpenAt(endMs - 1000, START, END), true, "1s antes del fin -> t
 assertEqual(isChatOpenAt(endMs, START, END), false, "justo en el fin -> ya cerrado");
 assertEqual(isChatOpenAt(endMs + 1000, START, END), false, "1s después del fin -> cerrado");
 
-// El chat se ABRE en el mismo instante en que el Pick'em se BLOQUEA — las
-// dos son consecuencias de "¿ya arrancó el torneo?" y usan el mismo
-// boundary (now >= start, inclusive), aunque viven en módulos puros
-// distintos (cada uno duplica su propia comparación de una sola línea a
-// propósito, ver el comentario en src/lib/tournament-schedule.ts). Este
-// test cruzado es lo que garantiza que ambas copias sigan de acuerdo en
-// el instante exacto del cruce, no solo "parecido".
+// El Pick'em ya NO se bloquea en el mismo instante en que arranca el
+// torneo — tiene 3 días de gracia (PICKEM_LOCK_DATE = TOURNAMENT_START_DATE
+// + 3 días, ver src/lib/config.ts) porque es algo casual para la
+// comunidad, no parte de la competencia en sí. El chat, en cambio, sigue
+// abriendo exactamente en TOURNAMENT_START_DATE sin cambios. Este test
+// cruzado verifica que ambas fechas ahora se comportan de forma
+// INDEPENDIENTE: durante la ventana de gracia el chat ya está abierto pero
+// el Pick'em todavía no está bloqueado, y el bloqueo del Pick'em (en su
+// propio instante) no afecta para nada al chat.
+const PICKEM_LOCK = "2026-08-28T00:00:00Z"; // TOURNAMENT_START_DATE + 3 días
+const pickemLockMs = new Date(PICKEM_LOCK).getTime();
+
+assertEqual(
+  isPickemLockedAt(startMs, PICKEM_LOCK),
+  false,
+  "en el inicio del torneo -> Pick'em todavía NO bloqueado (ventana de gracia de 3 días)",
+);
+assertEqual(
+  isChatOpenAt(startMs, START, END),
+  true,
+  "en el inicio del torneo -> chat ya abierto (sin cambios)",
+);
+
 for (const offsetMs of [-2000, -1, 0, 1, 2000]) {
-  const now = startMs + offsetMs;
-  const chatConsidersStarted = isChatOpenAt(now, START, "2099-01-01T00:00:00Z");
-  const pickemConsidersStarted = isPickemLockedAt(now, START);
+  const now = pickemLockMs + offsetMs;
   assertEqual(
-    chatConsidersStarted,
-    pickemConsidersStarted,
-    `isChatOpenAt e isPickemLockedAt de acuerdo en el instante de inicio (offset ${offsetMs}ms)`,
+    isPickemLockedAt(now, PICKEM_LOCK),
+    offsetMs >= 0,
+    `isPickemLockedAt cambia exactamente en PICKEM_LOCK_DATE (offset ${offsetMs}ms)`,
+  );
+  assertEqual(
+    isChatOpenAt(now, START, END),
+    true,
+    `el chat sigue abierto en el instante de bloqueo del Pick'em (offset ${offsetMs}ms) — PICKEM_LOCK_DATE no lo afecta`,
   );
 }
 
