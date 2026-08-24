@@ -4,6 +4,7 @@ import { motion } from "motion/react";
 import type { LeaderboardEntry } from "@/lib/leaderboard";
 import { ROLE_TO_LANE_SLUG } from "@/lib/lane";
 import { AegisIndicator } from "./AegisIndicator";
+import { CopyRiotIdButton } from "./CopyRiotIdButton";
 import { DisqualifiedBadge } from "./DisqualifiedBadge";
 import { MangoCountBadge } from "./MangoCountBadge";
 import { OpggButton } from "./OpggButton";
@@ -108,9 +109,14 @@ export function PodiumCard({
                   />
                 )}
               </p>
-              <p className="truncate text-xs text-text-secondary">
-                {participant.riot_game_name}#{participant.riot_tag}
-              </p>
+              <div className="flex min-w-0 items-center gap-1">
+                <p className="truncate text-xs text-text-secondary">
+                  {participant.riot_game_name}#{participant.riot_tag}
+                </p>
+                <CopyRiotIdButton
+                  riotId={`${participant.riot_game_name}#${participant.riot_tag}`}
+                />
+              </div>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
