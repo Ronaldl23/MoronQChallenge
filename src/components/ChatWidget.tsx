@@ -4,7 +4,11 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { ProfileIcon } from "./ProfileIcon";
 import { isChatOpenAt } from "@/lib/chat-lock";
+import { hasTournamentStarted } from "@/lib/tournament-schedule";
 import { TOURNAMENT_START_DATE, TOURNAMENT_END_DATE } from "@/lib/config";
+
+/** setTimeout desborda y dispara de inmediato pasado esto (~24.8 días, límite de un entero de 32 bits) — si el instante todavía está más lejos, no se programa (un reload normal antes de esa fecha ya trae el estado correcto). */
+const MAX_TIMEOUT_MS = 2_147_483_000;
 import type { ChatMessage } from "@/types/database";
 
 const MAX_MESSAGE_LENGTH = 500;
@@ -91,9 +95,14 @@ export function ChatWidget({
   // en /api/chat/send; esto es solo la comodidad de la UI. null en el
   // primer render (server y cliente por igual, mismo criterio que
   // useCountdown) para evitar un mismatch de hidratación por reloj — se
-  // recalcula en un efecto, con un chequeo periódico para que el chat se
-  // habilite solo con que la persona lo deje abierto justo cuando arranca
-  // el torneo, sin necesitar un refresh.
+  // recalcula en un efecto.
+  //
+  // En vez de sondear cada tanto (lo que antes hacía esto con un
+  // setInterval de 60s, dejando el chat hasta 1 minuto "atrasado" respecto
+  // al instante real en que arranca/termina el torneo), se programa un
+  // setTimeout EXACTO para cada uno de esos dos instantes — chatOpen
+  // cambia en el mismo momento en que isChatOpenAt lo considera true/false,
+  // sin esperar al próximo tick de un poll ni necesitar un reload.
   const [now, setNow] = useState<number | null>(null);
   useEffect(() => {
     const tick = () => setNow(Date.now());
@@ -101,19 +110,19 @@ export function ChatWidget({
     // síncrono dentro del cuerpo del efecto dispara un re-render en
     // cascada (regla react-hooks/set-state-in-effect) — deferirlo evita
     // eso sin que la persona note ninguna demora real.
-    const timeoutId = setTimeout(tick, 0);
-    const intervalId = setInterval(tick, 60_000);
-    return () => {
-      clearTimeout(timeoutId);
-      clearInterval(intervalId);
-    };
+    const timers = [setTimeout(tick, 0)];
+    for (const iso of [TOURNAMENT_START_DATE, TOURNAMENT_END_DATE]) {
+      const msUntil = new Date(iso).getTime() - Date.now();
+      if (msUntil > 0 && msUntil <= MAX_TIMEOUT_MS) timers.push(setTimeout(tick, msUntil));
+    }
+    return () => timers.forEach(clearTimeout);
   }, []);
   const chatOpen =
     now !== null && isChatOpenAt(now, TOURNAMENT_START_DATE, TOURNAMENT_END_DATE);
   const closedReason =
     now === null || chatOpen
       ? null
-      : now < new Date(TOURNAMENT_START_DATE).getTime()
+      : !hasTournamentStarted(now)
         ? "El chat se abre el día del torneo."
         : "El chat cerró — el torneo ya terminó.";
 

@@ -10,12 +10,14 @@ import {
   isPickemLocked,
 } from "@/lib/pickem";
 import { getDataDragonVersion } from "@/lib/ddragon";
+import { TOURNAMENT_START_DATE } from "@/lib/config";
 import { Header } from "@/components/Header";
 import { FixedLogo } from "@/components/FixedLogo";
 import { PickemBoard } from "@/components/PickemBoard";
 import { PickemOrderedList } from "@/components/PickemOrderedList";
 import { PickemCommunitySection } from "@/components/PickemCommunitySection";
 import { PickemGuestLogoutButton } from "@/components/PickemGuestLogoutButton";
+import { TournamentBoundaryRefresh } from "@/components/TournamentBoundaryRefresh";
 
 export const dynamic = "force-dynamic";
 
@@ -38,6 +40,13 @@ export default async function PickemPage() {
 
   return (
     <div className="flex min-h-screen flex-col">
+      {/* Sin esto, alguien que deja /pickem abierto ANTES del inicio del
+          torneo ve el tablero editable indefinidamente hasta que recargue
+          a mano — el countdown del header sigue tickeando en tiempo real,
+          pero esta página (Server Component) solo recalcula
+          isPickemLocked() en cada request nuevo. Programa un refresh
+          exacto para el instante de inicio, sin sondear. */}
+      {!locked && <TournamentBoundaryRefresh atIso={TOURNAMENT_START_DATE} />}
       <FixedLogo />
       <Header />
       <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-8 px-6 pt-6 pb-10 sm:pt-44">
