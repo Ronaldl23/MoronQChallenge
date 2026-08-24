@@ -173,57 +173,72 @@ export function LeaderboardTable({
                     {entry.rank}
                   </td>
                   <td className="px-4 py-2">
-                    <div className="flex w-full items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setExpandedId(isExpanded ? null : entry.participant.id)
+                    {/*
+                      role="button" en un div, no un <button>: el ícono de
+                      copiar de acá abajo es un <button> real, y anidar
+                      <button> dentro de <button> es HTML inválido (el
+                      navegador cierra el de afuera antes de tiempo, rompe
+                      el click). Con un div alcanza para mantener el mismo
+                      comportamiento de expandir/colapsar la fila.
+                    */}
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() =>
+                        setExpandedId(isExpanded ? null : entry.participant.id)
+                      }
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          setExpandedId(isExpanded ? null : entry.participant.id);
                         }
-                        aria-expanded={isExpanded}
-                        className="flex min-w-0 flex-1 items-center gap-3 text-left"
-                      >
-                        <div className="relative shrink-0">
-                          <ProfileIcon
-                            name={entry.participant.nombre_display}
-                            avatarUrl={entry.participant.avatar_url}
-                            profileIconId={entry.participant.profile_icon_id}
-                            ddragonVersion={ddragonVersion}
-                            size={32}
-                          />
-                          {entry.isDisqualified && <DisqualifiedBadge />}
-                        </div>
-                        <div className="min-w-0">
-                          <p
-                            className={`flex items-center gap-1.5 truncate text-[15px] font-bold ${entry.isDisqualified ? "text-text-muted" : "text-text-primary"}`}
+                      }}
+                      aria-expanded={isExpanded}
+                      className="flex w-full cursor-pointer items-center gap-3 text-left"
+                    >
+                      <div className="relative shrink-0">
+                        <ProfileIcon
+                          name={entry.participant.nombre_display}
+                          avatarUrl={entry.participant.avatar_url}
+                          profileIconId={entry.participant.profile_icon_id}
+                          ddragonVersion={ddragonVersion}
+                          size={32}
+                        />
+                        {entry.isDisqualified && <DisqualifiedBadge />}
+                      </div>
+                      <div className="min-w-0">
+                        <p
+                          className={`flex items-center gap-1.5 truncate text-[15px] font-bold ${entry.isDisqualified ? "text-text-muted" : "text-text-primary"}`}
+                        >
+                          {entry.participant.nombre_display}
+                          {entry.participant.main_role && (
+                            <PositionIcon
+                              laneSlug={
+                                ROLE_TO_LANE_SLUG[entry.participant.main_role]
+                              }
+                              size={14}
+                            />
+                          )}
+                          <svg
+                            viewBox="0 0 20 20"
+                            className={`h-3.5 w-3.5 shrink-0 text-text-muted transition-transform duration-200 ${
+                              isExpanded ? "rotate-180" : ""
+                            }`}
+                            fill="currentColor"
                           >
-                            {entry.participant.nombre_display}
-                            {entry.participant.main_role && (
-                              <PositionIcon
-                                laneSlug={
-                                  ROLE_TO_LANE_SLUG[entry.participant.main_role]
-                                }
-                                size={14}
-                              />
-                            )}
-                            <svg
-                              viewBox="0 0 20 20"
-                              className={`h-3.5 w-3.5 shrink-0 text-text-muted transition-transform duration-200 ${
-                                isExpanded ? "rotate-180" : ""
-                              }`}
-                              fill="currentColor"
-                            >
-                              <path d="M5.25 7.5l4.75 5 4.75-5H5.25z" />
-                            </svg>
-                          </p>
-                          <p className="truncate text-xs text-text-secondary">
+                            <path d="M5.25 7.5l4.75 5 4.75-5H5.25z" />
+                          </svg>
+                        </p>
+                        <p className="flex min-w-0 items-center gap-1 text-xs text-text-secondary">
+                          <span className="truncate">
                             {entry.participant.riot_game_name}#
                             {entry.participant.riot_tag}
-                          </p>
-                        </div>
-                      </button>
-                      <CopyRiotIdButton
-                        riotId={`${entry.participant.riot_game_name}#${entry.participant.riot_tag}`}
-                      />
+                          </span>
+                          <CopyRiotIdButton
+                            riotId={`${entry.participant.riot_game_name}#${entry.participant.riot_tag}`}
+                          />
+                        </p>
+                      </div>
                     </div>
                   </td>
                   <td className="px-4 py-2">
@@ -338,39 +353,39 @@ export function LeaderboardTable({
                 —
               </td>
               <td className="px-4 py-2">
-                <div className="flex w-full items-center gap-1">
-                  <div className="flex min-w-0 flex-1 items-center gap-3">
-                    <div className="relative shrink-0">
-                      <ProfileIcon
-                        name={entry.participant.nombre_display}
-                        avatarUrl={entry.participant.avatar_url}
-                        profileIconId={entry.participant.profile_icon_id}
-                        ddragonVersion={ddragonVersion}
-                        size={32}
-                      />
-                      {entry.isDisqualified && <DisqualifiedBadge />}
-                    </div>
-                    <div className="min-w-0">
-                      <p
-                        className={`flex items-center gap-1.5 truncate text-[15px] font-bold ${entry.isDisqualified ? "text-text-muted" : "text-text-primary"}`}
-                      >
-                        {entry.participant.nombre_display}
-                        {entry.participant.main_role && (
-                          <PositionIcon
-                            laneSlug={ROLE_TO_LANE_SLUG[entry.participant.main_role]}
-                            size={14}
-                          />
-                        )}
-                      </p>
-                      <p className="truncate text-xs text-text-secondary">
+                <div className="flex w-full items-center gap-3">
+                  <div className="relative shrink-0">
+                    <ProfileIcon
+                      name={entry.participant.nombre_display}
+                      avatarUrl={entry.participant.avatar_url}
+                      profileIconId={entry.participant.profile_icon_id}
+                      ddragonVersion={ddragonVersion}
+                      size={32}
+                    />
+                    {entry.isDisqualified && <DisqualifiedBadge />}
+                  </div>
+                  <div className="min-w-0">
+                    <p
+                      className={`flex items-center gap-1.5 truncate text-[15px] font-bold ${entry.isDisqualified ? "text-text-muted" : "text-text-primary"}`}
+                    >
+                      {entry.participant.nombre_display}
+                      {entry.participant.main_role && (
+                        <PositionIcon
+                          laneSlug={ROLE_TO_LANE_SLUG[entry.participant.main_role]}
+                          size={14}
+                        />
+                      )}
+                    </p>
+                    <p className="flex min-w-0 items-center gap-1 text-xs text-text-secondary">
+                      <span className="truncate">
                         {entry.participant.riot_game_name}#
                         {entry.participant.riot_tag}
-                      </p>
-                    </div>
+                      </span>
+                      <CopyRiotIdButton
+                        riotId={`${entry.participant.riot_game_name}#${entry.participant.riot_tag}`}
+                      />
+                    </p>
                   </div>
-                  <CopyRiotIdButton
-                    riotId={`${entry.participant.riot_game_name}#${entry.participant.riot_tag}`}
-                  />
                 </div>
               </td>
               <td className="px-4 py-2">
