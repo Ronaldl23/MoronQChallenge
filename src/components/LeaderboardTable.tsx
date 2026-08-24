@@ -169,10 +169,10 @@ export function LeaderboardTable({
                   transition={{ layout: { duration: 0.4, ease: "easeInOut" } }}
                   className="border-b border-border-hairline transition-colors duration-150 last:border-0 hover:bg-surface-hover"
                 >
-                  <td className="px-4 py-2 font-display font-semibold text-text-secondary">
+                  <td className="align-top px-4 py-2 font-display font-semibold text-text-secondary">
                     {entry.rank}
                   </td>
-                  <td className="px-4 py-2">
+                  <td className="align-top px-4 py-2">
                     {/*
                       role="button" en un div, no un <button>: el ícono de
                       copiar de acá abajo es un <button> real, y anidar
@@ -241,7 +241,7 @@ export function LeaderboardTable({
                       </div>
                     </div>
                   </td>
-                  <td className="px-4 py-2">
+                  <td className="align-top px-4 py-2">
                     {/*
                   Mobile: badge y LP apilados, sin el emblema de 80px (demasiado
                   grande para 390px de ancho — es el que más empuja el overflow
@@ -265,7 +265,7 @@ export function LeaderboardTable({
                       </span>
                     </div>
                   </td>
-                  <td className="px-4 py-2">
+                  <td className="align-top px-4 py-2">
                     {vdMode === "detail" ? (
                       <div className="flex w-28 flex-col gap-1.5">
                         <div className="flex items-center justify-between text-xs whitespace-nowrap text-text-secondary">
@@ -286,19 +286,19 @@ export function LeaderboardTable({
                       />
                     )}
                   </td>
-                  <td className="hidden px-4 py-2 sm:table-cell">
+                  <td className="align-top hidden px-4 py-2 sm:table-cell">
                     <Sparkline points={entry.trend} id={entry.participant.id} />
                   </td>
-                  <td className="px-4 py-2 text-center">
+                  <td className="align-top px-4 py-2 text-center">
                     <MangoCountBadge count={entry.mangoCount} />
                   </td>
-                  <td className="px-4 py-2 text-center">
+                  <td className="align-top px-4 py-2 text-center">
                     <PenaltyIndicator penalties={entry.pendingPenalties} />
                   </td>
-                  <td className="px-4 py-2 text-center">
+                  <td className="align-top px-4 py-2 text-center">
                     <AegisIndicator count={entry.participant.aegis_count} />
                   </td>
-                  <td className="px-4 py-2 text-right">
+                  <td className="align-top px-4 py-2 text-right">
                     <div className="flex items-center justify-end gap-2">
                       {/* ▲▼LP se oculta en mobile: es un detalle secundario del V/D que ya se ve al lado; el botón de OP.GG (estado en vivo) se mantiene siempre visible. */}
                       <div
@@ -349,10 +349,10 @@ export function LeaderboardTable({
               key={entry.participant.id}
               className="border-b border-border-hairline last:border-0"
             >
-              <td className="px-4 py-2 font-display font-semibold text-text-muted">
+              <td className="align-top px-4 py-2 font-display font-semibold text-text-muted">
                 —
               </td>
-              <td className="px-4 py-2">
+              <td className="align-top px-4 py-2">
                 <div className="flex w-full items-center gap-3">
                   <div className="relative shrink-0">
                     <ProfileIcon
@@ -388,25 +388,25 @@ export function LeaderboardTable({
                   </div>
                 </div>
               </td>
-              <td className="px-4 py-2">
+              <td className="align-top px-4 py-2">
                 <span className="inline-flex items-center rounded-md border border-border-hairline px-2 py-0.5 font-display text-xs font-semibold tracking-wide whitespace-nowrap text-text-muted">
                   Sin rango
                 </span>
               </td>
-              <td className="px-4 py-2 text-text-muted">—</td>
-              <td className="hidden px-4 py-2 text-text-muted sm:table-cell">
+              <td className="align-top px-4 py-2 text-text-muted">—</td>
+              <td className="align-top hidden px-4 py-2 text-text-muted sm:table-cell">
                 —
               </td>
-              <td className="px-4 py-2 text-center">
+              <td className="align-top px-4 py-2 text-center">
                 <MangoCountBadge count={entry.mangoCount} />
               </td>
-              <td className="px-4 py-2 text-center">
+              <td className="align-top px-4 py-2 text-center">
                 <PenaltyIndicator penalties={entry.pendingPenalties} />
               </td>
-              <td className="px-4 py-2 text-center">
+              <td className="align-top px-4 py-2 text-center">
                 <AegisIndicator count={entry.participant.aegis_count} />
               </td>
-              <td className="py-2 pr-16 pl-4 text-right">
+              <td className="align-top py-2 pr-16 pl-4 text-right">
                 <div className="flex items-center justify-end gap-2">
                   <span className="hidden text-text-muted sm:inline">—</span>
                   <OpggButton
