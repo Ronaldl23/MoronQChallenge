@@ -51,6 +51,30 @@ async function insertParticipantWithLoginCode(
 
 export const dynamic = "force-dynamic";
 
+/**
+ * Listado para selects de /admin (ej. "reemplazar cuenta del jugador") —
+ * no es el leaderboard público, así que no reusa getLeaderboard() ni
+ * necesita nada de eso, solo lo mínimo para identificar a cada
+ * participante en un <select>. Protegido igual que el resto de /api/admin/*.
+ */
+export async function GET(request: Request) {
+  if (!(await isAdminAuthenticated(request))) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("participants")
+    .select("id, nombre_display, riot_game_name, riot_tag, region_platform")
+    .order("nombre_display", { ascending: true });
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ participants: data ?? [] });
+}
+
 export async function POST(request: Request) {
   if (!(await isAdminAuthenticated(request))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

@@ -2,6 +2,7 @@ import { isAdminAuthenticated } from "@/lib/admin-auth";
 import { AdminLoginForm } from "./AdminLoginForm";
 import { AddParticipantForm } from "./AddParticipantForm";
 import { AddShowcaseParticipantForm } from "./AddShowcaseParticipantForm";
+import { ReplaceParticipantAccountForm } from "./ReplaceParticipantAccountForm";
 import { PenaltyReviewPanel } from "./PenaltyReviewPanel";
 import { PickemAdminPanel } from "./PickemAdminPanel";
 
@@ -28,6 +29,7 @@ export default async function AdminPage() {
 
         {authenticated ? <AddParticipantForm /> : <AdminLoginForm />}
         {authenticated && <AddShowcaseParticipantForm />}
+        {authenticated && <ReplaceParticipantAccountForm />}
         {authenticated && <PenaltyReviewPanel />}
         {authenticated && <PickemAdminPanel />}
       </main>
