@@ -125,7 +125,15 @@ actual en la API de Riot (League-V4, por `puuid`) e inserta un nuevo
 
 Requiere `RIOT_API_KEY` y `CRON_SECRET` configuradas. Está protegido: sin el
 secreto correcto responde `401 Unauthorized`, porque cada llamada escribe en
-la base de datos y consume tu cuota de la API de Riot. Se invoca así:
+la base de datos y consume tu cuota de la API de Riot.
+
+**Responde de inmediato** (`{ "started": true, "participantCount": N }`) y el
+procesamiento real (Riot + Supabase, participante por participante) sigue
+corriendo en el servidor vía [`after()`](https://nextjs.org/docs/app/api-reference/functions/after)
+— así un cron externo con timeout corto (cron-job.org en su plan gratis corta
+a los 30s) no lo marca como "failed" solo porque tardó más en terminar. El
+resultado detallado de cada corrida queda en los logs de la función en
+Vercel, no en la respuesta HTTP. Se invoca así:
 
 ```bash
 curl "https://tu-sitio.vercel.app/api/update-rankings?secret=TU_CRON_SECRET"
@@ -133,15 +141,29 @@ curl "https://tu-sitio.vercel.app/api/update-rankings?secret=TU_CRON_SECRET"
 curl -H "Authorization: Bearer TU_CRON_SECRET" https://tu-sitio.vercel.app/api/update-rankings
 ```
 
-### Automatizarlo cada 15 minutos con GitHub Actions
+### Automatizarlo cada 15 minutos
 
-`.github/workflows/update-rankings.yml` llama a este endpoint cada 15
-minutos vía `cron`, y se puede disparar a mano desde la pestaña Actions
-(`workflow_dispatch`). Usa `curl --fail-with-body`, así que si el endpoint
-responde un error HTTP el step falla y el run queda en rojo en la pestaña
-Actions — con el cuerpo de la respuesta impreso en el log para que veas qué
-pasó. `concurrency` evita que dos corridas se pisen si una tarda más de 15
-minutos.
+**Recomendado: un cron externo dedicado** (ej. [cron-job.org](https://cron-job.org),
+gratis) apuntando directo a
+`https://tu-dominio/api/update-rankings?secret=TU_CRON_SECRET` cada 15
+minutos. El disparador `schedule` de GitHub Actions (ver más abajo) NO es
+confiable para intervalos cortos — GitHub mismo avisa que puede demorarse
+bajo carga, y en la práctica los huecos reales entre corridas terminan
+siendo de 20-100+ minutos en vez de 15. Si tu cron externo tiene un timeout
+de respuesta corto (cron-job.org gratis corta a los 30s), subilo a 60-90s
+en su configuración — el endpoint responde `started: true` casi al toque
+igual (ver arriba), pero el primer request a un route recién compilado
+puede tardar unos segundos de más.
+
+`.github/workflows/update-rankings.yml` (alternativa, con las limitaciones
+de arriba) llama a este endpoint cada 15 minutos vía `cron`, y se puede
+disparar a mano desde la pestaña Actions (`workflow_dispatch`) — sirve como
+respaldo manual aunque uses un cron externo como disparador principal. Usa
+`curl --fail-with-body`, así que si el endpoint responde un error HTTP el
+step falla y el run queda en rojo en la pestaña Actions — con el cuerpo de
+la respuesta impreso en el log para que veas qué pasó. `concurrency` evita
+que dos corridas de ESTE workflow se pisen entre sí (no protege contra un
+cron externo pegándole al mismo endpoint en simultáneo).
 
 Setup:
 

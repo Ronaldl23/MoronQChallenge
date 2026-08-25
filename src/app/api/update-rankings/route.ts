@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { calculateEloScore, rankOrdinal } from "@/lib/elo";
@@ -507,254 +507,272 @@ export async function GET(request: Request) {
   // vez acá afuera del loop en vez de una query aparte por participante.
   const trackedPuuids = new Set((participants ?? []).map((p) => p.puuid));
 
-  const results: Array<{
-    participant_id: string;
-    nombre_display: string;
-    status: string;
-  }> = [];
+  // El procesamiento real (Riot + Supabase, uno por participante con sleeps
+  // entre cada llamada) puede tardar bastante más de lo que un cron externo
+  // gratuito está dispuesto a esperar por una respuesta (cron-job.org, por
+  // ejemplo, corta a los 30s y lo marca "failed" aunque el servidor siga
+  // trabajando bien) — se responde de inmediato más abajo y el trabajo
+  // pesado sigue corriendo server-side vía after(), acotado por el mismo
+  // maxDuration=60 de siempre (no cambia cuánto tarda esto en terminar,
+  // solo evita que el cliente del cron tenga que quedarse esperando).
+  after(async () => {
+    const results: Array<{
+      participant_id: string;
+      nombre_display: string;
+      status: string;
+    }> = [];
 
-  for (const participant of participants ?? []) {
-    const platform = participant.region_platform.toLowerCase();
+    for (const participant of participants ?? []) {
+      const platform = participant.region_platform.toLowerCase();
 
-    // Ícono de invocador: best-effort, independiente del resultado de
-    // league-v4 — un jugador unranked igual tiene un ícono que mostrar.
-    try {
-      const summonerRes = await riotFetch(
-        `https://${platform}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/${participant.puuid}`,
-        riotApiKey,
-      );
-      if (summonerRes.ok) {
-        const summoner = (await summonerRes.json()) as RiotSummoner;
-        await supabase
-          .from("participants")
-          .update({ profile_icon_id: summoner.profileIconId })
-          .eq("id", participant.id);
-      }
-    } catch {
-      // Si falla, profile_icon_id se queda como estaba y la UI cae de
-      // vuelta a las iniciales — no bloquea la actualización de rango.
-    }
-
-    // Espaciar CADA llamada, no solo entre participantes: antes las 3
-    // llamadas de un mismo participante salían pegadas (sin delay entre
-    // ellas) y solo se esperaba una vez al final del loop — eso arma
-    // ráfagas de 3 requests simultáneas que pueden pisar el límite de
-    // Riot aunque el promedio general esté bien.
-    await sleep(RIOT_REQUEST_DELAY_MS);
-
-    // Estado en vivo: best-effort, igual que el ícono. 200 = está jugando,
-    // 404 = no está en partida (respuesta normal, no un error). Cualquier
-    // otro status (429, 5xx) no toca in_game: se resuelve en la próxima
-    // corrida en vez de asumir un estado incorrecto.
-    try {
-      const spectatorRes = await riotFetch(
-        `https://${platform}.api.riotgames.com/lol/spectator/v5/active-games/by-summoner/${participant.puuid}`,
-        riotApiKey,
-      );
-      if (spectatorRes.ok) {
-        await supabase
-          .from("participants")
-          .update({ in_game: true })
-          .eq("id", participant.id);
-      } else if (spectatorRes.status === 404) {
-        await supabase
-          .from("participants")
-          .update({ in_game: false })
-          .eq("id", participant.id);
-      }
-    } catch {
-      // Red caída, etc — no bloquea el resto del update.
-    }
-
-    await sleep(RIOT_REQUEST_DELAY_MS);
-
-    // Motor de misiones del sistema de Mangos — antes del bloque de
-    // league-v4 a propósito: ese bloque tiene `continue` para unranked/error
-    // que se saltearían esto si fuera después. Aislado en su propio
-    // try/catch: si falla acá, no debe afectar el snapshot de rango de este
-    // participante ni tocar a los demás. Sus propias llamadas a Riot ya
-    // espacian con sleep(RIOT_REQUEST_DELAY_MS) internamente.
-    let aegisSignal: AegisMatchSignal = UNKNOWN_AEGIS_SIGNAL;
-    try {
-      aegisSignal = await processParticipantQuests({
-        supabase,
-        participant,
-        riotApiKey,
-        trackedPuuids,
-      });
-    } catch (err) {
-      console.error(
-        `Motor de misiones falló para ${participant.nombre_display}:`,
-        err instanceof Error ? err.message : err,
-      );
-    }
-
-    try {
-      const res = await riotFetch(
-        `https://${platform}.api.riotgames.com/lol/league/v4/entries/by-puuid/${participant.puuid}`,
-        riotApiKey,
-      );
-
-      if (!res.ok) {
-        results.push({
-          participant_id: participant.id,
-          nombre_display: participant.nombre_display,
-          status: `riot_api_error_${res.status}`,
-        });
-        continue;
-      }
-
-      const entries = (await res.json()) as RiotLeagueEntry[];
-      const soloQueue = entries.find((e) => e.queueType === "RANKED_SOLO_5x5");
-
-      if (!soloQueue) {
-        results.push({
-          participant_id: participant.id,
-          nombre_display: participant.nombre_display,
-          status: "unranked",
-        });
-        continue;
-      }
-
-      const tier = soloQueue.tier as RankTier;
-      const division: RankDivision | null = APEX_TIERS.has(tier)
-        ? null
-        : (soloQueue.rank as RankDivision);
-
-      const elo_score = calculateEloScore({
-        tier,
-        division,
-        lp: soloQueue.leaguePoints,
-      });
-
-      // Se pide ANTES de insertar el snapshot nuevo — si se pidiera después,
-      // el snapshot recién insertado ya sería "el más reciente" y se estaría
-      // comparando contra sí mismo. Comparar siempre contra el
-      // inmediatamente anterior (no contra "el de ayer" ni nada por el
-      // estilo) es lo que evita notificar de nuevo si el jugador se queda
-      // quieto varias corridas en el mismo tier/división.
-      const { data: previousSnapshot } = await supabase
-        .from("snapshots")
-        .select("tier, division, lp")
-        .eq("participant_id", participant.id)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      // Sistema Aegis (ver src/lib/aegis.ts): promedio HISTÓRICO de LP
-      // ganado por victoria, calculado ANTES de la partida nueva de esta
-      // corrida (misma ventana y mismo cálculo que ±LP en el leaderboard,
-      // ver computeLpStats) — se pide acá, no después de insertar el
-      // snapshot nuevo, para que ese promedio nunca incluya la partida que
-      // se está evaluando.
-      const aegisWindowStart = new Date(
-        Date.now() - TREND_WINDOW_DAYS * 24 * 60 * 60 * 1000,
-      ).toISOString();
-      const { data: recentHistory } = await supabase
-        .from("snapshots")
-        .select("tier, division, lp")
-        .eq("participant_id", participant.id)
-        .gte("created_at", aegisWindowStart)
-        .order("created_at", { ascending: true });
-      const { avgLpGained: historicalAvgLpGained } = computeLpStats(
-        recentHistory ?? [],
-      );
-
-      const { error: insertError } = await supabase.from("snapshots").insert({
-        participant_id: participant.id,
-        tier,
-        division,
-        lp: soloQueue.leaguePoints,
-        wins: soloQueue.wins,
-        losses: soloQueue.losses,
-        elo_score,
-      });
-
-      // Sistema Aegis: LP ganado en la única partida nueva de esta corrida
-      // = delta entre el snapshot de ahora y el inmediatamente anterior,
-      // solo si son del mismo tier/división (si no, el LP se resetea y no
-      // es comparable) y existe un snapshot previo. Best-effort, igual que
-      // el anuncio de chat de abajo — un error acá no debe tumbar el resto
-      // de la corrida de este participante.
-      if (!insertError) {
-        try {
-          const lpGainedThisMatch =
-            previousSnapshot &&
-            previousSnapshot.tier === tier &&
-            previousSnapshot.division === division
-              ? soloQueue.leaguePoints - previousSnapshot.lp
-              : null;
-
-          if (
-            isProbableAegisProc({
-              newMatchCount: aegisSignal.newMatchCount,
-              singleNewMatchIsNonRemakeWin: aegisSignal.singleNewMatchIsNonRemakeWin,
-              lpGainedThisMatch,
-              historicalAvgLpGained,
-            })
-          ) {
-            const { error: aegisError } = await supabase
-              .from("participants")
-              .update({ aegis_count: participant.aegis_count + 1 })
-              .eq("id", participant.id);
-            if (aegisError) throw aegisError;
-          }
-        } catch (err) {
-          console.error(
-            `Aegis: fallo actualizando el contador de ${participant.nombre_display}:`,
-            err instanceof Error ? err.message : err,
-          );
+      // Ícono de invocador: best-effort, independiente del resultado de
+      // league-v4 — un jugador unranked igual tiene un ícono que mostrar.
+      try {
+        const summonerRes = await riotFetch(
+          `https://${platform}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/${participant.puuid}`,
+          riotApiKey,
+        );
+        if (summonerRes.ok) {
+          const summoner = (await summonerRes.json()) as RiotSummoner;
+          await supabase
+            .from("participants")
+            .update({ profile_icon_id: summoner.profileIconId })
+            .eq("id", participant.id);
         }
+      } catch {
+        // Si falla, profile_icon_id se queda como estaba y la UI cae de
+        // vuelta a las iniciales — no bloquea la actualización de rango.
       }
 
-      // Anuncio público en el chat — best-effort, no debe tirar abajo el
-      // resto de la corrida. Sin snapshot previo (primera corrida para este
-      // participante) no hay nada que comparar, así que no cuenta como
-      // "cambio". rankOrdinal (no elo_score) decide la dirección: elo_score
-      // mezcla LP, que se resetea al cruzar de tier — comparar elo_score
-      // directamente podría marcar como "descenso" un ascenso real de
-      // Master a Grandmaster si el LP arranca más bajo del otro lado.
-      if (
-        !insertError &&
-        previousSnapshot &&
-        (previousSnapshot.tier !== tier || previousSnapshot.division !== division)
-      ) {
-        try {
-          const direction =
-            rankOrdinal(tier, division) >
-            rankOrdinal(previousSnapshot.tier, previousSnapshot.division)
-              ? "up"
-              : "down";
-          await postRankEventChatMessage(supabase, {
-            participantId: participant.id,
-            participantName: participant.nombre_display,
-            tier,
-            division,
-            direction,
+      // Espaciar CADA llamada, no solo entre participantes: antes las 3
+      // llamadas de un mismo participante salían pegadas (sin delay entre
+      // ellas) y solo se esperaba una vez al final del loop — eso arma
+      // ráfagas de 3 requests simultáneas que pueden pisar el límite de
+      // Riot aunque el promedio general esté bien.
+      await sleep(RIOT_REQUEST_DELAY_MS);
+
+      // Estado en vivo: best-effort, igual que el ícono. 200 = está jugando,
+      // 404 = no está en partida (respuesta normal, no un error). Cualquier
+      // otro status (429, 5xx) no toca in_game: se resuelve en la próxima
+      // corrida en vez de asumir un estado incorrecto.
+      try {
+        const spectatorRes = await riotFetch(
+          `https://${platform}.api.riotgames.com/lol/spectator/v5/active-games/by-summoner/${participant.puuid}`,
+          riotApiKey,
+        );
+        if (spectatorRes.ok) {
+          await supabase
+            .from("participants")
+            .update({ in_game: true })
+            .eq("id", participant.id);
+        } else if (spectatorRes.status === 404) {
+          await supabase
+            .from("participants")
+            .update({ in_game: false })
+            .eq("id", participant.id);
+        }
+      } catch {
+        // Red caída, etc — no bloquea el resto del update.
+      }
+
+      await sleep(RIOT_REQUEST_DELAY_MS);
+
+      // Motor de misiones del sistema de Mangos — antes del bloque de
+      // league-v4 a propósito: ese bloque tiene `continue` para unranked/error
+      // que se saltearían esto si fuera después. Aislado en su propio
+      // try/catch: si falla acá, no debe afectar el snapshot de rango de este
+      // participante ni tocar a los demás. Sus propias llamadas a Riot ya
+      // espacian con sleep(RIOT_REQUEST_DELAY_MS) internamente.
+      let aegisSignal: AegisMatchSignal = UNKNOWN_AEGIS_SIGNAL;
+      try {
+        aegisSignal = await processParticipantQuests({
+          supabase,
+          participant,
+          riotApiKey,
+          trackedPuuids,
+        });
+      } catch (err) {
+        console.error(
+          `Motor de misiones falló para ${participant.nombre_display}:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+
+      try {
+        const res = await riotFetch(
+          `https://${platform}.api.riotgames.com/lol/league/v4/entries/by-puuid/${participant.puuid}`,
+          riotApiKey,
+        );
+
+        if (!res.ok) {
+          results.push({
+            participant_id: participant.id,
+            nombre_display: participant.nombre_display,
+            status: `riot_api_error_${res.status}`,
           });
-        } catch (err) {
-          console.error(
-            `update-rankings: fallo publicando el evento de rango de ${participant.nombre_display} en el chat:`,
-            err,
-          );
+          continue;
         }
+
+        const entries = (await res.json()) as RiotLeagueEntry[];
+        const soloQueue = entries.find((e) => e.queueType === "RANKED_SOLO_5x5");
+
+        if (!soloQueue) {
+          results.push({
+            participant_id: participant.id,
+            nombre_display: participant.nombre_display,
+            status: "unranked",
+          });
+          continue;
+        }
+
+        const tier = soloQueue.tier as RankTier;
+        const division: RankDivision | null = APEX_TIERS.has(tier)
+          ? null
+          : (soloQueue.rank as RankDivision);
+
+        const elo_score = calculateEloScore({
+          tier,
+          division,
+          lp: soloQueue.leaguePoints,
+        });
+
+        // Se pide ANTES de insertar el snapshot nuevo — si se pidiera después,
+        // el snapshot recién insertado ya sería "el más reciente" y se estaría
+        // comparando contra sí mismo. Comparar siempre contra el
+        // inmediatamente anterior (no contra "el de ayer" ni nada por el
+        // estilo) es lo que evita notificar de nuevo si el jugador se queda
+        // quieto varias corridas en el mismo tier/división.
+        const { data: previousSnapshot } = await supabase
+          .from("snapshots")
+          .select("tier, division, lp")
+          .eq("participant_id", participant.id)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        // Sistema Aegis (ver src/lib/aegis.ts): promedio HISTÓRICO de LP
+        // ganado por victoria, calculado ANTES de la partida nueva de esta
+        // corrida (misma ventana y mismo cálculo que ±LP en el leaderboard,
+        // ver computeLpStats) — se pide acá, no después de insertar el
+        // snapshot nuevo, para que ese promedio nunca incluya la partida que
+        // se está evaluando.
+        const aegisWindowStart = new Date(
+          Date.now() - TREND_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+        ).toISOString();
+        const { data: recentHistory } = await supabase
+          .from("snapshots")
+          .select("tier, division, lp")
+          .eq("participant_id", participant.id)
+          .gte("created_at", aegisWindowStart)
+          .order("created_at", { ascending: true });
+        const { avgLpGained: historicalAvgLpGained } = computeLpStats(
+          recentHistory ?? [],
+        );
+
+        const { error: insertError } = await supabase.from("snapshots").insert({
+          participant_id: participant.id,
+          tier,
+          division,
+          lp: soloQueue.leaguePoints,
+          wins: soloQueue.wins,
+          losses: soloQueue.losses,
+          elo_score,
+        });
+
+        // Sistema Aegis: LP ganado en la única partida nueva de esta corrida
+        // = delta entre el snapshot de ahora y el inmediatamente anterior,
+        // solo si son del mismo tier/división (si no, el LP se resetea y no
+        // es comparable) y existe un snapshot previo. Best-effort, igual que
+        // el anuncio de chat de abajo — un error acá no debe tumbar el resto
+        // de la corrida de este participante.
+        if (!insertError) {
+          try {
+            const lpGainedThisMatch =
+              previousSnapshot &&
+              previousSnapshot.tier === tier &&
+              previousSnapshot.division === division
+                ? soloQueue.leaguePoints - previousSnapshot.lp
+                : null;
+
+            if (
+              isProbableAegisProc({
+                newMatchCount: aegisSignal.newMatchCount,
+                singleNewMatchIsNonRemakeWin: aegisSignal.singleNewMatchIsNonRemakeWin,
+                lpGainedThisMatch,
+                historicalAvgLpGained,
+              })
+            ) {
+              const { error: aegisError } = await supabase
+                .from("participants")
+                .update({ aegis_count: participant.aegis_count + 1 })
+                .eq("id", participant.id);
+              if (aegisError) throw aegisError;
+            }
+          } catch (err) {
+            console.error(
+              `Aegis: fallo actualizando el contador de ${participant.nombre_display}:`,
+              err instanceof Error ? err.message : err,
+            );
+          }
+        }
+
+        // Anuncio público en el chat — best-effort, no debe tirar abajo el
+        // resto de la corrida. Sin snapshot previo (primera corrida para este
+        // participante) no hay nada que comparar, así que no cuenta como
+        // "cambio". rankOrdinal (no elo_score) decide la dirección: elo_score
+        // mezcla LP, que se resetea al cruzar de tier — comparar elo_score
+        // directamente podría marcar como "descenso" un ascenso real de
+        // Master a Grandmaster si el LP arranca más bajo del otro lado.
+        if (
+          !insertError &&
+          previousSnapshot &&
+          (previousSnapshot.tier !== tier || previousSnapshot.division !== division)
+        ) {
+          try {
+            const direction =
+              rankOrdinal(tier, division) >
+              rankOrdinal(previousSnapshot.tier, previousSnapshot.division)
+                ? "up"
+                : "down";
+            await postRankEventChatMessage(supabase, {
+              participantId: participant.id,
+              participantName: participant.nombre_display,
+              tier,
+              division,
+              direction,
+            });
+          } catch (err) {
+            console.error(
+              `update-rankings: fallo publicando el evento de rango de ${participant.nombre_display} en el chat:`,
+              err,
+            );
+          }
+        }
+
+        results.push({
+          participant_id: participant.id,
+          nombre_display: participant.nombre_display,
+          status: insertError ? `db_error: ${insertError.message}` : "ok",
+        });
+      } catch (err) {
+        results.push({
+          participant_id: participant.id,
+          nombre_display: participant.nombre_display,
+          status: `fetch_error: ${err instanceof Error ? err.message : "unknown"}`,
+        });
       }
 
-      results.push({
-        participant_id: participant.id,
-        nombre_display: participant.nombre_display,
-        status: insertError ? `db_error: ${insertError.message}` : "ok",
-      });
-    } catch (err) {
-      results.push({
-        participant_id: participant.id,
-        nombre_display: participant.nombre_display,
-        status: `fetch_error: ${err instanceof Error ? err.message : "unknown"}`,
-      });
+      await sleep(RIOT_REQUEST_DELAY_MS);
     }
 
-    await sleep(RIOT_REQUEST_DELAY_MS);
-  }
+    // Nadie lee esta respuesta (ver el comentario de arriba) — el resumen
+    // de la corrida queda en los logs de la función en Vercel, mismo lugar
+    // donde ya caían los console.error de los pasos best-effort de arriba.
+    console.log(`update-rankings: ${results.length} participantes procesados`, results);
+  });
 
-  return NextResponse.json({ updated: results.length, results });
+  return NextResponse.json({
+    started: true,
+    participantCount: (participants ?? []).length,
+  });
 }
