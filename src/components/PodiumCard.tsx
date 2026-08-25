@@ -11,6 +11,7 @@ import { OpggButton } from "./OpggButton";
 import { PenaltyIndicator } from "./PenaltyIndicator";
 import { PositionIcon } from "./PositionIcon";
 import { ProfileIcon } from "./ProfileIcon";
+import { RankChangeIndicator } from "./RankChangeIndicator";
 import { TierBadge } from "./TierBadge";
 import { TierEmblem } from "./TierEmblem";
 import { WinrateBar } from "./WinrateBar";
@@ -87,6 +88,7 @@ export function PodiumCard({
             <span className="font-display text-2xl font-bold text-text-muted">
               #{rank}
             </span>
+            <RankChangeIndicator change={entry.rankChange} />
             <div className="relative shrink-0">
               <ProfileIcon
                 name={participant.nombre_display}

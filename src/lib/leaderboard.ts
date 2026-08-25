@@ -3,6 +3,7 @@ import { getChampionList, type Champion } from "@/lib/champions";
 import { getSummonerSpellList, type SummonerSpell } from "@/lib/summoner-spells";
 import { resolveAssignedPunishment } from "@/lib/mango-launch";
 import { computeLpStats, TREND_WINDOW_DAYS } from "@/lib/lp-stats";
+import { computeRankChanges } from "@/lib/rank-change";
 import type { Participant, Snapshot } from "@/types/database";
 
 /**
@@ -71,6 +72,18 @@ export interface LeaderboardEntry {
    * ahora mismo" real, no solo la forma del elo_score.
    */
   trend: number[];
+  /**
+   * Cuántas posiciones subió (positivo) o bajó (negativo) en el ranking
+   * desde la corrida anterior de /api/update-rankings — 0 si se mantuvo
+   * igual, null si no había un snapshot previo con el que comparar (recién
+   * apareció en el ranking). Se calcula comparando el rank actual (por
+   * elo_score del snapshot más reciente de cada participante) contra el
+   * rank que hubiera tenido ese mismo grupo de participantes usando el
+   * snapshot ANTERIOR de cada uno — no es "la posición hace exactamente 15
+   * minutos", es "la posición antes de la última actualización de cada
+   * quien conforma el ranking actual".
+   */
+  rankChange: number | null;
 }
 
 const MAX_TREND_GAMES = 10;
@@ -270,8 +283,12 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
     }
   }
 
-  const entries: Omit<LeaderboardEntry, "rank">[] = [];
+  const entries: Omit<LeaderboardEntry, "rank" | "rankChange">[] = [];
   const unrankedEntries: UnrankedLeaderboardEntry[] = [];
+  // elo_score del snapshot ANTERIOR al más reciente de cada participante,
+  // para rankChange más abajo — aparte de `entries` (que no lo necesita en
+  // su forma pública) en vez de embebido y después descartado.
+  const previousEloScoreByParticipantId = new Map<string, number>();
 
   for (const participant of participants) {
     const history = historyByParticipant.get(participant.id);
@@ -299,6 +316,13 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
         number[]
       >((acc, delta) => [...acc, acc[acc.length - 1] + delta], [0]);
 
+    if (history.length >= 2) {
+      previousEloScoreByParticipantId.set(
+        participant.id,
+        history[history.length - 2].elo_score,
+      );
+    }
+
     entries.push({
       participant,
       latest,
@@ -313,6 +337,15 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
   }
 
   entries.sort((a, b) => b.latest.elo_score - a.latest.elo_score);
+
+  const rankChangeByParticipantId = computeRankChanges(
+    entries.map((e) => ({
+      id: e.participant.id,
+      currentEloScore: e.latest.elo_score,
+      previousEloScore: previousEloScoreByParticipantId.get(e.participant.id) ?? null,
+    })),
+  );
+
   // Sin LP con qué ordenarlos entre sí — alfabético, mismo criterio que
   // /participantes, para un orden estable y predecible en vez de lo que sea
   // que devuelva la query.
@@ -321,9 +354,11 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
   );
 
   return {
-    entries: entries
-      .slice(0, limit)
-      .map((entry, i) => ({ ...entry, rank: i + 1 })),
+    entries: entries.slice(0, limit).map((entry, i) => ({
+      ...entry,
+      rank: i + 1,
+      rankChange: rankChangeByParticipantId.get(entry.participant.id) ?? null,
+    })),
     unrankedEntries,
     lastUpdated,
   };

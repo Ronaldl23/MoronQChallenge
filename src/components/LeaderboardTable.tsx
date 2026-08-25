@@ -13,6 +13,7 @@ import { OpggButton } from "./OpggButton";
 import { PenaltyIndicator } from "./PenaltyIndicator";
 import { PositionIcon } from "./PositionIcon";
 import { ProfileIcon } from "./ProfileIcon";
+import { RankChangeIndicator } from "./RankChangeIndicator";
 import { TierBadge } from "./TierBadge";
 import { TierEmblem } from "./TierEmblem";
 import { Sparkline } from "./Sparkline";
@@ -196,6 +197,7 @@ export function LeaderboardTable({
                       aria-expanded={isExpanded}
                       className="flex w-full cursor-pointer items-center gap-3 text-left"
                     >
+                      <RankChangeIndicator change={entry.rankChange} />
                       <div className="relative shrink-0">
                         <ProfileIcon
                           name={entry.participant.nombre_display}
@@ -354,6 +356,10 @@ export function LeaderboardTable({
               </td>
               <td className="align-top px-4 py-2">
                 <div className="flex w-full items-center gap-3">
+                  {/* Sin rango = sin rankChange que mostrar, pero el
+                      espaciador vacío mantiene el avatar alineado con las
+                      filas rankeadas de arriba. */}
+                  <div className="w-4 shrink-0" aria-hidden />
                   <div className="relative shrink-0">
                     <ProfileIcon
                       name={entry.participant.nombre_display}
