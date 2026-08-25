@@ -14,6 +14,7 @@ import {
 import { processPenaltyMatches, type PenaltyMatchOutcome, type PendingPenalty } from "@/lib/penalty";
 import { isProbableAegisProc } from "@/lib/aegis";
 import { computeLpStats, TREND_WINDOW_DAYS } from "@/lib/lp-stats";
+import { correlateSingleMatchLp } from "@/lib/lp-correlation";
 import { platformToContinent } from "@/lib/riot";
 import type { Database, QuestProgress, QuestType, RankDivision, RankTier } from "@/types/database";
 
@@ -198,11 +199,25 @@ function findNewMatchIds(
 interface AegisMatchSignal {
   newMatchCount: number | null;
   singleNewMatchIsNonRemakeWin: boolean | null;
+  /**
+   * gameEndTimestamp (epoch ms) de esa única partida nueva — el caller lo
+   * usa para anclar la correlación de LP a la hora REAL de la partida
+   * (ver src/lib/lp-correlation.ts) en vez de a qué corrida del cron la
+   * detectó primero. match-v5 (esto) y league-v4 (el LP) no siempre
+   * propagan al mismo ritmo — sin esto, cuando match-v5 se atrasa
+   * respecto a league-v4, el LP de la partida ya había quedado guardado
+   * en un snapshot de una corrida anterior, y comparar contra "el
+   * snapshot de la corrida anterior" (nomás) daba 0 de diferencia pese a
+   * ser una partida real. null en los mismos casos que
+   * singleNewMatchIsNonRemakeWin.
+   */
+  singleNewMatchGameEndTimestamp: number | null;
 }
 
 const UNKNOWN_AEGIS_SIGNAL: AegisMatchSignal = {
   newMatchCount: null,
   singleNewMatchIsNonRemakeWin: null,
+  singleNewMatchGameEndTimestamp: null,
 };
 
 /**
@@ -255,12 +270,16 @@ async function processParticipantQuests({
     0,
     MAX_NEW_MATCHES_PER_RUN,
   );
-  if (newMatchIds.length === 0) return { newMatchCount: 0, singleNewMatchIsNonRemakeWin: null };
+  if (newMatchIds.length === 0) {
+    return { newMatchCount: 0, singleNewMatchIsNonRemakeWin: null, singleNewMatchGameEndTimestamp: null };
+  }
 
   const outcomes: MatchOutcome[] = [];
   // Misma partida, mismo fetch — Fase 4 (cumplimiento de castigos) reusa
   // esto en vez de pedirle a Riot el detalle de las mismas partidas de nuevo.
   const penaltyMatches: PenaltyMatchOutcome[] = [];
+  // Paralelo a `outcomes` (mismo índice) — para la señal de Aegis más abajo.
+  const gameEndTimestamps: number[] = [];
   for (const matchId of newMatchIds) {
     const matchRes = await riotFetch(
       `https://${continent}.api.riotgames.com/lol/match/v5/matches/${matchId}`,
@@ -295,6 +314,7 @@ async function processParticipantQuests({
       gameDurationSeconds: match.info.gameDuration,
       beatTrackedParticipant,
     });
+    gameEndTimestamps.push(match.info.gameEndTimestamp);
     penaltyMatches.push({
       matchId,
       playedAt: new Date(match.info.gameEndTimestamp).toISOString(),
@@ -316,6 +336,10 @@ async function processParticipantQuests({
       newMatchIds.length === 1 && outcomes.length === 1
         ? outcomes[0].win &&
           outcomes[0].gameDurationSeconds >= MIN_MATCH_DURATION_SECONDS
+        : null,
+    singleNewMatchGameEndTimestamp:
+      newMatchIds.length === 1 && gameEndTimestamps.length === 1
+        ? gameEndTimestamps[0]
         : null,
   };
 
@@ -638,36 +662,19 @@ export async function GET(request: Request) {
 
         // Se pide ANTES de insertar el snapshot nuevo — si se pidiera después,
         // el snapshot recién insertado ya sería "el más reciente" y se estaría
-        // comparando contra sí mismo. Comparar siempre contra el
-        // inmediatamente anterior (no contra "el de ayer" ni nada por el
-        // estilo) es lo que evita notificar de nuevo si el jugador se queda
-        // quieto varias corridas en el mismo tier/división.
-        const { data: previousSnapshot } = await supabase
-          .from("snapshots")
-          .select("tier, division, lp")
-          .eq("participant_id", participant.id)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        // Sistema Aegis (ver src/lib/aegis.ts): promedio HISTÓRICO de LP
-        // ganado por victoria, calculado ANTES de la partida nueva de esta
-        // corrida (misma ventana y mismo cálculo que ±LP en el leaderboard,
-        // ver computeLpStats) — se pide acá, no después de insertar el
-        // snapshot nuevo, para que ese promedio nunca incluya la partida que
-        // se está evaluando.
+        // comparando contra sí mismo. `recentHistory` (ascendente) ya trae
+        // esta misma fila como su último elemento, así que no hace falta una
+        // query aparte solo para esto.
         const aegisWindowStart = new Date(
           Date.now() - TREND_WINDOW_DAYS * 24 * 60 * 60 * 1000,
         ).toISOString();
         const { data: recentHistory } = await supabase
           .from("snapshots")
-          .select("tier, division, lp")
+          .select("tier, division, lp, created_at")
           .eq("participant_id", participant.id)
           .gte("created_at", aegisWindowStart)
           .order("created_at", { ascending: true });
-        const { avgLpGained: historicalAvgLpGained } = computeLpStats(
-          recentHistory ?? [],
-        );
+        const previousSnapshot = recentHistory?.at(-1) ?? null;
 
         const { error: insertError } = await supabase.from("snapshots").insert({
           participant_id: participant.id,
@@ -680,19 +687,40 @@ export async function GET(request: Request) {
         });
 
         // Sistema Aegis: LP ganado en la única partida nueva de esta corrida
-        // = delta entre el snapshot de ahora y el inmediatamente anterior,
-        // solo si son del mismo tier/división (si no, el LP se resetea y no
-        // es comparable) y existe un snapshot previo. Best-effort, igual que
-        // el anuncio de chat de abajo — un error acá no debe tumbar el resto
-        // de la corrida de este participante.
+        // — anclado a la hora REAL de esa partida (correlateSingleMatchLp,
+        // ver src/lib/lp-correlation.ts), no al snapshot "de la corrida
+        // anterior". match-v5 (de dónde sale newMatchCount) y league-v4 (de
+        // dónde sale el LP) no siempre propagan al mismo ritmo: cuando
+        // match-v5 se atrasa un par de corridas respecto al LP nuevo en
+        // league-v4, comparar contra "la corrida anterior nomás" daba 0 de
+        // diferencia pese a ser una partida real (el bug reportado — un
+        // Aegis real que no se detectaba). Anclar a gameEndTimestamp
+        // encuentra el snapshot de ANTES de la partida sin importar cuántas
+        // corridas pasaron hasta poder aislarla. Best-effort, igual que el
+        // anuncio de chat de abajo — un error acá no debe tumbar el resto de
+        // la corrida de este participante.
         if (!insertError) {
           try {
-            const lpGainedThisMatch =
-              previousSnapshot &&
-              previousSnapshot.tier === tier &&
-              previousSnapshot.division === division
-                ? soloQueue.leaguePoints - previousSnapshot.lp
-                : null;
+            let lpGainedThisMatch: number | null = null;
+            let historicalAvgLpGained = 0;
+
+            if (aegisSignal.newMatchCount === 1 && aegisSignal.singleNewMatchGameEndTimestamp !== null) {
+              const snapshotsForCorrelation = [
+                ...(recentHistory ?? []),
+                {
+                  tier,
+                  division,
+                  lp: soloQueue.leaguePoints,
+                  created_at: new Date().toISOString(),
+                },
+              ];
+              const correlation = correlateSingleMatchLp({
+                gameEndTimestamp: aegisSignal.singleNewMatchGameEndTimestamp,
+                snapshots: snapshotsForCorrelation,
+              });
+              lpGainedThisMatch = correlation.lpGained;
+              historicalAvgLpGained = computeLpStats(correlation.priorSnapshots).avgLpGained;
+            }
 
             if (
               isProbableAegisProc({

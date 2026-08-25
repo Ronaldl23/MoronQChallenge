@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { platformToContinent } from "@/lib/riot";
 import { ROLE_TO_LANE_SLUG, type MainRole } from "@/lib/lane";
 import { getChampionList } from "@/lib/champions";
+import { correlateLpChanges } from "@/lib/lp-correlation";
 
 export const dynamic = "force-dynamic";
 
@@ -100,53 +101,6 @@ export interface MatchSummary {
    * 15 min.
    */
   lpChange: number | null;
-}
-
-interface SnapshotRow {
-  tier: string;
-  division: string | null;
-  lp: number;
-  created_at: string;
-}
-
-function correlateLpChanges(
-  matches: { matchId: string; gameEndTimestamp: number }[],
-  snapshots: SnapshotRow[],
-): Map<string, number> {
-  const result = new Map<string, number>();
-  if (snapshots.length < 2) return result;
-
-  // Comparar como epoch numérico, no como string: Postgres puede devolver
-  // created_at con offset "+00:00" en vez del "Z" que arma toISOString(),
-  // y una comparación de strings entre esos dos formatos no es confiable.
-  const snapshotTimes = snapshots.map((s) => new Date(s.created_at).getTime());
-
-  // matchId -> índice del primer snapshot tomado en o después de que terminó esa partida.
-  const bracketOf = new Map<string, number>();
-  for (const { matchId, gameEndTimestamp } of matches) {
-    const nextIdx = snapshotTimes.findIndex((t) => t >= gameEndTimestamp);
-    if (nextIdx <= 0) continue; // sin snapshot "antes" o "después" disponible todavía
-    bracketOf.set(matchId, nextIdx);
-  }
-
-  // Si dos o más partidas caen en el mismo hueco entre snapshots, no hay
-  // forma de repartir el delta entre ellas — se descartan todas del grupo.
-  const countByBracket = new Map<number, number>();
-  for (const idx of bracketOf.values()) {
-    countByBracket.set(idx, (countByBracket.get(idx) ?? 0) + 1);
-  }
-
-  for (const [matchId, idx] of bracketOf) {
-    if (countByBracket.get(idx) !== 1) continue;
-
-    const next = snapshots[idx];
-    const prev = snapshots[idx - 1];
-    if (prev.tier !== next.tier || prev.division !== next.division) continue;
-
-    result.set(matchId, next.lp - prev.lp);
-  }
-
-  return result;
 }
 
 /**
