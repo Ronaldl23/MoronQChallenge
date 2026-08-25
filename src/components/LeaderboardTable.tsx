@@ -98,6 +98,17 @@ export function LeaderboardTable({
       <table className="w-full sm:min-w-[720px] border-collapse text-sm">
         <thead>
           <tr className="border-b border-border-hairline text-left text-xs tracking-wider text-text-secondary uppercase">
+            {/*
+              Mangos/Castigos/Aegis con ancho fijo (sm:w-16, sin tocar
+              mobile): son las columnas más angostas en contenido real (casi
+              siempre vacías o con un solo ícono chico), pero sin esto el
+              navegador les repartía tanto ancho como a Rango/V-D — mucho
+              más densas — dejando un hueco disparejo en el medio de la
+              tabla. El resto de las columnas sigue sin ancho fijo (auto,
+              como siempre), así no se repite el problema de antes donde un
+              ancho fijo mal calculado le achicaba el lugar al emblema de
+              rango.
+            */}
             <th className="px-4 py-2 font-medium">#</th>
             <th className="px-4 py-2 font-medium">
               <button
@@ -135,9 +146,9 @@ export function LeaderboardTable({
             <th className="hidden px-4 py-2 font-medium sm:table-cell">
               Racha
             </th>
-            <th className="px-4 py-2 text-center font-medium">Mangos</th>
-            <th className="px-4 py-2 text-center font-medium">Castigos</th>
-            <th className="px-4 py-2 text-center font-medium">Aegis</th>
+            <th className="px-4 py-2 text-center font-medium sm:w-16">Mangos</th>
+            <th className="px-4 py-2 text-center font-medium sm:w-16">Castigos</th>
+            <th className="px-4 py-2 text-center font-medium sm:w-16">Aegis</th>
             {/* pr-16 en vez de px-4: nudge a la izquierda respecto al contenido de abajo (▲/▼ + botón OP.GG), que visualmente "pesa" más hacia la derecha que el label solo. */}
             <th className="py-2 pr-16 pl-4 text-right font-medium">
               <button
