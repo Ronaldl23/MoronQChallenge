@@ -88,13 +88,16 @@ export interface MatchSummary {
   /**
    * El LP ganado/perdido no viene en match-v5 — Riot no lo expone por
    * partida en ningún campo. Se estima cruzando la hora de fin de la
-   * partida contra nuestro propio historial de snapshots (el cron corre
-   * cada 15 min): si hay un snapshot justo antes y otro justo después,
-   * ambos del mismo tier/división, y esta es la ÚNICA partida que cae en
-   * ese hueco, la diferencia de LP entre esos dos snapshots es ese
-   * partido. Si hubo más de una partida en el mismo hueco de 15 min, o
-   * cambió de tier/división en el medio, no se puede saber cuál se llevó
-   * qué — se deja null en vez de adivinar.
+   * partida contra nuestro propio historial de snapshots (el cron de
+   * /api/update-rankings inserta uno en cada corrida): si hay un snapshot
+   * justo antes y otro justo después, ambos del mismo tier/división, y esta
+   * es la ÚNICA partida que cae en ese hueco, la diferencia de LP entre esos
+   * dos snapshots es ese partido. Si hubo más de una partida en el mismo
+   * hueco entre corridas, o cambió de tier/división en el medio, no se puede
+   * saber cuál se llevó qué — se deja null en vez de adivinar. Esto último
+   * (huecos con varias partidas sin poder separar) se vuelve más común
+   * cuanto más espaciado corre el cron — ver el trigger que lo dispara cada
+   * 15 min.
    */
   lpChange: number | null;
 }
@@ -336,19 +339,44 @@ export async function GET(request: Request) {
 
   let lpChanges = new Map<string, number>();
   if (matches.length > 0) {
-    const oldestGameEnd = Math.min(...matches.map((m) => m.gameEndTimestamp));
-    const snapshotsSince = new Date(
-      oldestGameEnd - 30 * 60 * 1000,
+    const oldestGameEnd = new Date(
+      Math.min(...matches.map((m) => m.gameEndTimestamp)),
     ).toISOString();
 
-    const { data: snapshots } = await supabase
-      .from("snapshots")
-      .select("tier, division, lp, created_at")
-      .eq("participant_id", participantId)
-      .gte("created_at", snapshotsSince)
-      .order("created_at", { ascending: true });
+    // Antes se pedían solo los snapshots de los últimos 30 minutos previos a
+    // la partida más vieja — un buffer fijo que asumía que el cron de
+    // /api/update-rankings corre cada ~15 min sin fallar nunca. Cuando el
+    // cron se atrasa (deploys, cold starts, el trigger que no disparó) ese
+    // buffer queda corto: el snapshot "anterior" real existe en la base,
+    // pero cae afuera de la ventana de 30 min y correlateLpChanges lo trata
+    // como si no existiera — todas las partidas de ese hueco quedan sin LP
+    // aunque en teoría se podrían resolver igual. Se pide en cambio el ÚLTIMO
+    // snapshot anterior a la partida más vieja, sin importar hace cuánto fue
+    // (siempre hay uno después de la primera corrida del cron para este
+    // participante), más todos los de ahí en adelante — sin buffer fijo que
+    // dependa de la cadencia real del cron.
+    const [{ data: priorSnapshot }, { data: snapshotsFromOldestMatch }] =
+      await Promise.all([
+        supabase
+          .from("snapshots")
+          .select("tier, division, lp, created_at")
+          .eq("participant_id", participantId)
+          .lt("created_at", oldestGameEnd)
+          .order("created_at", { ascending: false })
+          .limit(1),
+        supabase
+          .from("snapshots")
+          .select("tier, division, lp, created_at")
+          .eq("participant_id", participantId)
+          .gte("created_at", oldestGameEnd)
+          .order("created_at", { ascending: true }),
+      ]);
 
-    if (snapshots) {
+    const snapshots = [
+      ...(priorSnapshot ?? []),
+      ...(snapshotsFromOldestMatch ?? []),
+    ];
+    if (snapshots.length > 0) {
       lpChanges = correlateLpChanges(matches, snapshots);
     }
   }
