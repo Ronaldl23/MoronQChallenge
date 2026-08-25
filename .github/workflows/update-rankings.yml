@@ -1,8 +1,13 @@
 name: Update Rankings
 
 on:
-  schedule:
-    - cron: "*/15 * * * *"
+  # Desactivado: el `schedule` de GitHub Actions no es preciso para
+  # intervalos de 15 min (confirmado en producción — los huecos reales
+  # entre corridas iban de 20 a 100+ minutos, no 15). El disparador real
+  # ahora es un cron externo dedicado (cron-job.org) pegándole directo a
+  # /api/update-rankings, ver el README. Se deja workflow_dispatch como
+  # respaldo manual (pestaña Actions → Run workflow) por si hace falta
+  # forzar una corrida sin esperar al cron externo.
   workflow_dispatch: {}
 
 # If a run is still in flight when the next one fires, queue it instead of
