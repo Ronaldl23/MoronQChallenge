@@ -11,6 +11,8 @@ export const QUEST_TARGETS: Record<QuestType, number> = {
   kda_streak: 5,
   /** No es racha — target=1: se otorga en la partida misma que la cumple. */
   deathless_win: 1,
+  /** Igual que deathless_win: target=1, se otorga en la partida misma. */
+  beat_participant: 1,
 };
 
 export const KDA_STREAK_THRESHOLD = 5;
@@ -38,6 +40,7 @@ const QUEST_RESETS_ON_FAIL: Record<QuestType, boolean> = {
   win_streak: true,
   kda_streak: false,
   deathless_win: true,
+  beat_participant: true,
 };
 
 /** Todas las quests conocidas, en el orden en que se evalúan por partida (no afecta el resultado, solo el orden de los grants cuando varias se completan en la misma partida). */
@@ -52,6 +55,14 @@ export interface MatchOutcome {
   deaths: number;
   /** gameDuration crudo de match-v5, en segundos. Menos de MIN_MATCH_DURATION_SECONDS = remake, se ignora por completo (ver processNewMatches). */
   gameDurationSeconds: number;
+  /**
+   * true si en esta partida había, del lado rival, al menos otro
+   * participante REGISTRADO del torneo (cualquiera, no solo su misma
+   * línea) — lo calcula el caller (el motor acá es puro, no conoce la
+   * tabla participants) cruzando los 10 puuids de la partida contra el
+   * roster. beat_participant lo combina con match.win.
+   */
+  beatTrackedParticipant: boolean;
 }
 
 /** Criterio "esta partida cuenta para la racha/objetivo" de cada quest. */
@@ -59,6 +70,7 @@ const QUEST_CRITERIA: Record<QuestType, (match: MatchOutcome) => boolean> = {
   win_streak: (match) => match.win,
   kda_streak: (match) => match.kda >= KDA_STREAK_THRESHOLD,
   deathless_win: (match) => match.win && match.deaths === 0,
+  beat_participant: (match) => match.win && match.beatTrackedParticipant,
 };
 
 export type QuestProgressState = Record<QuestType, number>;
@@ -95,6 +107,10 @@ export interface ProcessMatchesResult {
  *   QUEST_RESETS_ON_FAIL).
  * - deathless_win: UNA sola partida ganada con 0 muertes (target=1) — no es
  *   racha, se otorga en la partida misma que la cumple.
+ * - beat_participant: UNA sola partida ganada con al menos un participante
+ *   REGISTRADO del torneo del lado rival (target=1, igual que
+ *   deathless_win) — se otorga cada vez que se cumple, no una sola vez en
+ *   toda la temporada.
  * - Remakes (gameDurationSeconds < MIN_MATCH_DURATION_SECONDS) se ignoran
  *   por completo para las TRES quests — ni suman progreso ni cortan una
  *   racha existente (para win_streak/deathless_win, que sí resetean con una

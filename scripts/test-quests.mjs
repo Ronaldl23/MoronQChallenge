@@ -37,6 +37,8 @@ const NORMAL_GAME_DURATION_SECONDS = 1200;
 // helpers, para que los casos de win_streak "puro" no completen kda_streak
 // ni deathless_win de arrastre — los casos que necesitan buen KDA o 0
 // muertes lo piden explícito (ver match()).
+// beatTrackedParticipant en false por defecto en los cuatro helpers — los
+// casos que testean beat_participant lo piden explícito (ver beatWin()).
 function win(id, kills = 3, deaths = 5, assists = 1) {
   return {
     matchId: id,
@@ -44,6 +46,7 @@ function win(id, kills = 3, deaths = 5, assists = 1) {
     kda: calculateKda({ kills, deaths, assists }),
     deaths,
     gameDurationSeconds: NORMAL_GAME_DURATION_SECONDS,
+    beatTrackedParticipant: false,
   };
 }
 function loss(id, kills = 1, deaths = 5, assists = 1) {
@@ -53,18 +56,23 @@ function loss(id, kills = 1, deaths = 5, assists = 1) {
     kda: calculateKda({ kills, deaths, assists }),
     deaths,
     gameDurationSeconds: NORMAL_GAME_DURATION_SECONDS,
+    beatTrackedParticipant: false,
   };
 }
-function match(id, { win: w, kda, deaths = 1, gameDurationSeconds = NORMAL_GAME_DURATION_SECONDS }) {
-  return { matchId: id, win: w, kda, deaths, gameDurationSeconds };
+function match(id, { win: w, kda, deaths = 1, gameDurationSeconds = NORMAL_GAME_DURATION_SECONDS, beatTrackedParticipant = false }) {
+  return { matchId: id, win: w, kda, deaths, gameDurationSeconds, beatTrackedParticipant };
 }
 // Remake: gana o pierde da igual (0/0/0), lo único que importa es que dure
 // menos que MIN_MATCH_DURATION_SECONDS — por defecto bien corto (3 min).
 function remake(id, { win: w = true, kda = 0, deaths = 0, gameDurationSeconds = 180 } = {}) {
-  return { matchId: id, win: w, kda, deaths, gameDurationSeconds };
+  return { matchId: id, win: w, kda, deaths, gameDurationSeconds, beatTrackedParticipant: false };
+}
+// Victoria contra al menos un participante registrado del lado rival.
+function beatWin(id, kills = 3, deaths = 5, assists = 1) {
+  return { ...win(id, kills, deaths, assists), beatTrackedParticipant: true };
 }
 
-const ZERO = { win_streak: 0, kda_streak: 0, deathless_win: 0 };
+const ZERO = { win_streak: 0, kda_streak: 0, deathless_win: 0, beat_participant: 0 };
 
 // --- 1. Racha de 5 victorias seguidas -> 1 mango, progreso vuelve a 0 ---
 {
@@ -194,7 +202,7 @@ const ZERO = { win_streak: 0, kda_streak: 0, deathless_win: 0 };
 
 // --- 10. Se libera cupo entre corridas (progreso ya en el target, sin partidas nuevas esta vez) -> se otorga al toque ---
 {
-  const stuckProgress = { win_streak: QUEST_TARGETS.win_streak, kda_streak: 0, deathless_win: 0 };
+  const stuckProgress = { win_streak: QUEST_TARGETS.win_streak, kda_streak: 0, deathless_win: 0, beat_participant: 0 };
   const result = processNewMatches({ progress: stuckProgress, matches: [], mangoCount: MAX_MANGO_INVENTORY - 1 });
   assertEqual(
     result.grants,
@@ -367,6 +375,63 @@ const ZERO = { win_streak: 0, kda_streak: 0, deathless_win: 0 };
   const seq = [match("u1", { win: true, kda: 10, gameDurationSeconds: MIN_MATCH_DURATION_SECONDS - 1 })];
   const result = processNewMatches({ progress: ZERO, matches: seq, mangoCount: 0 });
   assertEqual(result.progress.win_streak, 0, "duración == MIN_MATCH_DURATION_SECONDS - 1: se ignora como remake");
+}
+
+// --- 24. Victoria contra un participante registrado del torneo -> mango inmediato (target=1, no es racha) ---
+{
+  const seq = [beatWin("v1")];
+  const result = processNewMatches({ progress: ZERO, matches: seq, mangoCount: 0 });
+  assertEqual(
+    result.grants,
+    [{ matchId: "v1", quest_type: "beat_participant" }],
+    "1 victoria contra un participante registrado: se otorga el mango en esa misma partida",
+  );
+  assertEqual(result.progress.beat_participant, 0, "beat_participant: progreso vuelve a 0 tras otorgarse");
+}
+
+// --- 25. Victoria SIN enfrentar a ningún participante registrado -> no cuenta ---
+{
+  const seq = [win("v2")];
+  const result = processNewMatches({ progress: ZERO, matches: seq, mangoCount: 0 });
+  assertEqual(result.grants, [], "victoria sin rival registrado: no otorga beat_participant");
+  assertEqual(result.progress.beat_participant, 0, "victoria sin rival registrado: progreso sigue en 0");
+}
+
+// --- 26. Derrota contra un participante registrado -> no cuenta (hace falta GANAR) ---
+{
+  const seq = [{ ...loss("v3"), beatTrackedParticipant: true }];
+  const result = processNewMatches({ progress: ZERO, matches: seq, mangoCount: 0 });
+  assertEqual(result.grants, [], "derrota contra un participante registrado: no otorga beat_participant, hace falta ganar");
+}
+
+// --- 27. Varias victorias contra participantes registrados en la misma corrida -> un mango por cada una (no es racha) ---
+{
+  const seq = [beatWin("v4"), win("v5"), beatWin("v6")]; // v5 no tiene rival registrado, no interrumpe nada
+  const result = processNewMatches({ progress: ZERO, matches: seq, mangoCount: 0 });
+  assertEqual(
+    result.grants.filter((g) => g.quest_type === "beat_participant"),
+    [
+      { matchId: "v4", quest_type: "beat_participant" },
+      { matchId: "v6", quest_type: "beat_participant" },
+    ],
+    "2 victorias contra participantes registrados en la misma corrida: 2 mangos, uno por cada una",
+  );
+}
+
+// --- 28. CASO LÍMITE: cupo lleno -> beat_participant también queda pegado en el target esperando espacio ---
+{
+  const seq = [beatWin("v7")];
+  const result = processNewMatches({ progress: ZERO, matches: seq, mangoCount: MAX_MANGO_INVENTORY });
+  assertEqual(
+    result.grants.filter((g) => g.quest_type === "beat_participant"),
+    [],
+    "cupo lleno: la victoria contra un participante registrado no otorga mango",
+  );
+  assertEqual(
+    result.progress.beat_participant,
+    QUEST_TARGETS.beat_participant,
+    "cupo lleno: beat_participant queda pegado en el target (1), esperando espacio como las otras quests",
+  );
 }
 
 assertEqual(MIN_MATCH_DURATION_SECONDS, 300, "MIN_MATCH_DURATION_SECONDS es 300 (5 minutos, regla confirmada por el usuario)");

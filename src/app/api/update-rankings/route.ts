@@ -214,6 +214,7 @@ async function processParticipantQuests({
   supabase,
   participant,
   riotApiKey,
+  trackedPuuids,
 }: {
   supabase: SupabaseClient<Database>;
   participant: {
@@ -223,6 +224,8 @@ async function processParticipantQuests({
     penalty_games_without_compliance: number;
   };
   riotApiKey: string;
+  /** puuids de TODOS los participantes registrados (incluido este mismo) — para la quest beat_participant, ver más abajo. */
+  trackedPuuids: Set<string>;
 }): Promise<AegisMatchSignal> {
   const continent = platformToContinent(participant.region_platform);
   if (!continent) return UNKNOWN_AEGIS_SIGNAL;
@@ -276,12 +279,21 @@ async function processParticipantQuests({
     const mp = match.info.participants.find((p) => p.puuid === participant.puuid);
     if (!mp) break;
 
+    // beat_participant (Fase 6): ¿algún rival de esta partida es TAMBIÉN un
+    // participante registrado del torneo? Los 10 jugadores comparten el
+    // mismo `win` que su equipo — así que "perdió Y es rastreado Y no soy
+    // yo" ya identifica al rival sin necesitar comparar teamId.
+    const beatTrackedParticipant = match.info.participants.some(
+      (p) => p.puuid !== participant.puuid && !p.win && trackedPuuids.has(p.puuid),
+    );
+
     outcomes.push({
       matchId,
       win: mp.win,
       kda: calculateKda({ kills: mp.kills, deaths: mp.deaths, assists: mp.assists }),
       deaths: mp.deaths,
       gameDurationSeconds: match.info.gameDuration,
+      beatTrackedParticipant,
     });
     penaltyMatches.push({
       matchId,
@@ -490,6 +502,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  // Para la quest beat_participant (ganar contra otro participante
+  // registrado) — un solo Set con TODOS los puuids del roster, armado una
+  // vez acá afuera del loop en vez de una query aparte por participante.
+  const trackedPuuids = new Set((participants ?? []).map((p) => p.puuid));
+
   const results: Array<{
     participant_id: string;
     nombre_display: string;
@@ -559,7 +576,12 @@ export async function GET(request: Request) {
     // espacian con sleep(RIOT_REQUEST_DELAY_MS) internamente.
     let aegisSignal: AegisMatchSignal = UNKNOWN_AEGIS_SIGNAL;
     try {
-      aegisSignal = await processParticipantQuests({ supabase, participant, riotApiKey });
+      aegisSignal = await processParticipantQuests({
+        supabase,
+        participant,
+        riotApiKey,
+        trackedPuuids,
+      });
     } catch (err) {
       console.error(
         `Motor de misiones falló para ${participant.nombre_display}:`,

@@ -108,6 +108,10 @@ export default async function JugadorPage() {
     current: questByType.get("deathless_win")?.current_progress ?? 0,
     target: questByType.get("deathless_win")?.target ?? QUEST_TARGETS.deathless_win,
   };
+  const beatParticipant = {
+    current: questByType.get("beat_participant")?.current_progress ?? 0,
+    target: questByType.get("beat_participant")?.target ?? QUEST_TARGETS.beat_participant,
+  };
 
   const others = othersResult.data ?? [];
   const { data: recentPenalties } = await supabase
@@ -234,6 +238,7 @@ export default async function JugadorPage() {
         winStreak={winStreak}
         kdaStreak={kdaStreak}
         deathlessWin={deathlessWin}
+        beatParticipant={beatParticipant}
         otherParticipants={otherParticipants}
       />
     </PageShell>

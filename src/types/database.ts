@@ -86,7 +86,11 @@ export type Mango = {
   launcher_notified: boolean;
 };
 
-export type QuestType = "win_streak" | "kda_streak" | "deathless_win";
+export type QuestType =
+  | "win_streak"
+  | "kda_streak"
+  | "deathless_win"
+  | "beat_participant";
 
 export type QuestProgress = {
   id: string;

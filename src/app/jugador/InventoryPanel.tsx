@@ -20,12 +20,14 @@ export function InventoryPanel({
   winStreak,
   kdaStreak,
   deathlessWin,
+  beatParticipant,
   otherParticipants,
 }: {
   mangos: InventoryMango[];
   winStreak: QuestProgressView;
   kdaStreak: QuestProgressView;
   deathlessWin: QuestProgressView;
+  beatParticipant: QuestProgressView;
   otherParticipants: LaunchTarget[];
 }) {
   const router = useRouter();
@@ -71,6 +73,11 @@ export function InventoryPanel({
             label="Victoria sin morir"
             current={deathlessWin.current}
             target={deathlessWin.target}
+          />
+          <QuestBar
+            label="Ganar contra otro participante del torneo"
+            current={beatParticipant.current}
+            target={beatParticipant.target}
           />
         </div>
       </section>
