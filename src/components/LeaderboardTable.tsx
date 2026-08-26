@@ -179,7 +179,11 @@ export function LeaderboardTable({
                 <motion.tr
                   layout
                   transition={{ layout: { duration: 0.4, ease: "easeInOut" } }}
-                  className="border-b border-border-hairline transition-colors duration-150 last:border-0 hover:bg-surface-hover"
+                  className={`border-b border-border-hairline transition-colors duration-150 last:border-0 ${
+                    entry.isDisqualified
+                      ? "bg-loss/20 hover:bg-loss/25"
+                      : "hover:bg-surface-hover"
+                  }`}
                 >
                   <td className="align-top px-4 py-2 font-display font-semibold text-text-secondary">
                     {entry.rank}
@@ -360,7 +364,9 @@ export function LeaderboardTable({
           {unrankedEntries.map((entry) => (
             <tr
               key={entry.participant.id}
-              className="border-b border-border-hairline last:border-0"
+              className={`border-b border-border-hairline last:border-0 ${
+                entry.isDisqualified ? "bg-loss/20" : ""
+              }`}
             >
               <td className="align-top px-4 py-2 font-display font-semibold text-text-muted">
                 —
