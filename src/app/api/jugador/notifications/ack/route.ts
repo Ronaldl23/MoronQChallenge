@@ -15,7 +15,7 @@ function isAckItem(value: unknown): value is AckItem {
   const item = value as Record<string, unknown>;
   return (
     typeof item.id === "string" &&
-    (item.kind === "received" || item.kind === "flagged_for_review" || item.kind === "launcher_reveal")
+    (item.kind === "received" || item.kind === "disqualified" || item.kind === "launcher_reveal")
   );
 }
 
@@ -49,13 +49,13 @@ export async function POST(request: Request) {
 
   const supabase = createAdminClient();
 
-  // received/flagged_for_review viven en penalty_progress — se marcan AMBOS
+  // received/disqualified viven en penalty_progress — se marcan AMBOS
   // flags (seen + flagged_seen) sin importar de cuál vino el id, mismo
   // criterio que antes: el GET puede devolver el mismo penalty_progress.id
   // representando las dos notificaciones si el jugador nunca vio la
-  // primera antes de que el castigo pasara a revisión.
+  // primera antes de que el castigo lo descalificara.
   const penaltyIds = items
-    .filter((item) => item.kind === "received" || item.kind === "flagged_for_review")
+    .filter((item) => item.kind === "received" || item.kind === "disqualified")
     .map((item) => item.id);
   // launcher_reveal vive en mangos.launcher_notified — el sent_by ahí
   // abajo es lo que impide que alguien ackee el mango de otro pasando un id

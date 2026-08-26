@@ -5,9 +5,11 @@
  * PodiumCard, donde envuelven a ProfileIcon en un div `relative shrink-0`).
  *
  * Se queda en su posición normal del ranking (no se mueve al final de la
- * lista) — decisión confirmada con el usuario: como `pardoned` existe en
- * /admin, no tiene sentido tratarlo en la UI como 100% irreversible, y
- * reordenar la lista es más disruptivo que superponer un badge.
+ * lista) — decisión confirmada con el usuario: como un admin puede
+ * perdonar al jugador completo desde /admin (ver
+ * /api/admin/penalties/resolve), no tiene sentido tratarlo en la UI como
+ * 100% irreversible, y reordenar la lista es más disruptivo que
+ * superponer un badge.
  */
 export function DisqualifiedBadge() {
   return (

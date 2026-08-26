@@ -19,7 +19,7 @@ const TOAST_AUTO_DISMISS_MS = 8_000;
  */
 const REVEAL_DELAY_AFTER_TOAST_MS = 2_500;
 
-/** penalty_progress.id no alcanza como key: el mismo id puede representar DOS notificaciones distintas (received + flagged_for_review) si el jugador nunca vio la primera antes de que el castigo pasara a revisión. */
+/** penalty_progress.id no alcanza como key: el mismo id puede representar DOS notificaciones distintas (received + disqualified) si el jugador nunca vio la primera antes de que el castigo lo descalificara. */
 function toastKey(n: MangoNotification): string {
   return `${n.kind}:${n.id}`;
 }
@@ -209,7 +209,7 @@ export function MangoNotifications({
         setToasts((prev) => [...prev, ...freshImmediate]);
         // TomaMango.mp3 es solo para el flujo de "te llegó un Mango y lo
         // vas a revelar ya" (advanceQueue, más abajo) — este batch es todo
-        // lo demás (flagged_for_review, launcher_reveal, o un "received"
+        // lo demás (disqualified, launcher_reveal, o un "received"
         // viejo que ya no va a disparar la ruleta), así que usa el sonido
         // genérico de evento.
         eventAudioRef.current?.play().catch(() => {});
@@ -308,7 +308,7 @@ function MangoToast({
       exit={{ opacity: 0, x: 40 }}
       transition={{ duration: 0.25, ease: "easeOut" }}
       className={`pointer-events-auto flex w-80 items-center gap-3 rounded-2xl border bg-surface p-4 ${
-        notification.kind === "received"
+        notification.kind === "received" || notification.kind === "disqualified"
           ? "border-loss/50 shadow-[0_0_40px_-12px_var(--loss)]"
           : "border-gold/50 shadow-[0_0_40px_-12px_var(--gold)]"
       }`}
@@ -320,11 +320,11 @@ function MangoToast({
         imgClassName="h-12 w-12 shrink-0 rounded-lg object-cover"
       />
       <div className="min-w-0 flex-1">
-        {notification.kind === "flagged_for_review" && (
+        {notification.kind === "disqualified" && (
           <>
-            <p className="font-display text-sm font-bold text-gold">No cumpliste a tiempo</p>
+            <p className="font-display text-sm font-bold text-loss">Fuiste descalificado</p>
             <p className="truncate text-sm text-text-primary">
-              <strong>{notification.championName}</strong> quedó pendiente de revisión.
+              No cumpliste <strong>{notification.championName}</strong> a tiempo.
             </p>
           </>
         )}

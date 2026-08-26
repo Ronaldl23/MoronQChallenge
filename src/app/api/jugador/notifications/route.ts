@@ -7,17 +7,17 @@ import { resolveAssignedPunishment } from "@/lib/mango-launch";
 
 export const dynamic = "force-dynamic";
 
-export type MangoNotificationKind = "received" | "flagged_for_review" | "launcher_reveal";
+export type MangoNotificationKind = "received" | "disqualified" | "launcher_reveal";
 
 export interface MangoNotification {
   id: string;
   kind: MangoNotificationKind;
   /** El mango detrás de esta notificación — 'received' lo usa para emparejar el toast con su turno en la cola de revelación (ver MangoNotifications). */
   mangoId: string;
-  /** 'received': quién te lo envió. 'launcher_reveal': quién lo recibió. 'flagged_for_review': no se usa (vacío). */
+  /** 'received': quién te lo envió. 'launcher_reveal': quién lo recibió. 'disqualified': no se usa (vacío). */
   otherPartyName: string;
   /**
-   * 'flagged_for_review' y 'launcher_reveal': el campeón/Support real, ya
+   * 'disqualified' y 'launcher_reveal': el campeón/Support real, ya
    * es seguro mostrarlo (o vos ya lo revelaste, o es TU notificación sobre
    * lo que le tocó a otro). 'received': vacío a propósito — el castigo
    * todavía no se reveló, mostrarlo acá lo arruinaría.
@@ -48,8 +48,11 @@ export interface NotificationsResponse {
  *   revela el castigo — eso pasa recién cuando la persona gira SU PROPIA
  *   ruleta (ver MangoRevealModal), disparada después de este toast, nunca
  *   antes ni en su lugar.
- * - "flagged_for_review": no lo cumpliste a tiempo, quedó pendiente de
- *   revisión manual (status = 'flagged_for_review' && flagged_seen = false).
+ * - "disqualified": no lo cumpliste a tiempo y te descalificó, automático
+ *   (status = 'disqualified' && flagged_seen = false) — sin paso de
+ *   revisión manual en el medio, ver src/lib/penalty.ts. Incluye también
+ *   'flagged_for_review' por compatibilidad con filas viejas de antes de
+ *   este cambio.
  * - "launcher_reveal": alguien reveló un mango que VOS lanzaste
  *   (mangos.sent_by_participant_id = vos, status = 'sent',
  *   launcher_notified = false) — acá sí se muestra el resultado, es tu
@@ -94,7 +97,7 @@ export async function GET() {
       .from("penalty_progress")
       .select("id, mango_id")
       .eq("participant_id", participantId)
-      .eq("status", "flagged_for_review")
+      .in("status", ["disqualified", "flagged_for_review"])
       .eq("flagged_seen", false)
       .order("created_at", { ascending: true }),
     supabase
@@ -252,7 +255,7 @@ export async function GET() {
       const resolved = resolveAssignedPunishment(mango?.champion_assigned ?? null, championById, spellById);
       return {
         id: p.id,
-        kind: "flagged_for_review",
+        kind: "disqualified",
         mangoId: p.mango_id,
         otherPartyName: "",
         championName: resolved.name,

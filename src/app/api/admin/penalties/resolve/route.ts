@@ -5,14 +5,22 @@ import { isAdminAuthenticated } from "@/lib/admin-auth";
 export const dynamic = "force-dynamic";
 
 /**
- * Resuelve manualmente un castigo en 'flagged_for_review' — NUNCA
- * automático (regla explícita del usuario): esta es la única forma de que
- * un castigo pase a 'disqualified' o 'pardoned'.
+ * Perdona a un JUGADOR completo (ya no existe perdón por castigo
+ * individual — la descalificación ahora es automática, ver
+ * src/lib/penalty.ts, así que tampoco hace falta un "confirmar
+ * descalificación" acá: eso ya pasó solo).
  *
- * Solo aplica el cambio si el estado actual sigue siendo
- * 'flagged_for_review' (el .eq de abajo, combinado con .select().maybeSingle()
- * para saber si de verdad pisó algo) — evita que un doble click o dos
- * pestañas de /admin abiertas a la vez resuelvan el mismo castigo dos veces.
+ * Perdonar NO borra los castigos por los que se descalificó — se los
+ * devuelve a 'pending' con `created_at` reseteado a ahora (ventana de
+ * PENALTY_GAME_LIMIT partidas fresca, contando desde este momento) para
+ * que los tenga que cumplir de nuevo, tal como se le habían asignado. Se
+ * incluye 'flagged_for_review' junto con 'disqualified' para poder
+ * perdonar también filas viejas de la cola de revisión manual anterior a
+ * este cambio.
+ *
+ * Solo aplica si de verdad había algo para perdonar (el .select() de
+ * abajo, igual que el resto de las rutas de mangos) — evita que un doble
+ * click o dos pestañas de /admin resuelvan lo mismo dos veces.
  */
 export async function POST(request: Request) {
   if (!(await isAdminAuthenticated(request))) {
@@ -26,34 +34,45 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "JSON inválido" }, { status: 400 });
   }
 
-  const { id, action } = (body ?? {}) as Record<string, unknown>;
-  if (typeof id !== "string" || (action !== "disqualify" && action !== "pardon")) {
-    return NextResponse.json(
-      { error: "Faltan id o action (esperado 'disqualify' o 'pardon')" },
-      { status: 400 },
-    );
+  const { participant_id } = (body ?? {}) as Record<string, unknown>;
+  if (typeof participant_id !== "string") {
+    return NextResponse.json({ error: "Falta participant_id" }, { status: 400 });
   }
 
   const supabase = createAdminClient();
-  const newStatus = action === "disqualify" ? "disqualified" : "pardoned";
 
-  const { data, error } = await supabase
+  const { data: restored, error: restoreError } = await supabase
     .from("penalty_progress")
-    .update({ status: newStatus })
-    .eq("id", id)
-    .eq("status", "flagged_for_review")
-    .select("id")
-    .maybeSingle();
+    .update({
+      status: "pending",
+      completed: false,
+      created_at: new Date().toISOString(),
+    })
+    .eq("participant_id", participant_id)
+    .in("status", ["disqualified", "flagged_for_review"])
+    .select("id");
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  if (restoreError) {
+    return NextResponse.json({ error: restoreError.message }, { status: 500 });
   }
-  if (!data) {
+  if (!restored || restored.length === 0) {
     return NextResponse.json(
-      { error: "Ese castigo ya no está pendiente de revisión (¿ya se resolvió antes?)" },
+      { error: "Ese jugador no está descalificado (¿ya se perdonó antes?)" },
       { status: 409 },
     );
   }
 
-  return NextResponse.json({ ok: true, status: newStatus });
+  // Ventana fresca para el grupo de castigos que le acabamos de devolver —
+  // mismo criterio que "sin castigos pendientes no hay contador corriendo"
+  // (regla 5 de src/lib/penalty.ts), solo que acá arranca en 0 porque
+  // recién le acabamos de crear pendientes de nuevo.
+  const { error: counterError } = await supabase
+    .from("participants")
+    .update({ penalty_games_without_compliance: 0 })
+    .eq("id", participant_id);
+  if (counterError) {
+    return NextResponse.json({ error: counterError.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true, restoredCount: restored.length });
 }

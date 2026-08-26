@@ -62,10 +62,13 @@ export default async function JugadorPage() {
         .select("id, nombre_display, last_seen_at")
         .neq("id", participantId),
       // Solo status='pending': todavía dentro de las 3 partidas para
-      // cumplirlo (Fase 4). 'flagged_for_review'/'disqualified'/'pardoned'
-      // ya salieron de la ventana de cumplimiento (avisados por toast en su
-      // momento, no por este banner) y 'completed' ya no es un pendiente.
-      // No tiene relación con `seen` (esto es para el banner, no para las
+      // cumplirlo (Fase 4). 'disqualified' ya salió de la ventana de
+      // cumplimiento (avisado por toast en su momento, no por este banner)
+      // y 'completed' ya no es un pendiente. Si un admin perdona al
+      // jugador (ver /api/admin/penalties/resolve), el castigo vuelve a
+      // 'pending' y reaparece acá solo, con ventana fresca — es la
+      // devolución que pidió el usuario, no un caso especial. No tiene
+      // relación con `seen` (esto es para el banner, no para las
       // notificaciones).
       supabase
         .from("penalty_progress")

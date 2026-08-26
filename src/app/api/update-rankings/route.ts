@@ -442,7 +442,7 @@ async function processParticipantPenalties({
     // ver Fase 3.5) — no se le puede exigir cumplir un castigo que todavía
     // no vio. Se salta esta corrida; se evalúa recién una vez que lo
     // revele (mango pasa a 'sent'), no antes. Sin este chequeo, esta
-    // corrida podía marcar 'completed'/'flagged_for_review' un castigo
+    // corrida podía marcar 'completed'/'disqualified' un castigo
     // fantasma para el jugador — el bug real detrás del reporte de
     // "el pending_reveal no aparece en ningún lado".
     if (!mango || mango.status !== "sent") return [];

@@ -102,6 +102,14 @@ export type QuestProgress = {
   updated_at: string;
 };
 
+/**
+ * 'flagged_for_review' y 'pardoned' ya no los escribe nada — quedan en el
+ * tipo (y en el CHECK de la tabla) solo por compatibilidad con filas
+ * escritas antes de que la descalificación pasara a ser automática (ver
+ * src/lib/penalty.ts): un castigo sin cumplir a tiempo pasa directo a
+ * 'disqualified', y perdonar al jugador lo devuelve directo a 'pending'
+ * (nunca a 'pardoned').
+ */
 export type PenaltyStatus =
   | "pending"
   | "completed"

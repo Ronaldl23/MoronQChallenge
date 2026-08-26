@@ -101,7 +101,7 @@ function statusOf(result, id) {
   assertEqual(result.gamesWithoutCompliance, 0, "1 castigo, cumple en m1: contador queda en 0");
 }
 
-// --- 2. Un solo castigo: 3 partidas sin cumplir -> flagged_for_review, contador vuelve a 0 (regla 5: sin pendientes, sin contador) ---
+// --- 2. Un solo castigo: 3 partidas sin cumplir -> disqualified (automático), contador vuelve a 0 (regla 5: sin pendientes, sin contador) ---
 {
   const result = run(
     [penalty("p1", "Teemo")],
@@ -111,11 +111,11 @@ function statusOf(result, id) {
       match("m3", { playedAt: at(3), championPlayed: "Jinx" }),
     ],
   );
-  assertEqual(statusOf(result, "p1"), "flagged_for_review", "1 castigo, 3 partidas sin cumplir: flagged_for_review");
+  assertEqual(statusOf(result, "p1"), "disqualified", "1 castigo, 3 partidas sin cumplir: disqualified");
   assertEqual(
     result.gamesWithoutCompliance,
     0,
-    "1 castigo flagged: el contador vuelve a 0 (ya no queda ningún pendiente corriendo)",
+    "1 castigo disqualified: el contador vuelve a 0 (ya no queda ningún pendiente corriendo)",
   );
 }
 
@@ -138,7 +138,7 @@ function statusOf(result, id) {
   );
 }
 
-// --- 4. 3 castigos pendientes, NINGUNO se cumple en 3 partidas -> los 3 pasan a flagged_for_review JUNTOS ---
+// --- 4. 3 castigos pendientes, NINGUNO se cumple en 3 partidas -> los 3 pasan a disqualified JUNTOS ---
 {
   const penalties = [penalty("a", "Teemo"), penalty("b", "Zed"), penalty("c", "Jinx")];
   const matches = [
@@ -147,10 +147,10 @@ function statusOf(result, id) {
     match("m3", { playedAt: at(3), championPlayed: "Vayne" }),
   ];
   const result = run(penalties, matches);
-  assertEqual(statusOf(result, "a"), "flagged_for_review", "3 castigos, nada cumplido en 3 partidas: 'a' flagged");
-  assertEqual(statusOf(result, "b"), "flagged_for_review", "3 castigos, nada cumplido en 3 partidas: 'b' flagged");
-  assertEqual(statusOf(result, "c"), "flagged_for_review", "3 castigos, nada cumplido en 3 partidas: 'c' flagged");
-  assertEqual(result.gamesWithoutCompliance, 0, "los 3 flagged juntos: el contador vuelve a 0");
+  assertEqual(statusOf(result, "a"), "disqualified", "3 castigos, nada cumplido en 3 partidas: 'a' disqualified");
+  assertEqual(statusOf(result, "b"), "disqualified", "3 castigos, nada cumplido en 3 partidas: 'b' disqualified");
+  assertEqual(statusOf(result, "c"), "disqualified", "3 castigos, nada cumplido en 3 partidas: 'c' disqualified");
+  assertEqual(result.gamesWithoutCompliance, 0, "los 3 disqualified juntos: el contador vuelve a 0");
 }
 
 // --- 5. Una misma partida cumple DOS castigos a la vez (dos Support pendientes) -> ambos completed en la misma partida ---
@@ -187,8 +187,8 @@ function statusOf(result, id) {
     [match("m1", { playedAt: at(1), championPlayed: "Ahri" })],
     2, // contador ya en 2 al arrancar esta corrida
   );
-  assertEqual(statusOf(result, "a"), "flagged_for_review", "arranca en 2/3: 1 partida más sin cumplir alcanza el límite");
-  assertEqual(result.gamesWithoutCompliance, 0, "flagged: el contador vuelve a 0");
+  assertEqual(statusOf(result, "a"), "disqualified", "arranca en 2/3: 1 partida más sin cumplir alcanza el límite");
+  assertEqual(result.gamesWithoutCompliance, 0, "disqualified: el contador vuelve a 0");
 }
 
 // --- 8. Sin castigos pendientes: no-op total, sin contador corriendo (regla 5) — incluso si venía un contador viejo pegado ---
@@ -198,7 +198,7 @@ function statusOf(result, id) {
   assertEqual(result.gamesWithoutCompliance, 0, "sin castigos pendientes: el contador queda/vuelve a 0, no corre");
 }
 
-// --- 9. Una vez flagged el grupo, partidas posteriores en la misma corrida no lo tocan más ---
+// --- 9. Una vez descalificado el grupo, partidas posteriores en la misma corrida no lo tocan más ---
 {
   const penalties = [penalty("a", "Teemo")];
   const matches = [
@@ -208,7 +208,7 @@ function statusOf(result, id) {
     match("m4", { playedAt: at(4), championPlayed: "Teemo" }), // llega tarde, ya no cuenta
   ];
   const result = run(penalties, matches);
-  assertEqual(statusOf(result, "a"), "flagged_for_review", "flagged en m3: m4 (aunque cumpla) no lo revierte");
+  assertEqual(statusOf(result, "a"), "disqualified", "disqualified en m3: m4 (aunque cumpla) no lo revierte");
   assertEqual(result.gamesWithoutCompliance, 0, "sigue en 0 tras flaggear, m4 no lo mueve");
 }
 

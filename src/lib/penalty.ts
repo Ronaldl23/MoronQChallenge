@@ -58,9 +58,13 @@ const FLASH_SPELL_KEY = 4;
  *   para los que queden).
  * - Si no cumple ninguno, el contador sube en 1.
  * - Si el contador llega al límite sin ninguna coincidencia, TODOS los
- *   castigos que sigan pendientes en ese momento pasan a
- *   'flagged_for_review' juntos, y el contador vuelve a 0 (sin castigos
- *   pendientes no hay contador corriendo — regla 5).
+ *   castigos que sigan pendientes en ese momento pasan a 'disqualified'
+ *   juntos — automático, sin revisión manual — y el contador vuelve a 0
+ *   (sin castigos pendientes no hay contador corriendo — regla 5). La
+ *   única forma de revertirlo es que un admin perdone al JUGADOR completo
+ *   desde /admin: eso devuelve TODOS sus castigos 'disqualified' a
+ *   'pending' con ventana fresca (ver /api/admin/penalties/resolve) — no
+ *   existe un perdón por castigo individual.
  * - Remakes (gameDurationSeconds < MIN_MATCH_DURATION_SECONDS) se ignoran
  *   por completo: no cumplen ningún castigo NI gastan una de las 3
  *   partidas de la ventana — es como si no se hubieran jugado.
@@ -100,7 +104,7 @@ export interface PendingPenalty {
   createdAt: string;
 }
 
-export type PenaltyStatus = "pending" | "completed" | "flagged_for_review";
+export type PenaltyStatus = "pending" | "completed" | "disqualified";
 
 export interface PenaltyUpdate {
   id: string;
@@ -193,9 +197,9 @@ export function processPenaltyMatches({
     } else {
       counter += 1;
       if (counter >= PENALTY_GAME_LIMIT) {
-        // Se agotó la ventana compartida: TODO el grupo que siga pendiente pasa a revisión junto.
+        // Se agotó la ventana compartida: TODO el grupo que siga pendiente se descalifica junto, automático.
         for (const p of stillPending) {
-          state.set(p.id, { status: "flagged_for_review", completedOnMatchId: null });
+          state.set(p.id, { status: "disqualified", completedOnMatchId: null });
         }
         counter = 0; // Sin pendientes → sin contador corriendo (regla 5), listo para el próximo grupo.
       }

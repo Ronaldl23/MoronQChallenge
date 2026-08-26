@@ -30,7 +30,7 @@ export interface LeaderboardEntry {
   rank: number;
   participant: PublicParticipant;
   latest: Snapshot;
-  /** status 'pending' o 'flagged_for_review' — castigos que todavía no se resolvieron. */
+  /** status 'pending' (o 'flagged_for_review', legacy) — castigos que todavía no se resolvieron. */
   pendingPenalties: PendingPenaltySummary[];
   /** mangos en inventario propio (status='in_inventory'), sin lanzar todavía. */
   mangoCount: number;
@@ -198,6 +198,9 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
       .from("penalty_progress")
       .select("id, participant_id, mango_id, status")
       .in("participant_id", participantIds)
+      // 'flagged_for_review' ya no lo escribe nada (la descalificación es
+      // automática, ver src/lib/penalty.ts) — se sigue pidiendo acá solo
+      // por si queda alguna fila vieja de antes de ese cambio.
       .in("status", ["pending", "flagged_for_review", "disqualified"]),
     supabase
       .from("mangos")

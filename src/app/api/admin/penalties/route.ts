@@ -7,7 +7,7 @@ import { resolveAssignedPunishment } from "@/lib/mango-launch";
 
 export const dynamic = "force-dynamic";
 
-export interface FlaggedPenalty {
+export interface DisqualifiedPenalty {
   id: string;
   participantId: string;
   participantName: string;
@@ -19,14 +19,19 @@ export interface FlaggedPenalty {
 }
 
 /**
- * Fase 4 (rediseñada — contador compartido, ver src/lib/penalty.ts): cola
- * de revisión manual. Castigos en 'flagged_for_review' — el jugador se
- * pasó de las PENALTY_GAME_LIMIT partidas sin cumplir NINGUNO de sus
- * castigos pendientes, así que TODOS los que le quedaban pendientes en ese
- * momento pasaron a revisión juntos (misma causa). El cliente
- * (PenaltyReviewPanel) los agrupa por participantId para mostrar eso, pero
- * cada fila se sigue resolviendo por separado (Perdonar/Confirmar
- * descalificación individual).
+ * Descalificación automática (ver src/lib/penalty.ts): el jugador se pasó
+ * de las PENALTY_GAME_LIMIT partidas sin cumplir NINGUNO de sus castigos
+ * pendientes, así que TODOS los que le quedaban pendientes en ese momento
+ * pasaron a 'disqualified' juntos (misma causa), sin ningún paso de
+ * revisión manual en el medio. El cliente (PenaltyReviewPanel) los agrupa
+ * por participantId — la única acción posible ya no es por castigo
+ * individual, es "Perdonar jugador" (ver /api/admin/penalties/resolve),
+ * que le devuelve TODO el grupo a 'pending'.
+ *
+ * Incluye también 'flagged_for_review' por compatibilidad con filas viejas
+ * de antes de este cambio (ese status ya no lo escribe nada, pero si
+ * quedó alguna fila colgada de la cola de revisión manual anterior, sigue
+ * apareciendo acá en vez de perderse).
  */
 export async function GET(request: Request) {
   if (!(await isAdminAuthenticated(request))) {
@@ -37,7 +42,7 @@ export async function GET(request: Request) {
   const { data: flagged, error } = await supabase
     .from("penalty_progress")
     .select("id, participant_id, mango_id, created_at")
-    .eq("status", "flagged_for_review")
+    .in("status", ["disqualified", "flagged_for_review"])
     .order("created_at", { ascending: true });
 
   if (error) {
@@ -79,7 +84,7 @@ export async function GET(request: Request) {
   const championById = new Map(champions.map((c) => [c.id, c]));
   const spellById = new Map(spells.map((s) => [s.id, s]));
 
-  const penalties: FlaggedPenalty[] = flagged.map((f) => {
+  const penalties: DisqualifiedPenalty[] = flagged.map((f) => {
     const mango = mangoById.get(f.mango_id);
     const resolved = resolveAssignedPunishment(mango?.champion_assigned ?? null, championById, spellById);
     const senderName =
