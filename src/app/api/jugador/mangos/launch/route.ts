@@ -146,13 +146,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, targetNombreDisplay: target.nombre_display });
   }
 
-  // Rebote (10%): el mango original NO se toca — sigue 'in_inventory', tal
-  // como pidió el usuario ("no se gasta"). El segundo roll (solo
-  // champion/Support, sin balde de rebote — un rebote no puede volver a
-  // rebotar) también se decide ACÁ, en el mismo request, así que para
-  // cuando cualquiera revele algo, el azar ya terminó de principio a fin.
-  // El castigo que le "rebota" a quien lo lanzó se modela con el mismo
-  // patrón que un lanzamiento normal (fila nueva en mangos +
+  // Rebote (10%): el mango original SÍ se gasta — se marca 'returned' (un
+  // status que ya existía en el schema desde la Fase 1 pero nunca se usaba)
+  // para sacarlo del inventario, igual que un lanzamiento normal. El
+  // segundo roll (solo champion/Support, sin balde de rebote — un rebote no
+  // puede volver a rebotar) también se decide ACÁ, en el mismo request, así
+  // que para cuando cualquiera revele algo, el azar ya terminó de principio
+  // a fin. El castigo que le "rebota" a quien lo lanzó se modela con el
+  // mismo patrón que un lanzamiento normal (fila nueva en mangos +
   // penalty_progress), solo que el mango nuevo lo "envía" el objetivo
   // (quien devolvió la jugada) y la víctima es quien lanzó originalmente.
   // No cuenta contra el cupo de inventario de nadie (nace directo en
@@ -162,6 +163,15 @@ export async function POST(request: Request) {
   // se entera de nada de esto: ni mango, ni penalty_progress, ni revelación
   // — el rebote es invisible para él, igual que en el diseño anterior.
   const bounceOutcome = rollPenaltyOutcome(champions, spells);
+
+  const { error: returnedUpdateError } = await supabase
+    .from("mangos")
+    .update({ status: "returned" })
+    .eq("id", mango.id);
+  if (returnedUpdateError) {
+    console.error("launch: fallo marcando el mango original 'returned':", returnedUpdateError.message);
+    return NextResponse.json({ error: returnedUpdateError.message }, { status: 500 });
+  }
 
   const { data: bounceMango, error: bounceMangoError } = await supabase
     .from("mangos")
