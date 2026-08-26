@@ -108,10 +108,10 @@ export function MangoRevealWidget({
     variant: "spell",
     noFlash: true,
   };
-  // Support pesa 20% real y hechizo 60% (vs. ~0.06% de un campeón puntual,
-  // ahora que bajó a 10% repartido entre ~170): unas cuantas copias más en
-  // el pool visual para que se sientan acordes, aunque el resultado real ya
-  // lo decidió el servidor — esto es solo relleno.
+  // Support pesa 20% real y hechizo 50% (vs. ~0.12% de un campeón puntual,
+  // repartido entre ~170): unas cuantas copias más en el pool visual para
+  // que se sientan acordes, aunque el resultado real ya lo decidió el
+  // servidor — esto es solo relleno.
   const poolWithSupport: RouletteItem[] = [
     ...championItems,
     SUPPORT_ITEM,

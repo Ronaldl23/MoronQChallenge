@@ -6,9 +6,15 @@ import type { SummonerSpell } from "@/lib/summoner-spells";
 export const BOUNCE_PROBABILITY_PERCENT = 10;
 /** 20% de probabilidad de que el castigo sea "jugar de Support" en vez de un campeón puntual. */
 export const SUPPORT_PROBABILITY_PERCENT = 20;
-/** 60% de probabilidad de que el castigo sea un hechizo de invocador obligatorio (o "sin Flash"), repartido uniforme entre las SPELL_POOL_SIZE opciones de abajo. */
-export const SPELL_PROBABILITY_PERCENT = 60;
-/** El 10% restante se reparte en partes iguales entre todos los campeones individuales (pickRandomChampion ya es uniforme). */
+/** 50% de probabilidad de que el castigo sea un hechizo de invocador obligatorio (o "sin Flash"), repartido uniforme entre las SPELL_POOL_SIZE opciones de abajo. */
+export const SPELL_PROBABILITY_PERCENT = 50;
+/**
+ * El resto se reparte en partes iguales entre todos los campeones
+ * individuales (pickRandomChampion ya es uniforme) — 20% en la ruleta
+ * principal (100 - BOUNCE - SUPPORT - SPELL) y 30% en la ruleta de rebote
+ * (100 - SUPPORT - SPELL, sin balde de rebote), ver rollFirstOutcome y
+ * rollPenaltyOutcome más abajo.
+ */
 
 /** Máximo de mangos que un mismo jugador puede RECIBIR en 24hs (distinto del máximo de 3 en inventario propio, Fase 2). */
 export const DAILY_RECEIVE_LIMIT = 3;
@@ -60,7 +66,7 @@ export const FLASH_SPELL_ID = "SummonerFlash";
  */
 export const NO_FLASH_ASSIGNMENT = "NO_FLASH";
 
-/** Los 8 hechizos normales + el caso especial "sin Flash" = 9 opciones uniformes dentro del 60% del balde de hechizos. */
+/** Los 8 hechizos normales + el caso especial "sin Flash" = 9 opciones uniformes dentro del balde de hechizos (SPELL_PROBABILITY_PERCENT). */
 export const SPELL_POOL_SIZE = MANDATORY_SPELL_IDS.length + 1;
 
 export type SpellPunishmentOutcome =
@@ -97,7 +103,7 @@ function rollSpellOutcome(spells: SummonerSpell[]): SpellPunishmentOutcome {
 
 /**
  * Ruleta principal (lanzamiento a un objetivo): 10% rebote, 20% Support,
- * 60% hechizo de invocador (uniforme entre las 9 opciones), 10% repartido
+ * 50% hechizo de invocador (uniforme entre las 9 opciones), 20% repartido
  * uniforme entre todos los campeones — pickRandomChampion ya reparte
  * parejo, así que alcanza con un solo roll de 0-99 para decidir el "balde"
  * y, si toca campeón u hechizo, un segundo roll uniforme dentro de esa lista.
@@ -118,8 +124,8 @@ export function rollFirstOutcome(
 /**
  * Ruleta del castigo que rebota (segunda ruleta tras un "MANGO DEVUELTO"):
  * sin balde de rebote — un rebote no puede volver a rebotar, ver
- * /api/jugador/mangos/launch. Mismos % de Support (20%) y hechizo (60%) que
- * la primera ruleta, el resto (20%) para campeones — no se renormaliza por
+ * /api/jugador/mangos/launch. Mismos % de Support (20%) y hechizo (50%) que
+ * la primera ruleta, el resto (30%) para campeones — no se renormaliza por
  * simplicidad, mismo criterio que ya usaba esta función antes de agregar
  * hechizos (ver el comentario original: la intención de cada balde pesa lo
  * mismo en las dos ruletas, el campeón se queda con lo que sobra).
