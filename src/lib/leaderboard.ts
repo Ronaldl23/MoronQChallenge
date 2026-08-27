@@ -3,7 +3,7 @@ import { getChampionList, type Champion } from "@/lib/champions";
 import { getSummonerSpellList, type SummonerSpell } from "@/lib/summoner-spells";
 import { resolveAssignedPunishment } from "@/lib/mango-launch";
 import { computeLpStats, TREND_WINDOW_DAYS } from "@/lib/lp-stats";
-import { computeRankChanges } from "@/lib/rank-change";
+import { computeRankChanges, findEloScoreAtOrBefore, RANK_CHANGE_MIN_AGE_MS } from "@/lib/rank-change";
 import type { Participant, Snapshot } from "@/types/database";
 
 /**
@@ -74,14 +74,17 @@ export interface LeaderboardEntry {
   trend: number[];
   /**
    * Cuántas posiciones subió (positivo) o bajó (negativo) en el ranking
-   * desde la corrida anterior de /api/update-rankings — 0 si se mantuvo
-   * igual, null si no había un snapshot previo con el que comparar (recién
-   * apareció en el ranking). Se calcula comparando el rank actual (por
-   * elo_score del snapshot más reciente de cada participante) contra el
-   * rank que hubiera tenido ese mismo grupo de participantes usando el
-   * snapshot ANTERIOR de cada uno — no es "la posición hace exactamente 15
-   * minutos", es "la posición antes de la última actualización de cada
-   * quien conforma el ranking actual".
+   * desde hace AL MENOS RANK_CHANGE_MIN_AGE_MS (ver src/lib/rank-change.ts)
+   * — 0 si se mantuvo igual, null si no había un snapshot con esa
+   * antigüedad con el que comparar (recién apareció en el ranking). Se
+   * calcula comparando el rank actual (por elo_score del snapshot más
+   * reciente de cada participante) contra el rank que hubiera tenido ese
+   * mismo grupo de participantes usando el snapshot más reciente de cada
+   * uno que sea igual o más viejo que el cutoff — antes se comparaba contra
+   * "la corrida anterior del cron" (~15min), lo que hacía que la flecha
+   * cambiara de valor en cada corrida; ahora el punto de comparación se
+   * mantiene fijo un rato más largo, así la flecha dura visible en vez de
+   * parpadear.
    */
   rankChange: number | null;
 }
@@ -288,9 +291,14 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
 
   const entries: Omit<LeaderboardEntry, "rank" | "rankChange">[] = [];
   const unrankedEntries: UnrankedLeaderboardEntry[] = [];
-  // elo_score del snapshot ANTERIOR al más reciente de cada participante,
-  // para rankChange más abajo — aparte de `entries` (que no lo necesita en
-  // su forma pública) en vez de embebido y después descartado.
+  // elo_score de hace AL MENOS RANK_CHANGE_MIN_AGE_MS por participante, para
+  // rankChange más abajo — aparte de `entries` (que no lo necesita en su
+  // forma pública) en vez de embebido y después descartado. Un solo cutoff
+  // fijo para toda la corrida (no uno por participante) — se recalcula
+  // fresco en cada request (getLeaderboard corre en cada carga de página,
+  // force-dynamic), así la ventana de comparación va deslizándose sola con
+  // el tiempo real sin que haga falta ningún cron ni estado guardado.
+  const rankChangeCutoffIso = new Date(Date.now() - RANK_CHANGE_MIN_AGE_MS).toISOString();
   const previousEloScoreByParticipantId = new Map<string, number>();
 
   for (const participant of participants) {
@@ -319,11 +327,12 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
         number[]
       >((acc, delta) => [...acc, acc[acc.length - 1] + delta], [0]);
 
-    if (history.length >= 2) {
-      previousEloScoreByParticipantId.set(
-        participant.id,
-        history[history.length - 2].elo_score,
-      );
+    const previousEloScore = findEloScoreAtOrBefore(
+      history.map((s) => ({ eloScore: s.elo_score, createdAt: s.created_at })),
+      rankChangeCutoffIso,
+    );
+    if (previousEloScore !== null) {
+      previousEloScoreByParticipantId.set(participant.id, previousEloScore);
     }
 
     entries.push({

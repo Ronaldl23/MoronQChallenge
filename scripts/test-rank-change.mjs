@@ -4,7 +4,7 @@
 //
 //   node --experimental-strip-types scripts/test-rank-change.mjs
 //
-import { computeRankChanges } from "../src/lib/rank-change.ts";
+import { computeRankChanges, findEloScoreAtOrBefore } from "../src/lib/rank-change.ts";
 
 let passed = 0;
 let failed = 0;
@@ -113,6 +113,49 @@ function toObject(map) {
 {
   const result = computeRankChanges([{ id: "a", currentEloScore: 100, previousEloScore: 100 }]);
   assertEqual(toObject(result), { a: 0 }, "un solo participante: siempre 1ro, sin cambio");
+}
+
+function point(eloScore, createdAt) {
+  return { eloScore, createdAt };
+}
+
+// === findEloScoreAtOrBefore ===
+
+// --- 8. Caso normal: elige el snapshot más reciente que sea <= cutoff, no el más viejo de todos ---
+{
+  const history = [
+    point(10, "2026-01-01T00:00:00Z"),
+    point(20, "2026-01-01T00:30:00Z"), // <= cutoff (00:45) -> este es el elegido
+    point(30, "2026-01-01T01:00:00Z"), // > cutoff, se ignora
+  ];
+  const result = findEloScoreAtOrBefore(history, "2026-01-01T00:45:00Z");
+  assertEqual(result, 20, "elige el snapshot más reciente que sigue siendo <= cutoff");
+}
+
+// --- 9. Todos los snapshots son más nuevos que el cutoff -> null (participante muy nuevo) ---
+{
+  const history = [point(10, "2026-01-01T00:50:00Z"), point(20, "2026-01-01T00:55:00Z")];
+  const result = findEloScoreAtOrBefore(history, "2026-01-01T00:00:00Z");
+  assertEqual(result, null, "sin ningún snapshot con la antigüedad pedida -> null");
+}
+
+// --- 10. Todos los snapshots son más viejos que el cutoff -> se queda con el más reciente de todos ---
+{
+  const history = [point(10, "2026-01-01T00:00:00Z"), point(20, "2026-01-01T00:10:00Z")];
+  const result = findEloScoreAtOrBefore(history, "2026-01-01T12:00:00Z");
+  assertEqual(result, 20, "cutoff muy en el futuro respecto al historial -> el más reciente de todos");
+}
+
+// --- 11. Exactamente en el borde (createdAt === cutoff) -> se incluye (<=, no <) ---
+{
+  const history = [point(10, "2026-01-01T00:00:00Z")];
+  const result = findEloScoreAtOrBefore(history, "2026-01-01T00:00:00Z");
+  assertEqual(result, 10, "createdAt igual al cutoff -> se incluye, no se excluye");
+}
+
+// --- 12. Historial vacío -> null ---
+{
+  assertEqual(findEloScoreAtOrBefore([], "2026-01-01T00:00:00Z"), null, "sin historial -> null");
 }
 
 console.log(`\n${passed} pasaron, ${failed} fallaron`);

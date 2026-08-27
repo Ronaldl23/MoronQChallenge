@@ -5,6 +5,45 @@
  * Supabase.
  */
 
+/**
+ * Antes, `previousEloScore` era siempre el snapshot INMEDIATAMENTE anterior
+ * (la corrida previa del cron, cada ~15min) — la flecha ▲▼ cambiaba de
+ * valor en cada corrida, así que en la práctica duraba muy poco visible
+ * antes de recalcularse contra un punto de comparación distinto. Ahora se
+ * ancla a "el snapshot más reciente de hace AL MENOS esto" en vez de "la
+ * corrida anterior", para que la flecha se mantenga estable un rato
+ * (mínimo RANK_CHANGE_MIN_AGE_MS) en vez de parpadear cada 15 minutos.
+ */
+export const RANK_CHANGE_MIN_AGE_MS = 60 * 60 * 1000;
+
+export interface EloHistoryPoint {
+  eloScore: number;
+  /** ISO 8601 — mismo criterio que el resto de comparaciones de timestamps del proyecto (ver src/lib/lp-correlation.ts). */
+  createdAt: string;
+}
+
+/**
+ * Busca el elo_score del snapshot más RECIENTE cuyo `createdAt` sea <=
+ * `cutoffIso` (osea, con al menos esa antigüedad) — `history` debe venir
+ * ordenado por createdAt ascendente (más viejo primero), mismo criterio que
+ * el resto de los módulos de src/lib que recorren historial de snapshots.
+ * null si TODOS los snapshots son más nuevos que el cutoff (el participante
+ * no tiene suficiente antigüedad todavía como para tener un punto de
+ * comparación válido) — en ese caso rankChange queda null (recién apareció
+ * en el ranking), mismo comportamiento que antes.
+ */
+export function findEloScoreAtOrBefore(
+  history: EloHistoryPoint[],
+  cutoffIso: string,
+): number | null {
+  let result: number | null = null;
+  for (const point of history) {
+    if (point.createdAt > cutoffIso) break;
+    result = point.eloScore;
+  }
+  return result;
+}
+
 export interface RankChangeInput {
   id: string;
   currentEloScore: number;
