@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAuthenticatedParticipantId } from "@/lib/player-auth";
+import { isParticipantDisqualified } from "@/lib/disqualification";
 import { getChampionList } from "@/lib/champions";
 import { getSummonerSpellList } from "@/lib/summoner-spells";
 import {
@@ -58,6 +59,18 @@ export async function POST(request: Request) {
   }
 
   const supabase = createAdminClient();
+
+  // Un jugador descalificado (por castigo sin cumplir o a mano desde
+  // /admin, ver isParticipantDisqualified) no puede seguir lanzando
+  // mangos hasta que lo perdonen — chequeo server-side, no alcanza con
+  // ocultarle el inventario en /jugador (ver ese archivo), esto ES el
+  // límite de autorización real.
+  if (await isParticipantDisqualified(supabase, participantId)) {
+    return NextResponse.json(
+      { error: "Estás descalificado — no podés lanzar mangos hasta que te perdonen" },
+      { status: 403 },
+    );
+  }
 
   // El dueño del mango se valida acá, en código — no hay policy de RLS
   // atada a la sesión de /jugador (no usa Supabase Auth), así que el

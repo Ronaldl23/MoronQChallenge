@@ -40,48 +40,73 @@ export default async function JugadorPage() {
 
   const supabase = createAdminClient();
 
-  const [participantResult, mangosResult, questsResult, othersResult, pendingPenaltiesResult] =
-    await Promise.all([
-      supabase
-        .from("participants")
-        .select("nombre_display, penalty_games_without_compliance")
-        .eq("id", participantId)
-        .maybeSingle(),
-      supabase
-        .from("mangos")
-        .select("id")
-        .eq("owner_participant_id", participantId)
-        .eq("status", "in_inventory")
-        .order("created_at", { ascending: true }),
-      supabase
-        .from("quest_progress")
-        .select("quest_type, current_progress, target")
-        .eq("participant_id", participantId),
-      supabase
-        .from("participants")
-        .select("id, nombre_display, last_seen_at")
-        .neq("id", participantId),
-      // Solo status='pending': todavía dentro de las 3 partidas para
-      // cumplirlo (Fase 4). 'disqualified' ya salió de la ventana de
-      // cumplimiento (avisado por toast en su momento, no por este banner)
-      // y 'completed' ya no es un pendiente. Si un admin perdona al
-      // jugador (ver /api/admin/penalties/resolve), el castigo vuelve a
-      // 'pending' y reaparece acá solo, con ventana fresca — es la
-      // devolución que pidió el usuario, no un caso especial. No tiene
-      // relación con `seen` (esto es para el banner, no para las
-      // notificaciones).
-      supabase
-        .from("penalty_progress")
-        .select("id, mango_id")
-        .eq("participant_id", participantId)
-        .eq("status", "pending")
-        .order("created_at", { ascending: false }),
-    ]);
+  const [
+    participantResult,
+    mangosResult,
+    questsResult,
+    othersResult,
+    pendingPenaltiesResult,
+    disqualifiedPenaltyCountResult,
+  ] = await Promise.all([
+    supabase
+      .from("participants")
+      .select(
+        "nombre_display, penalty_games_without_compliance, manually_disqualified, disqualification_reason",
+      )
+      .eq("id", participantId)
+      .maybeSingle(),
+    supabase
+      .from("mangos")
+      .select("id")
+      .eq("owner_participant_id", participantId)
+      .eq("status", "in_inventory")
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("quest_progress")
+      .select("quest_type, current_progress, target")
+      .eq("participant_id", participantId),
+    supabase
+      .from("participants")
+      .select("id, nombre_display, last_seen_at")
+      .neq("id", participantId),
+    // Solo status='pending': todavía dentro de las 3 partidas para
+    // cumplirlo (Fase 4). 'disqualified' ya salió de la ventana de
+    // cumplimiento (avisado por toast en su momento, no por este banner)
+    // y 'completed' ya no es un pendiente. Si un admin perdona al
+    // jugador (ver /api/admin/penalties/resolve), el castigo vuelve a
+    // 'pending' y reaparece acá solo, con ventana fresca — es la
+    // devolución que pidió el usuario, no un caso especial. No tiene
+    // relación con `seen` (esto es para el banner, no para las
+    // notificaciones).
+    supabase
+      .from("penalty_progress")
+      .select("id, mango_id")
+      .eq("participant_id", participantId)
+      .eq("status", "pending")
+      .order("created_at", { ascending: false }),
+    // Descalificado por no cumplir un castigo a tiempo (automático, ver
+    // src/lib/penalty.ts) — junto con manually_disqualified de arriba,
+    // decide si se le bloquea el inventario más abajo (mismo criterio que
+    // isDisqualified en src/lib/leaderboard.ts).
+    supabase
+      .from("penalty_progress")
+      .select("id", { count: "exact", head: true })
+      .eq("participant_id", participantId)
+      .eq("status", "disqualified"),
+  ]);
 
   const nombreDisplay = participantResult.data?.nombre_display ?? null;
   // Contador COMPARTIDO entre TODOS los castigos pendientes (rediseño de
   // Fase 4) — vive en participants, no en cada penalty_progress individual.
   const gamesWithoutCompliance = participantResult.data?.penalty_games_without_compliance ?? 0;
+  // Mismo criterio que isDisqualified en src/lib/leaderboard.ts — mientras
+  // sea true, más abajo se reemplaza el inventario por un aviso (bloquear
+  // el lanzamiento en sí ES /api/jugador/mangos/launch, ver
+  // isParticipantDisqualified — esto es solo la UI, no el límite real).
+  const isDisqualified =
+    (participantResult.data?.manually_disqualified ?? false) ||
+    (disqualifiedPenaltyCountResult.count ?? 0) > 0;
+  const disqualificationReason = participantResult.data?.disqualification_reason ?? null;
 
   if (!nombreDisplay) {
     // Cookie firmada pero el participante ya no existe — sesión huérfana.
@@ -244,14 +269,29 @@ export default async function JugadorPage() {
         <p className="font-display text-2xl font-bold text-text-primary">Hola, {nombreDisplay}</p>
       </section>
 
-      <InventoryPanel
-        mangos={mangos}
-        winStreak={winStreak}
-        kdaStreak={kdaStreak}
-        deathlessWin={deathlessWin}
-        beatParticipant={beatParticipant}
-        otherParticipants={otherParticipants}
-      />
+      {isDisqualified ? (
+        <section className="flex flex-col gap-2 rounded-2xl border border-loss/50 bg-surface p-6">
+          <p className="font-display text-base font-bold text-loss">Estás descalificado</p>
+          <p className="text-sm text-text-secondary">
+            No podés lanzar mangos ni acceder a tu inventario hasta que un admin te perdone.
+            {disqualificationReason && (
+              <>
+                {" "}
+                Motivo: <span className="text-text-primary">{disqualificationReason}</span>.
+              </>
+            )}
+          </p>
+        </section>
+      ) : (
+        <InventoryPanel
+          mangos={mangos}
+          winStreak={winStreak}
+          kdaStreak={kdaStreak}
+          deathlessWin={deathlessWin}
+          beatParticipant={beatParticipant}
+          otherParticipants={otherParticipants}
+        />
+      )}
     </PageShell>
   );
 }
