@@ -60,6 +60,16 @@ export type Participant = {
    * pública: se muestra en el leaderboard y el podio (ver 0016_aegis_counter.sql).
    */
   aegis_count: number;
+  /**
+   * Descalificación manual desde /admin (trampa, conducta, etc.) —
+   * independiente de la descalificación automática por no cumplir un
+   * castigo de mango (esa sale de penalty_progress.status, ver
+   * src/lib/penalty.ts). Pública: alimenta el mismo isDisqualified
+   * derivado del leaderboard (ver 0019_manual_disqualification.sql).
+   */
+  manually_disqualified: boolean;
+  /** Motivo que cargó el admin al descalificar manualmente — null si nunca se usó esta vía. Admin-only, no se expone en el leaderboard público. */
+  disqualification_reason: string | null;
 };
 
 /**
@@ -238,6 +248,8 @@ export type Database = {
           | "penalty_games_without_compliance"
           | "last_seen_at"
           | "aegis_count"
+          | "manually_disqualified"
+          | "disqualification_reason"
         > & {
           id?: string;
           profile_icon_id?: number | null;
@@ -248,6 +260,8 @@ export type Database = {
           penalty_games_without_compliance?: number;
           last_seen_at?: string | null;
           aegis_count?: number;
+          manually_disqualified?: boolean;
+          disqualification_reason?: string | null;
         };
         Update: Partial<Omit<Participant, "id">>;
         Relationships: [];

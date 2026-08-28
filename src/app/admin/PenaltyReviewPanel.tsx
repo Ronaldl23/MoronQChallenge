@@ -1,23 +1,33 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { DisqualifiedPenalty } from "@/app/api/admin/penalties/route";
+import type { DisqualifiedPenalty, ManuallyDisqualifiedPlayer } from "@/app/api/admin/penalties/route";
 import { PunishmentIcon } from "@/components/PunishmentIcon";
 
 type LoadState = { type: "loading" } | { type: "error"; message: string } | { type: "loaded" };
 
 /**
- * Descalificación automática (ver src/lib/penalty.ts): un jugador se pasa
- * a 'disqualified' solo, sin que ningún admin tenga que confirmarlo. Esta
- * lista es puramente informativa — muestra a quién le pasó y por qué
- * castigo(s) — y la única acción disponible es "Perdonar jugador", que
- * perdona TODO el grupo de una — no hay perdón por castigo individual.
- * Perdonar no borra nada: le devuelve esos mismos castigos a 'pending' con
- * ventana fresca (ver /api/admin/penalties/resolve), así que los sigue
- * teniendo que cumplir.
+ * Dos vías de descalificación, mostradas juntas por jugador (ver
+ * /api/admin/penalties):
+ * - Automática (src/lib/penalty.ts): un jugador se pasa a 'disqualified'
+ *   solo, sin que ningún admin tenga que confirmarlo — se listan los
+ *   castigos sin cumplir.
+ * - Manual (/api/admin/participants/disqualify, formulario en
+ *   DisqualifyParticipantForm): un admin lo descalifica directo por otro
+ *   motivo (trampa, conducta, etc.) — se muestra el motivo en vez de un
+ *   castigo.
+ *
+ * En cualquiera de las dos, la única acción disponible es "Perdonar
+ * jugador", que resuelve TODO lo que tenga pendiente de una — no hay
+ * perdón por castigo individual. Perdonar los castigos de mango no los
+ * borra: los devuelve a 'pending' con ventana fresca (ver
+ * /api/admin/penalties/resolve), así que los sigue teniendo que cumplir;
+ * la descalificación manual sí se limpia por completo (no hay "castigo"
+ * que devolver ahí).
  */
 export function PenaltyReviewPanel() {
   const [penalties, setPenalties] = useState<DisqualifiedPenalty[]>([]);
+  const [manuallyDisqualified, setManuallyDisqualified] = useState<ManuallyDisqualifiedPlayer[]>([]);
   const [state, setState] = useState<LoadState>({ type: "loading" });
   const [resolvingParticipantId, setResolvingParticipantId] = useState<string | null>(null);
   // Cambiarlo re-dispara el efecto de abajo — así "Actualizar" reusa la
@@ -38,6 +48,7 @@ export function PenaltyReviewPanel() {
         return;
       }
       setPenalties(body.penalties ?? []);
+      setManuallyDisqualified(body.manuallyDisqualified ?? []);
       setState({ type: "loaded" });
     }
 
@@ -61,6 +72,7 @@ export function PenaltyReviewPanel() {
     });
     if (res.ok) {
       setPenalties((prev) => prev.filter((p) => p.participantId !== participantId));
+      setManuallyDisqualified((prev) => prev.filter((p) => p.participantId !== participantId));
     } else {
       const body = await res.json().catch(() => null);
       alert(body?.error ?? "No se pudo perdonar al jugador");
@@ -68,11 +80,27 @@ export function PenaltyReviewPanel() {
     setResolvingParticipantId(null);
   }
 
-  const groups = new Map<string, { participantName: string; penalties: DisqualifiedPenalty[] }>();
+  const groups = new Map<
+    string,
+    { participantName: string; penalties: DisqualifiedPenalty[]; manualReason: string | null }
+  >();
   for (const p of penalties) {
-    const group = groups.get(p.participantId) ?? { participantName: p.participantName, penalties: [] };
+    const group = groups.get(p.participantId) ?? {
+      participantName: p.participantName,
+      penalties: [],
+      manualReason: null,
+    };
     group.penalties.push(p);
     groups.set(p.participantId, group);
+  }
+  for (const m of manuallyDisqualified) {
+    const group = groups.get(m.participantId) ?? {
+      participantName: m.participantName,
+      penalties: [],
+      manualReason: null,
+    };
+    group.manualReason = m.reason;
+    groups.set(m.participantId, group);
   }
 
   return (
@@ -111,11 +139,13 @@ export function PenaltyReviewPanel() {
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-sm font-medium text-black dark:text-zinc-50">
                 {group.participantName}
-                <span className="font-normal text-zinc-500 dark:text-zinc-400">
-                  {" "}
-                  — descalificado por no cumplir{" "}
-                  {group.penalties.length > 1 ? "estos castigos" : "este castigo"}
-                </span>
+                {group.penalties.length > 0 && (
+                  <span className="font-normal text-zinc-500 dark:text-zinc-400">
+                    {" "}
+                    — descalificado por no cumplir{" "}
+                    {group.penalties.length > 1 ? "estos castigos" : "este castigo"}
+                  </span>
+                )}
               </p>
               <button
                 type="button"
@@ -126,30 +156,40 @@ export function PenaltyReviewPanel() {
                 Perdonar jugador
               </button>
             </div>
-            <ul className="flex flex-col gap-2">
-              {group.penalties.map((p) => (
-                <li
-                  key={p.id}
-                  className="flex items-center gap-3 rounded bg-zinc-50 p-3 dark:bg-zinc-800/60"
-                >
-                  <PunishmentIcon
-                    iconUrl={p.championIconUrl ?? "/MangoAngry.png"}
-                    noFlash={p.noFlash}
-                    size={40}
-                    imgClassName="h-10 w-10 shrink-0 rounded object-cover"
-                  />
-                  <div className="text-sm text-zinc-700 dark:text-zinc-300">
-                    <p className="font-medium text-black dark:text-zinc-50">
-                      Castigo: {p.championName}
-                    </p>
-                    <p>Enviado por {p.senderName}</p>
-                    <p className="text-zinc-500 dark:text-zinc-400">
-                      Asignado el {new Date(p.createdAt).toLocaleDateString("es")}
-                    </p>
-                  </div>
-                </li>
-              ))}
-            </ul>
+            {group.manualReason !== null && (
+              <p className="rounded bg-red-50 p-3 text-sm text-zinc-700 dark:bg-red-950/40 dark:text-zinc-300">
+                <span className="font-medium text-black dark:text-zinc-50">
+                  Descalificado manualmente:
+                </span>{" "}
+                {group.manualReason}
+              </p>
+            )}
+            {group.penalties.length > 0 && (
+              <ul className="flex flex-col gap-2">
+                {group.penalties.map((p) => (
+                  <li
+                    key={p.id}
+                    className="flex items-center gap-3 rounded bg-zinc-50 p-3 dark:bg-zinc-800/60"
+                  >
+                    <PunishmentIcon
+                      iconUrl={p.championIconUrl ?? "/MangoAngry.png"}
+                      noFlash={p.noFlash}
+                      size={40}
+                      imgClassName="h-10 w-10 shrink-0 rounded object-cover"
+                    />
+                    <div className="text-sm text-zinc-700 dark:text-zinc-300">
+                      <p className="font-medium text-black dark:text-zinc-50">
+                        Castigo: {p.championName}
+                      </p>
+                      <p>Enviado por {p.senderName}</p>
+                      <p className="text-zinc-500 dark:text-zinc-400">
+                        Asignado el {new Date(p.createdAt).toLocaleDateString("es")}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
           </li>
         ))}
       </ul>

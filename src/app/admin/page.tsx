@@ -3,6 +3,7 @@ import { AdminLoginForm } from "./AdminLoginForm";
 import { AddParticipantForm } from "./AddParticipantForm";
 import { AddShowcaseParticipantForm } from "./AddShowcaseParticipantForm";
 import { ReplaceParticipantAccountForm } from "./ReplaceParticipantAccountForm";
+import { DisqualifyParticipantForm } from "./DisqualifyParticipantForm";
 import { PenaltyReviewPanel } from "./PenaltyReviewPanel";
 import { PickemAdminPanel } from "./PickemAdminPanel";
 
@@ -30,6 +31,7 @@ export default async function AdminPage() {
         {authenticated ? <AddParticipantForm /> : <AdminLoginForm />}
         {authenticated && <AddShowcaseParticipantForm />}
         {authenticated && <ReplaceParticipantAccountForm />}
+        {authenticated && <DisqualifyParticipantForm />}
         {authenticated && <PenaltyReviewPanel />}
         {authenticated && <PickemAdminPanel />}
       </main>

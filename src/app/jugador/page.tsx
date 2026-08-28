@@ -155,11 +155,13 @@ export default async function JugadorPage() {
     iconUrl: string | null;
     noFlash?: boolean;
     senderName: string;
+    /** true si este castigo es el rebote (10%) de un lanzamiento propio — senderName acá es el objetivo original, no alguien que te lo mandó. */
+    isBounceBack: boolean;
   }[] = [];
   if (pendingPenalties.length > 0) {
     const { data: pendingMangos } = await supabase
       .from("mangos")
-      .select("id, status, champion_assigned, sent_by_participant_id")
+      .select("id, status, champion_assigned, sent_by_participant_id, is_bounce_back")
       .in(
         "id",
         pendingPenalties.map((p) => p.mango_id),
@@ -186,7 +188,7 @@ export default async function JugadorPage() {
         const senderName =
           (mango?.sent_by_participant_id && senderNameById.get(mango.sent_by_participant_id)) ||
           "Alguien";
-        return { ...resolved, senderName };
+        return { ...resolved, senderName, isBounceBack: mango?.is_bounce_back ?? false };
       });
   }
 
@@ -223,7 +225,13 @@ export default async function JugadorPage() {
                   imgClassName="h-8 w-8 shrink-0 rounded-full object-cover"
                 />
                 <span>
-                  <span className="text-text-secondary">{punishment.senderName} te envió:</span>{" "}
+                  {punishment.isBounceBack ? (
+                    <span className="text-text-secondary">
+                      Se regresó tu mango enviado a {punishment.senderName}:
+                    </span>
+                  ) : (
+                    <span className="text-text-secondary">{punishment.senderName} te envió:</span>
+                  )}{" "}
                   {punishment.name}
                 </span>
               </li>

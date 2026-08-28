@@ -18,20 +18,31 @@ export interface DisqualifiedPenalty {
   createdAt: string;
 }
 
+export interface ManuallyDisqualifiedPlayer {
+  participantId: string;
+  participantName: string;
+  reason: string | null;
+}
+
 /**
- * Descalificación automática (ver src/lib/penalty.ts): el jugador se pasó
- * de las PENALTY_GAME_LIMIT partidas sin cumplir NINGUNO de sus castigos
- * pendientes, así que TODOS los que le quedaban pendientes en ese momento
- * pasaron a 'disqualified' juntos (misma causa), sin ningún paso de
- * revisión manual en el medio. El cliente (PenaltyReviewPanel) los agrupa
- * por participantId — la única acción posible ya no es por castigo
- * individual, es "Perdonar jugador" (ver /api/admin/penalties/resolve),
- * que le devuelve TODO el grupo a 'pending'.
+ * Dos vías de descalificación, independientes entre sí (un jugador puede
+ * estar en las dos a la vez):
  *
- * Incluye también 'flagged_for_review' por compatibilidad con filas viejas
- * de antes de este cambio (ese status ya no lo escribe nada, pero si
- * quedó alguna fila colgada de la cola de revisión manual anterior, sigue
- * apareciendo acá en vez de perderse).
+ * 1. Automática (ver src/lib/penalty.ts): el jugador se pasó de las
+ *    PENALTY_GAME_LIMIT partidas sin cumplir NINGUNO de sus castigos
+ *    pendientes, así que TODOS los que le quedaban pendientes en ese
+ *    momento pasaron a 'disqualified' juntos (misma causa), sin ningún
+ *    paso de revisión manual en el medio. Incluye también
+ *    'flagged_for_review' por compatibilidad con filas viejas de antes de
+ *    ese cambio (ese status ya no lo escribe nada).
+ * 2. Manual (ver /api/admin/participants/disqualify): un admin lo
+ *    descalifica directo desde /admin, por motivos sin mango de por medio
+ *    (trampa, conducta, etc.) — participants.manually_disqualified.
+ *
+ * El cliente (PenaltyReviewPanel) agrupa los castigos por participantId y
+ * suma las descalificaciones manuales al mismo grupo — la única acción
+ * posible en cualquiera de las dos vías es "Perdonar jugador" (ver
+ * /api/admin/penalties/resolve), que limpia ambas de una.
  */
 export async function GET(request: Request) {
   if (!(await isAdminAuthenticated(request))) {
@@ -39,17 +50,37 @@ export async function GET(request: Request) {
   }
 
   const supabase = createAdminClient();
-  const { data: flagged, error } = await supabase
-    .from("penalty_progress")
-    .select("id, participant_id, mango_id, created_at")
-    .in("status", ["disqualified", "flagged_for_review"])
-    .order("created_at", { ascending: true });
+
+  const [{ data: flagged, error }, { data: manuallyDisqualifiedRows, error: manualError }] =
+    await Promise.all([
+      supabase
+        .from("penalty_progress")
+        .select("id, participant_id, mango_id, created_at")
+        .in("status", ["disqualified", "flagged_for_review"])
+        .order("created_at", { ascending: true }),
+      supabase
+        .from("participants")
+        .select("id, nombre_display, disqualification_reason")
+        .eq("manually_disqualified", true),
+    ]);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+  if (manualError) {
+    return NextResponse.json({ error: manualError.message }, { status: 500 });
+  }
+
+  const manuallyDisqualified: ManuallyDisqualifiedPlayer[] = (manuallyDisqualifiedRows ?? []).map(
+    (p) => ({
+      participantId: p.id,
+      participantName: p.nombre_display,
+      reason: p.disqualification_reason,
+    }),
+  );
+
   if (!flagged || flagged.length === 0) {
-    return NextResponse.json({ penalties: [] });
+    return NextResponse.json({ penalties: [], manuallyDisqualified });
   }
 
   const { data: mangos } = await supabase
@@ -101,5 +132,5 @@ export async function GET(request: Request) {
     };
   });
 
-  return NextResponse.json({ penalties });
+  return NextResponse.json({ penalties, manuallyDisqualified });
 }

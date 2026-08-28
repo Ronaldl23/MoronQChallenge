@@ -47,7 +47,7 @@ export async function POST(request: Request) {
 
   const { data: mango, error: mangoError } = await supabase
     .from("mangos")
-    .select("id, status, champion_assigned, sent_by_participant_id")
+    .select("id, status, champion_assigned, sent_by_participant_id, is_bounce_back")
     .eq("id", mango_id)
     .maybeSingle();
 
@@ -138,6 +138,7 @@ export async function POST(request: Request) {
           receptorName,
           remitenteName,
           prizeLabel: resolved.name,
+          isBounceBack: mango.is_bounce_back,
         });
       }
     } catch (err) {

@@ -40,7 +40,15 @@ async function insertSystemChatMessage(
   }
 }
 
-/** Se publica al revelar un mango (pending_reveal -> sent) — ver /api/jugador/mangos/reveal. */
+/**
+ * Se publica al revelar un mango (pending_reveal -> sent) — ver
+ * /api/jugador/mangos/reveal. En un rebote (10%, ver
+ * src/lib/mango-launch.ts) `remitenteName` es en realidad el objetivo
+ * original al que `receptorName` le había lanzado el mango, no alguien que
+ * de verdad se lo mandó — isBounceBack cambia el texto para reflejar eso
+ * ("le rebotó...") en vez del genérico "recibió un mangazo de...", que
+ * sería engañoso en ese caso.
+ */
 export function postMangoEventChatMessage(
   supabase: SupabaseClient<Database>,
   {
@@ -48,17 +56,22 @@ export function postMangoEventChatMessage(
     receptorName,
     remitenteName,
     prizeLabel,
+    isBounceBack = false,
   }: {
     receptorParticipantId: string;
     receptorName: string;
     remitenteName: string;
     prizeLabel: string;
+    isBounceBack?: boolean;
   },
 ) {
+  const message = isBounceBack
+    ? `Se le regresó a ${receptorName} el mango que le mandó a ${remitenteName}, le tocó: ${prizeLabel}`
+    : `${receptorName} recibió un mangazo de ${remitenteName}, le tocó: ${prizeLabel}`;
   return insertSystemChatMessage(supabase, {
     participantId: receptorParticipantId,
     type: "mango_event",
-    message: `${receptorName} recibió un mangazo de ${remitenteName}, le tocó: ${prizeLabel}`,
+    message,
   });
 }
 

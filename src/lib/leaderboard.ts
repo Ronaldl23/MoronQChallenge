@@ -11,11 +11,17 @@ import type { Participant, Snapshot } from "@/types/database";
  * getLeaderboard). penalty_games_without_compliance y last_seen_at tampoco:
  * son datos de contexto de /jugador (contador compartido de castigos,
  * presencia online), no algo que el leaderboard público necesite mostrar
- * por jugador — ninguna de las dos columnas se pide en el select de abajo.
+ * por jugador. disqualification_reason tampoco: es admin-only a propósito
+ * (el motivo de una descalificación manual no se expone públicamente, ver
+ * 0019_manual_disqualification.sql) — ninguna de las cuatro se pide en el
+ * select de abajo.
  */
 type PublicParticipant = Omit<
   Participant,
-  "login_code" | "penalty_games_without_compliance" | "last_seen_at"
+  | "login_code"
+  | "penalty_games_without_compliance"
+  | "last_seen_at"
+  | "disqualification_reason"
 >;
 
 /** Un castigo pendiente o en revisión, en formato listo para mostrar (Fase 5) — mismo shape que el banner de /jugador. */
@@ -34,7 +40,7 @@ export interface LeaderboardEntry {
   pendingPenalties: PendingPenaltySummary[];
   /** mangos en inventario propio (status='in_inventory'), sin lanzar todavía. */
   mangoCount: number;
-  /** true si tiene AL MENOS UN penalty_progress en status='disqualified' (confirmado por el admin). */
+  /** true si tiene AL MENOS UN penalty_progress en status='disqualified' (no cumplió un castigo de mango a tiempo) O si un admin lo descalificó manualmente (participant.manually_disqualified, ver 0019_manual_disqualification.sql) — dos vías independientes, cualquiera de las dos alcanza. */
   isDisqualified: boolean;
   /**
    * Promedio de LP ganado POR VICTORIA (subidas de LP entre snapshots
@@ -130,7 +136,7 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
   const { data: participants, error: participantsError } = await supabase
     .from("participants")
     .select(
-      "id, nombre_display, riot_game_name, riot_tag, puuid, region_platform, profile_icon_id, avatar_url, opgg_url, in_game, main_role, aegis_count",
+      "id, nombre_display, riot_game_name, riot_tag, puuid, region_platform, profile_icon_id, avatar_url, opgg_url, in_game, main_role, aegis_count, manually_disqualified",
     );
 
   if (participantsError) {
@@ -311,7 +317,8 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
         participant,
         pendingPenalties: pendingByParticipant.get(participant.id) ?? [],
         mangoCount: mangoCountByParticipant.get(participant.id) ?? 0,
-        isDisqualified: disqualifiedParticipantIds.has(participant.id),
+        isDisqualified:
+          disqualifiedParticipantIds.has(participant.id) || participant.manually_disqualified,
       });
       continue;
     }
@@ -344,7 +351,8 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
       trend,
       pendingPenalties: pendingByParticipant.get(participant.id) ?? [],
       mangoCount: mangoCountByParticipant.get(participant.id) ?? 0,
-      isDisqualified: disqualifiedParticipantIds.has(participant.id),
+      isDisqualified:
+        disqualifiedParticipantIds.has(participant.id) || participant.manually_disqualified,
     });
   }
 

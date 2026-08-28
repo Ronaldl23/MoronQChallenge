@@ -26,6 +26,16 @@ export interface MangoNotification {
   championIconUrl: string | null;
   /** true si el castigo es "jugar SIN Flash" — el cliente le superpone la X sobre el ícono de Flash (ver PunishmentIcon). */
   noFlash?: boolean;
+  /**
+   * Solo 'received': true si este mango es el rebote (10%, ver
+   * src/lib/mango-launch.ts) de un lanzamiento TUYO — `otherPartyName` acá
+   * es el objetivo original al que le lanzaste, no alguien que te mandó
+   * algo. El cliente cambia el texto del toast para reflejar eso ("se te
+   * regresó el mango que le mandaste a X") en vez del genérico "X te envió
+   * un Mango", que sería engañoso en este caso — mismo campo,
+   * sent_by_participant_id, para las dos cosas (ver /api/jugador/mangos/launch).
+   */
+  isBounceBack?: boolean;
 }
 
 export interface NotificationsResponse {
@@ -165,7 +175,7 @@ export async function GET() {
   const { data: mangos } = penaltyRows.length
     ? await supabase
         .from("mangos")
-        .select("id, champion_assigned, sent_by_participant_id, status")
+        .select("id, champion_assigned, sent_by_participant_id, status, is_bounce_back")
         .in(
           "id",
           penaltyRows.map((p) => p.mango_id),
@@ -237,6 +247,7 @@ export async function GET() {
           otherPartyName: senderName,
           championName: "",
           championIconUrl: null,
+          isBounceBack: mango?.is_bounce_back ?? false,
         };
       }
       const resolved = resolveAssignedPunishment(mango.champion_assigned, championById, spellById);
@@ -248,6 +259,7 @@ export async function GET() {
         championName: resolved.name,
         championIconUrl: resolved.iconUrl,
         noFlash: resolved.noFlash,
+        isBounceBack: mango.is_bounce_back,
       };
     }),
     ...flagged.map((p): MangoNotification => {

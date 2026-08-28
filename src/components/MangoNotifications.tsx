@@ -328,15 +328,30 @@ function MangoToast({
             </p>
           </>
         )}
-        {notification.kind === "received" && (
+        {notification.kind === "received" && notification.isBounceBack && (
           <>
-            <p className="font-display text-sm font-bold text-loss">¡Te llegó un Mango!</p>
+            <p className="font-display text-sm font-bold text-loss">¡Se te regresó un Mango!</p>
             <p className="truncate text-sm text-text-primary">
-              <strong>{notification.otherPartyName}</strong> te envió un Mango
+              Se ha regresado tu mango enviado a <strong>{notification.otherPartyName}</strong>
               {/* Solo tiene campeón acá si ya se había revelado por otro
                   lado sin llegar a mostrar este toast (dato viejo) — el
                   caso normal (mango recién llegado) sigue sin spoiler,
                   la ruleta lo revela después. */}
+              {notification.championName ? (
+                <>
+                  : <strong>{notification.championName}</strong>
+                </>
+              ) : (
+                "."
+              )}
+            </p>
+          </>
+        )}
+        {notification.kind === "received" && !notification.isBounceBack && (
+          <>
+            <p className="font-display text-sm font-bold text-loss">¡Te llegó un Mango!</p>
+            <p className="truncate text-sm text-text-primary">
+              <strong>{notification.otherPartyName}</strong> te envió un Mango
               {notification.championName ? (
                 <>
                   : <strong>{notification.championName}</strong>
