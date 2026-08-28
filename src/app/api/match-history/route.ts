@@ -4,6 +4,7 @@ import { platformToContinent } from "@/lib/riot";
 import { ROLE_TO_LANE_SLUG, type MainRole } from "@/lib/lane";
 import { getChampionList } from "@/lib/champions";
 import { correlateLpChanges } from "@/lib/lp-correlation";
+import { MIN_MATCH_DURATION_SECONDS } from "@/lib/quests";
 
 export const dynamic = "force-dynamic";
 
@@ -207,6 +208,13 @@ export async function GET(request: Request) {
       if (!matchRes.ok) continue;
 
       const match = (await matchRes.json()) as RiotMatch;
+      // Remake (alguien se desconectó al arranque, termina a los pocos
+      // minutos): no afecta el registro ranked real de Riot (ni LP ni
+      // wins/losses), así que tampoco debería aparecer acá como si fuera
+      // una derrota real — mismo umbral que ya usan quests/castigos para
+      // el mismo concepto (ver MIN_MATCH_DURATION_SECONDS).
+      if (match.info.gameDuration < MIN_MATCH_DURATION_SECONDS) continue;
+
       const mp = match.info.participants.find(
         (p) => p.puuid === participant.puuid,
       );
