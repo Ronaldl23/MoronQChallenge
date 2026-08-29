@@ -4,7 +4,7 @@ import { getAuthenticatedParticipantId } from "@/lib/player-auth";
 import { getChampionList, type Champion } from "@/lib/champions";
 import { getSummonerSpellList, type SummonerSpell } from "@/lib/summoner-spells";
 import { resolveAssignedPunishment } from "@/lib/mango-launch";
-import { postMangoEventChatMessage } from "@/lib/chat-system-messages";
+import { postMangoEventChatMessage, postMoldyMangoChatMessage } from "@/lib/chat-system-messages";
 
 export const dynamic = "force-dynamic";
 
@@ -47,7 +47,7 @@ export async function POST(request: Request) {
 
   const { data: mango, error: mangoError } = await supabase
     .from("mangos")
-    .select("id, status, champion_assigned, sent_by_participant_id, is_bounce_back")
+    .select("id, status, champion_assigned, sent_by_participant_id, is_bounce_back, is_moldy_trash")
     .eq("id", mango_id)
     .maybeSingle();
 
@@ -120,10 +120,32 @@ export async function POST(request: Request) {
   };
 
   // Anuncio público en el chat — best-effort, no debe romper la revelación
-  // si falla. sent_by_participant_id puede ser null en teoría (tipo de la
-  // columna), aunque en la práctica launch/route.ts siempre lo completa;
-  // sin remitente no hay a quién nombrar, así que se omite el anuncio.
-  if (didTransition && mango.sent_by_participant_id) {
+  // si falla. is_moldy_trash primero: un mango tirado a la basura con
+  // hongo tiene sent_by_participant_id = el propio dueño (para que cuente
+  // como "lanzado" en las estadísticas, ver /api/jugador/mangos/discard),
+  // así que NO es el caso normal de "alguien te lo mandó" — usa su propio
+  // texto sin remitente. sent_by_participant_id puede ser null en teoría
+  // (tipo de la columna) para el resto de los casos, aunque en la práctica
+  // launch/route.ts siempre lo completa; sin remitente no hay a quién
+  // nombrar, así que se omite el anuncio.
+  if (didTransition && mango.is_moldy_trash) {
+    try {
+      const { data: person } = await supabase
+        .from("participants")
+        .select("nombre_display")
+        .eq("id", participantId)
+        .maybeSingle();
+      if (person) {
+        await postMoldyMangoChatMessage(supabase, {
+          participantId,
+          participantName: person.nombre_display,
+          prizeLabel: resolved.name,
+        });
+      }
+    } catch (err) {
+      console.error("reveal: fallo publicando el evento de mango con hongo en el chat:", err);
+    }
+  } else if (didTransition && mango.sent_by_participant_id) {
     try {
       const { data: people } = await supabase
         .from("participants")

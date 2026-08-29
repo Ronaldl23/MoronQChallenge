@@ -3,11 +3,14 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LaunchModal, type LaunchTarget } from "./LaunchModal";
+import { DiscardModal } from "./DiscardModal";
 
 export interface InventoryMango {
   id: string;
   /** inventory_since + MANGO_EXPIRY_HOURS (ver src/lib/mango-launch.ts) — cuándo se pudre este mango si no se lanza antes. MangoSlot arma la cuenta regresiva y decide "podrido" comparando esto contra la hora actual del cliente. */
   expiresAt: string;
+  /** inventory_since + MANGO_EXPIRY_HOURS + MOLDY_TRASH_UNLOCK_HOURS (ver discardUnlocksAt en src/lib/mango-launch.ts) — a partir de acá ya no se puede lanzar, solo tirar a la basura. */
+  discardUnlocksAt: string;
 }
 
 export interface QuestProgressView {
@@ -55,6 +58,7 @@ export function InventoryPanel({
 }) {
   const router = useRouter();
   const [selectedMangoId, setSelectedMangoId] = useState<string | null>(null);
+  const [discardMangoId, setDiscardMangoId] = useState<string | null>(null);
 
   function handleClose() {
     setSelectedMangoId(null);
@@ -62,6 +66,15 @@ export function InventoryPanel({
 
   function handleComplete() {
     setSelectedMangoId(null);
+    router.refresh();
+  }
+
+  function handleDiscardClose() {
+    setDiscardMangoId(null);
+  }
+
+  function handleDiscardComplete() {
+    setDiscardMangoId(null);
     router.refresh();
   }
 
@@ -73,14 +86,34 @@ export function InventoryPanel({
           Pasá el mouse por un mango y hacé click para lanzarlo.
         </p>
         <div className="mt-4 flex gap-4">
-          {Array.from({ length: MAX_SLOTS }, (_, i) => mangos[i] ?? null).map((mango, i) => (
-            <MangoSlot
-              key={mango?.id ?? `empty-${i}`}
-              filled={!!mango}
-              expiresAt={mango?.expiresAt}
-              onClick={mango && !launchBlocked ? () => setSelectedMangoId(mango.id) : undefined}
-            />
-          ))}
+          {Array.from({ length: MAX_SLOTS }, (_, i) => mangos[i] ?? null).map((mango, i) => {
+            // A partir de discardUnlocksAt ya no se puede lanzar — el
+            // click pasa a abrir el modal de "tirar a la basura" en vez
+            // del de lanzar, y esto NO respeta launchBlocked: tirar un
+            // mango propio a la basura no le lanza nada a nadie más, así
+            // que no hay razón para bloquearlo igual que un lanzamiento
+            // real (mismo criterio que el rebote propio, la única otra
+            // excepción aceptada al tope de castigos).
+            const discardable =
+              !!mango && Date.now() >= new Date(mango.discardUnlocksAt).getTime();
+            return (
+              <MangoSlot
+                key={mango?.id ?? `empty-${i}`}
+                filled={!!mango}
+                expiresAt={mango?.expiresAt}
+                discardUnlocksAt={mango?.discardUnlocksAt}
+                onClick={
+                  mango
+                    ? discardable
+                      ? () => setDiscardMangoId(mango.id)
+                      : !launchBlocked
+                        ? () => setSelectedMangoId(mango.id)
+                        : undefined
+                    : undefined
+                }
+              />
+            );
+          })}
         </div>
       </section>
 
@@ -127,6 +160,14 @@ export function InventoryPanel({
           onComplete={handleComplete}
         />
       )}
+
+      {discardMangoId && (
+        <DiscardModal
+          mangoId={discardMangoId}
+          onClose={handleDiscardClose}
+          onComplete={handleDiscardComplete}
+        />
+      )}
     </div>
   );
 }
@@ -156,22 +197,30 @@ function formatTimeRemaining(millis: number): string {
 function MangoSlot({
   filled,
   expiresAt,
+  discardUnlocksAt,
   onClick,
 }: {
   filled: boolean;
   /** undefined para un slot vacío — ver InventoryMango.expiresAt para uno lleno. */
   expiresAt?: string;
+  /** undefined para un slot vacío — ver InventoryMango.discardUnlocksAt para uno lleno. */
+  discardUnlocksAt?: string;
   onClick?: () => void;
 }) {
   const [hover, setHover] = useState(false);
   const clickable = filled && !!onClick;
   const millisRemaining = useMillisRemaining(expiresAt);
+  const millisUntilDiscardable = useMillisRemaining(discardUnlocksAt);
   // Podrido (24h+ sin lanzarse, ver MANGO_EXPIRY_HOURS): MangoPodrido/
   // MangoPodridoFurioso en vez de MangoHappy/MangoAngry — mismo hover,
-  // solo cambia qué imagen usa.
+  // solo cambia qué imagen usa. A partir de MOLDY_TRASH_UNLOCK_HOURS más
+  // tarde (discardable) ya no se puede lanzar — mismas imágenes podridas,
+  // pero el botón pasa a ser "tirar a la basura".
   const isExpired = millisRemaining !== null && millisRemaining <= 0;
+  const discardable = millisUntilDiscardable !== null && millisUntilDiscardable <= 0;
   const idleImage = isExpired ? "/MangoPodrido.png" : "/MangoHappy.png";
   const hoverImage = isExpired ? "/MangoPodridoFurioso.png" : "/MangoAngry.png";
+  const hoverLabel = discardable ? "Tirar a la basura" : "Lanzar";
 
   return (
     <div className="flex flex-col items-center gap-1">
@@ -181,8 +230,14 @@ function MangoSlot({
         onMouseEnter={() => setHover(true)}
         onMouseLeave={() => setHover(false)}
         onClick={onClick}
-        aria-label={filled ? "Lanzar mango" : "Slot vacío"}
-        title={filled && isExpired ? "Este mango está podrido: más chance de que rebote" : undefined}
+        aria-label={filled ? hoverLabel : "Slot vacío"}
+        title={
+          filled && discardable
+            ? "Este mango ya no se puede lanzar — tiralo a la basura"
+            : filled && isExpired
+              ? "Este mango está podrido: más chance de que rebote"
+              : undefined
+        }
         className={`group relative flex h-24 w-24 items-center justify-center rounded-xl border-2 transition-colors ${
           filled
             ? "cursor-pointer border-gold/50 bg-bg-elevated hover:border-gold"
@@ -199,7 +254,7 @@ function MangoSlot({
             />
             {hover && (
               <span className="absolute -top-8 rounded-full border border-border-hairline bg-bg-elevated px-2 py-1 text-xs font-semibold whitespace-nowrap text-text-primary shadow-lg">
-                Lanzar
+                {hoverLabel}
               </span>
             )}
           </>

@@ -85,7 +85,7 @@ export async function GET(request: Request) {
 
   const { data: mangos } = await supabase
     .from("mangos")
-    .select("id, champion_assigned, sent_by_participant_id")
+    .select("id, champion_assigned, sent_by_participant_id, is_moldy_trash")
     .in(
       "id",
       flagged.map((f) => f.mango_id),
@@ -118,8 +118,9 @@ export async function GET(request: Request) {
   const penalties: DisqualifiedPenalty[] = flagged.map((f) => {
     const mango = mangoById.get(f.mango_id);
     const resolved = resolveAssignedPunishment(mango?.champion_assigned ?? null, championById, spellById);
-    const senderName =
-      (mango?.sent_by_participant_id && nameById.get(mango.sent_by_participant_id)) || "Alguien";
+    const senderName = mango?.is_moldy_trash
+      ? "nadie — tirado a la basura con hongo"
+      : (mango?.sent_by_participant_id && nameById.get(mango.sent_by_participant_id)) || "Alguien";
     return {
       id: f.id,
       participantId: f.participant_id,

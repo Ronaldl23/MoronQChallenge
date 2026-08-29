@@ -333,7 +333,12 @@ function MangoToast({
       }`}
     >
       <PunishmentIcon
-        iconUrl={notification.championIconUrl ?? "/MangoAngry.png"}
+        iconUrl={
+          notification.championIconUrl ??
+          (notification.kind === "received" && notification.isMoldyTrash
+            ? "/MangoPodridoFurioso.png"
+            : "/MangoAngry.png")
+        }
         noFlash={notification.noFlash}
         size={48}
         imgClassName="h-12 w-12 shrink-0 rounded-lg object-cover"
@@ -347,7 +352,22 @@ function MangoToast({
             </p>
           </>
         )}
-        {notification.kind === "received" && notification.isBounceBack && (
+        {notification.kind === "received" && notification.isMoldyTrash && (
+          <>
+            <p className="font-display text-sm font-bold text-loss">¡Tu mango se infectó de hongos!</p>
+            <p className="truncate text-sm text-text-primary">
+              Girando la ruleta para ver qué te tocó
+              {notification.championName ? (
+                <>
+                  : <strong>{notification.championName}</strong>
+                </>
+              ) : (
+                "..."
+              )}
+            </p>
+          </>
+        )}
+        {notification.kind === "received" && !notification.isMoldyTrash && notification.isBounceBack && (
           <>
             <p className="font-display text-sm font-bold text-loss">¡Se te regresó un Mango!</p>
             <p className="truncate text-sm text-text-primary">
@@ -366,7 +386,7 @@ function MangoToast({
             </p>
           </>
         )}
-        {notification.kind === "received" && !notification.isBounceBack && (
+        {notification.kind === "received" && !notification.isMoldyTrash && !notification.isBounceBack && (
           <>
             <p className="font-display text-sm font-bold text-loss">¡Te llegó un Mango!</p>
             <p className="truncate text-sm text-text-primary">

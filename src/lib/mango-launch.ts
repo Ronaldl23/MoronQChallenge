@@ -312,3 +312,46 @@ export function mangoExpiresAt(inventorySince: string): string {
 export function hoursFromNowIso(hours: number): string {
   return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
 }
+
+/**
+ * Horas de gracia DESPUÉS de que un mango se pudre (ver isMangoExpired)
+ * antes de que ya no se pueda lanzar más y solo quede tirarlo a la basura
+ * — confirmado por el usuario. No reemplaza el estado "podrido" (que sigue
+ * activo con su 30% de rebote durante esa ventana), solo agrega un
+ * segundo límite más adelante en el tiempo.
+ */
+export const MOLDY_TRASH_UNLOCK_HOURS = 5;
+
+/**
+ * Probabilidad de que un mango tirado a la basura resulte "con hongos" —
+ * en vez de desaparecer sin más, le asigna un castigo a quien lo tiró
+ * (ver rollPenaltyOutcome, mismo roll que un rebote: sin balde de rebote
+ * de nuevo, no hay a quién devolvérselo) y dispara su propia ruleta de
+ * revelación, igual que si alguien más se lo hubiese lanzado.
+ */
+export const MOLDY_PROBABILITY_PERCENT = 50;
+
+/**
+ * true si ya pasaron MANGO_EXPIRY_HOURS + MOLDY_TRASH_UNLOCK_HOURS desde
+ * que el mango entró al inventario — a partir de acá el botón de
+ * lanzarlo se reemplaza por el de tirarlo a la basura (ver
+ * /api/jugador/mangos/discard, el chequeo real vive ahí — esto es lo
+ * mismo que consume la UI para decidir qué mostrar).
+ */
+export function canDiscardMango(inventorySince: string, now: Date = new Date()): boolean {
+  const ageMs = now.getTime() - new Date(inventorySince).getTime();
+  return ageMs >= (MANGO_EXPIRY_HOURS + MOLDY_TRASH_UNLOCK_HOURS) * 60 * 60 * 1000;
+}
+
+/** Cuándo se habilita tirar este mango a la basura — inventory_since + MANGO_EXPIRY_HOURS + MOLDY_TRASH_UNLOCK_HOURS, para la cuenta regresiva del inventario. */
+export function discardUnlocksAt(inventorySince: string): string {
+  return new Date(
+    new Date(inventorySince).getTime() +
+      (MANGO_EXPIRY_HOURS + MOLDY_TRASH_UNLOCK_HOURS) * 60 * 60 * 1000,
+  ).toISOString();
+}
+
+/** Un solo roll de 0 a 99 contra MOLDY_PROBABILITY_PERCENT — true = el mango tenía hongos. */
+export function rollIsMoldy(): boolean {
+  return randomInt(100) < MOLDY_PROBABILITY_PERCENT;
+}

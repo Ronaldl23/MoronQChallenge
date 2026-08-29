@@ -90,7 +90,8 @@ export type MangoStatus =
   | "in_inventory"
   | "pending_reveal"
   | "sent"
-  | "returned";
+  | "returned"
+  | "discarded";
 
 export type Mango = {
   id: string;
@@ -101,6 +102,8 @@ export type Mango = {
   created_at: string;
   /** true solo en la fila creada por un rebote (10%) — informativo, no cambia la lógica de juego. */
   is_bounce_back: boolean;
+  /** true solo si se tiró a la basura (ver 'discarded' en MangoStatus) y le tocó hongo — el castigo autoinfligido queda 'pending_reveal' igual que cualquier otro, esto solo distingue el mensaje de chat/toast (ver 0022_moldy_mango_discard.sql). */
+  is_moldy_trash: boolean;
   /**
    * Cuándo entró ESTE mango al inventario (se resetea a NOW en cada mango
    * nuevo otorgado por misión, nunca se toca en un lanzamiento/rebote —
@@ -189,9 +192,11 @@ export type ShowcaseParticipant = {
  * 'rank_event': fila generada por el servidor (mango revelado, ascenso o
  * descenso de tier/división) — ChatWidget la pinta con un ícono de evento
  * en vez de un avatar, sin el tratamiento de burbuja mía/ajena. Ver
- * 0015_chat_system_events.sql.
+ * 0015_chat_system_events.sql. 'mango_moldy_event' (0022_moldy_mango_discard.sql):
+ * mismo tratamiento visual que 'mango_event' pero con el ícono
+ * MangoPodridoFurioso — un mango tirado a la basura que resultó con hongos.
  */
-export type ChatMessageType = "user" | "mango_event" | "rank_event";
+export type ChatMessageType = "user" | "mango_event" | "rank_event" | "mango_moldy_event";
 
 /** Solo aplica a type = 'rank_event' — qué flecha (verde/roja) mostrar. */
 export type RankEventDirection = "up" | "down";
@@ -313,6 +318,7 @@ export type Database = {
           | "sent_by_participant_id"
           | "champion_assigned"
           | "is_bounce_back"
+          | "is_moldy_trash"
           | "launcher_notified"
           | "inventory_since"
         > & {
@@ -322,6 +328,7 @@ export type Database = {
           sent_by_participant_id?: string | null;
           champion_assigned?: string | null;
           is_bounce_back?: boolean;
+          is_moldy_trash?: boolean;
           launcher_notified?: boolean;
           inventory_since?: string;
         };

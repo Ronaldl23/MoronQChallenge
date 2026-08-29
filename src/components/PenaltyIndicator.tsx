@@ -13,7 +13,13 @@ import type { PendingPenaltySummary } from "@/lib/leaderboard";
 export function PenaltyIndicator({ penalties }: { penalties: PendingPenaltySummary[] }) {
   if (penalties.length === 0) return null;
 
-  const title = penalties.map((p) => `${p.senderName} le envió: ${p.championName}`).join("\n");
+  const title = penalties
+    .map((p) =>
+      p.isMoldyTrash
+        ? `Mango con hongos: ${p.championName}`
+        : `${p.senderName} le envió: ${p.championName}`,
+    )
+    .join("\n");
 
   return (
     <span

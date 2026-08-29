@@ -15,11 +15,16 @@ import {
   hoursFromNowIso,
   computeBullyingBonusPercent,
   canLaunchMango,
+  canDiscardMango,
+  discardUnlocksAt,
+  rollIsMoldy,
   MANDATORY_SPELL_IDS,
   FLASH_SPELL_ID,
   BOUNCE_PROBABILITY_PERCENT,
   EXPIRED_BOUNCE_PROBABILITY_PERCENT,
   MANGO_EXPIRY_HOURS,
+  MOLDY_TRASH_UNLOCK_HOURS,
+  MOLDY_PROBABILITY_PERCENT,
   BULLYING_BOUNCE_PERCENT_PER_RANK,
   MAX_ACTIVE_PENALTIES,
 } from "../src/lib/mango-launch.ts";
@@ -246,6 +251,61 @@ const spells = [
   const expectedMin = before + 5 * 60 * 60 * 1000;
   const expectedMax = after + 5 * 60 * 60 * 1000;
   assertEqual(result >= expectedMin && result <= expectedMax, true, "hoursFromNowIso(5): cae dentro de la ventana esperada");
+}
+
+// === canDiscardMango / discardUnlocksAt (tirar a la basura un mango podrido) ===
+
+// --- 21. Justo en el borde (MANGO_EXPIRY_HOURS + MOLDY_TRASH_UNLOCK_HOURS) -> ya se puede tirar (>=, no >) ---
+{
+  const now = new Date("2026-01-02T00:00:00Z");
+  const inventorySince = new Date(
+    now.getTime() - (MANGO_EXPIRY_HOURS + MOLDY_TRASH_UNLOCK_HOURS) * 60 * 60 * 1000,
+  ).toISOString();
+  assertEqual(canDiscardMango(inventorySince, now), true, "exactamente 29h atrás: ya se puede tirar");
+}
+
+// --- 22. Un minuto antes del borde -> todavía no se puede tirar (aunque ya esté podrido) ---
+{
+  const now = new Date("2026-01-02T00:00:00Z");
+  const inventorySince = new Date(
+    now.getTime() - ((MANGO_EXPIRY_HOURS + MOLDY_TRASH_UNLOCK_HOURS) * 60 * 60 * 1000 - 60_000),
+  ).toISOString();
+  assertEqual(canDiscardMango(inventorySince, now), false, "28h59m atrás: todavía no se puede tirar");
+  assertEqual(isMangoExpired(inventorySince, now), true, "pero ya está podrido (pasó MANGO_EXPIRY_HOURS)");
+}
+
+// --- 23. Recién podrido (justo en MANGO_EXPIRY_HOURS) -> todavía no se puede tirar, faltan las MOLDY_TRASH_UNLOCK_HOURS de gracia ---
+{
+  const now = new Date("2026-01-02T00:00:00Z");
+  const inventorySince = new Date(now.getTime() - MANGO_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
+  assertEqual(canDiscardMango(inventorySince, now), false, "justo podrido: todavía no se puede tirar");
+}
+
+// --- 24. discardUnlocksAt = inventory_since + MANGO_EXPIRY_HOURS + MOLDY_TRASH_UNLOCK_HOURS, y es consistente con canDiscardMango en el borde ---
+{
+  const inventorySince = "2026-01-01T00:00:00.000Z";
+  const expected = new Date(
+    new Date(inventorySince).getTime() +
+      (MANGO_EXPIRY_HOURS + MOLDY_TRASH_UNLOCK_HOURS) * 60 * 60 * 1000,
+  ).toISOString();
+  assertEqual(discardUnlocksAt(inventorySince), expected, "discardUnlocksAt: inventory_since + 24h + 5h");
+  assertEqual(
+    canDiscardMango(inventorySince, new Date(discardUnlocksAt(inventorySince))),
+    true,
+    "discardUnlocksAt y canDiscardMango son consistentes en el borde exacto",
+  );
+}
+
+// === rollIsMoldy ===
+
+// --- 25. ~MOLDY_PROBABILITY_PERCENT (50%) de veces sale con hongo ---
+{
+  const trials = 50_000;
+  let moldy = 0;
+  for (let i = 0; i < trials; i++) {
+    if (rollIsMoldy()) moldy++;
+  }
+  assertClose((moldy / trials) * 100, MOLDY_PROBABILITY_PERCENT, 1, `rollIsMoldy: ~${MOLDY_PROBABILITY_PERCENT}% con hongo`);
 }
 
 console.log(`\n${passed} pasaron, ${failed} fallaron`);

@@ -36,6 +36,15 @@ export interface MangoNotification {
    * sent_by_participant_id, para las dos cosas (ver /api/jugador/mangos/launch).
    */
   isBounceBack?: boolean;
+  /**
+   * Solo 'received': true si este mango es el resultado de tirar a la
+   * basura un mango podrido que te tocó hongo (ver
+   * /api/jugador/mangos/discard) — autoinfligido, sin remitente real.
+   * `otherPartyName` no aplica en este caso (queda como "Alguien", sin
+   * usarse); el cliente cambia el texto del toast para reflejar esto en
+   * vez del genérico "X te envió un Mango".
+   */
+  isMoldyTrash?: boolean;
 }
 
 export interface NotificationsResponse {
@@ -110,12 +119,19 @@ export async function GET() {
       .in("status", ["disqualified", "flagged_for_review"])
       .eq("flagged_seen", false)
       .order("created_at", { ascending: true }),
+    // is_moldy_trash=false: un mango con hongo también queda con
+    // sent_by_participant_id = uno mismo (para las estadísticas, ver
+    // /api/jugador/mangos/discard) — sin este filtro, revelarlo generaría
+    // ADEMÁS una notificación fantasma de "tu mango llegó a destino" con
+    // uno mismo como destinatario, que no tiene sentido acá (ya se avisa
+    // como "received" con isMoldyTrash, ver más abajo).
     supabase
       .from("mangos")
       .select("id, champion_assigned")
       .eq("sent_by_participant_id", participantId)
       .eq("status", "sent")
       .eq("launcher_notified", false)
+      .eq("is_moldy_trash", false)
       .order("created_at", { ascending: true }),
     supabase
       .from("penalty_progress")
@@ -175,7 +191,7 @@ export async function GET() {
   const { data: mangos } = penaltyRows.length
     ? await supabase
         .from("mangos")
-        .select("id, champion_assigned, sent_by_participant_id, status, is_bounce_back")
+        .select("id, champion_assigned, sent_by_participant_id, status, is_bounce_back, is_moldy_trash")
         .in(
           "id",
           penaltyRows.map((p) => p.mango_id),
@@ -248,6 +264,7 @@ export async function GET() {
           championName: "",
           championIconUrl: null,
           isBounceBack: mango?.is_bounce_back ?? false,
+          isMoldyTrash: mango?.is_moldy_trash ?? false,
         };
       }
       const resolved = resolveAssignedPunishment(mango.champion_assigned, championById, spellById);
@@ -260,6 +277,7 @@ export async function GET() {
         championIconUrl: resolved.iconUrl,
         noFlash: resolved.noFlash,
         isBounceBack: mango.is_bounce_back,
+        isMoldyTrash: mango.is_moldy_trash,
       };
     }),
     ...flagged.map((p): MangoNotification => {

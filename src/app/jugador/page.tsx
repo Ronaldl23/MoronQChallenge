@@ -2,7 +2,12 @@ import { getAuthenticatedParticipantId } from "@/lib/player-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getChampionList, type Champion } from "@/lib/champions";
 import { getSummonerSpellList, type SummonerSpell } from "@/lib/summoner-spells";
-import { MAX_ACTIVE_PENALTIES, mangoExpiresAt, resolveAssignedPunishment } from "@/lib/mango-launch";
+import {
+  MAX_ACTIVE_PENALTIES,
+  mangoExpiresAt,
+  discardUnlocksAt,
+  resolveAssignedPunishment,
+} from "@/lib/mango-launch";
 import { QUEST_TARGETS } from "@/lib/quests";
 import { PENALTY_GAME_LIMIT } from "@/lib/penalty";
 import { isOnline } from "@/lib/presence";
@@ -127,6 +132,7 @@ export default async function JugadorPage() {
   const mangos = (mangosResult.data ?? []).map((m) => ({
     id: m.id,
     expiresAt: mangoExpiresAt(m.inventory_since),
+    discardUnlocksAt: discardUnlocksAt(m.inventory_since),
   }));
 
   const questByType = new Map(
@@ -259,11 +265,13 @@ export default async function JugadorPage() {
     senderName: string;
     /** true si este castigo es el rebote (10%) de un lanzamiento propio — senderName acá es el objetivo original, no alguien que te lo mandó. */
     isBounceBack: boolean;
+    /** true si este castigo salió de tirar a la basura un mango podrido que te tocó hongo (ver /api/jugador/mangos/discard) — autoinfligido, senderName no aplica (sent_by_participant_id queda en uno mismo, solo para las estadísticas). */
+    isMoldyTrash: boolean;
   }[] = [];
   if (pendingPenalties.length > 0) {
     const { data: pendingMangos } = await supabase
       .from("mangos")
-      .select("id, status, champion_assigned, sent_by_participant_id, is_bounce_back")
+      .select("id, status, champion_assigned, sent_by_participant_id, is_bounce_back, is_moldy_trash")
       .in(
         "id",
         pendingPenalties.map((p) => p.mango_id),
@@ -290,7 +298,12 @@ export default async function JugadorPage() {
         const senderName =
           (mango?.sent_by_participant_id && senderNameById.get(mango.sent_by_participant_id)) ||
           "Alguien";
-        return { ...resolved, senderName, isBounceBack: mango?.is_bounce_back ?? false };
+        return {
+          ...resolved,
+          senderName,
+          isBounceBack: mango?.is_bounce_back ?? false,
+          isMoldyTrash: mango?.is_moldy_trash ?? false,
+        };
       });
   }
 
@@ -327,7 +340,9 @@ export default async function JugadorPage() {
                   imgClassName="h-8 w-8 shrink-0 rounded-full object-cover"
                 />
                 <span>
-                  {punishment.isBounceBack ? (
+                  {punishment.isMoldyTrash ? (
+                    <span className="text-text-secondary">Tu mango tirado a la basura tenía hongos:</span>
+                  ) : punishment.isBounceBack ? (
                     <span className="text-text-secondary">
                       Se regresó tu mango enviado a {punishment.senderName}:
                     </span>

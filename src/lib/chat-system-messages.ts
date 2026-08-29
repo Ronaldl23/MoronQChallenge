@@ -19,7 +19,7 @@ async function insertSystemChatMessage(
   input: {
     participantId: string;
     message: string;
-    type: "mango_event" | "rank_event";
+    type: "mango_event" | "rank_event" | "mango_moldy_event";
     rankDirection?: RankEventDirection;
   },
 ) {
@@ -72,6 +72,33 @@ export function postMangoEventChatMessage(
     participantId: receptorParticipantId,
     type: "mango_event",
     message,
+  });
+}
+
+/**
+ * Se publica al revelar un mango tirado a la basura que resultó "con
+ * hongos" (ver /api/jugador/mangos/discard y MOLDY_PROBABILITY_PERCENT en
+ * src/lib/mango-launch.ts) — autoinfligido, sin remitente real, así que
+ * usa su propio texto en vez de postMangoEventChatMessage (que siempre
+ * habla de un "remitente"). El ícono de este tipo de mensaje lo resuelve
+ * ChatWidget (MangoPodridoFurioso en vez del genérico de mango_event).
+ */
+export function postMoldyMangoChatMessage(
+  supabase: SupabaseClient<Database>,
+  {
+    participantId,
+    participantName,
+    prizeLabel,
+  }: {
+    participantId: string;
+    participantName: string;
+    prizeLabel: string;
+  },
+) {
+  return insertSystemChatMessage(supabase, {
+    participantId,
+    type: "mango_moldy_event",
+    message: `El mango de ${participantName} ha agarrado hongo y se ha infectado, le tocó: ${prizeLabel}`,
   });
 }
 
