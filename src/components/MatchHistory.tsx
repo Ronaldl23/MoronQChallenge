@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { MatchSummary, MatchTeam } from "@/app/api/match-history/route";
+import type { MatchSummary, MatchTeam, SummonerSpellIcon } from "@/app/api/match-history/route";
 import { PositionIcon } from "./PositionIcon";
 import { ProfileIcon } from "./ProfileIcon";
 
@@ -97,6 +97,45 @@ function ItemIcon({
       loading="lazy"
       onError={() => setFailed(true)}
     />
+  );
+}
+
+function SpellIcon({ iconUrl, size = 17 }: { iconUrl: string; size?: number }) {
+  const [failed, setFailed] = useState(false);
+
+  if (failed) {
+    return (
+      <div
+        className="shrink-0 rounded bg-white/5"
+        style={{ width: size, height: size }}
+      />
+    );
+  }
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- CDN externo (Data Dragon), necesita onError
+    <img
+      src={iconUrl}
+      alt=""
+      width={size}
+      height={size}
+      className="shrink-0 rounded"
+      style={{ width: size, height: size }}
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
+/** Pila vertical de los dos hechizos de invocador — mismo tamaño total (2*size + gap) que el ícono de campeón de al lado, para que no desalinee la fila. */
+function SpellStack({ spells, size = 17 }: { spells: SummonerSpellIcon[]; size?: number }) {
+  if (spells.length === 0) return null;
+  return (
+    <div className="flex shrink-0 flex-col gap-0.5">
+      {spells.map((spell, i) => (
+        <SpellIcon key={`${spell.name}-${i}`} iconUrl={spell.iconUrl} size={size} />
+      ))}
+    </div>
   );
 }
 
@@ -352,7 +391,8 @@ export function MatchHistory({
                 </span>
               </div>
 
-              <div className="flex w-[86px] shrink-0 items-center gap-1.5">
+              <div className="flex w-[106px] shrink-0 items-center gap-1">
+                <SpellStack spells={match.summonerSpells} />
                 <div className="relative shrink-0">
                   <ChampionIcon
                     championName={match.championName}

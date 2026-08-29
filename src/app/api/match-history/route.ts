@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { platformToContinent } from "@/lib/riot";
 import { ROLE_TO_LANE_SLUG, type MainRole } from "@/lib/lane";
 import { getChampionList } from "@/lib/champions";
+import { getSummonerSpellList } from "@/lib/summoner-spells";
 import { correlateLpChanges } from "@/lib/lp-correlation";
 import { MIN_MATCH_DURATION_SECONDS } from "@/lib/quests";
 
@@ -32,6 +33,9 @@ interface RiotMatchParticipant {
   item4: number;
   item5: number;
   item6: number;
+  /** Ids NUMÉRICOS de Riot (no el id de texto de Data Dragon) — mismo campo que usa src/lib/penalty.ts para el castigo de hechizo obligatorio. */
+  summoner1Id: number;
+  summoner2Id: number;
 }
 
 interface RiotMatchTeam {
@@ -61,6 +65,11 @@ export interface MatchPlayerSummary {
   isTrackedParticipant: boolean;
 }
 
+export interface SummonerSpellIcon {
+  name: string;
+  iconUrl: string;
+}
+
 export interface MatchTeam {
   teamId: number;
   win: boolean;
@@ -83,6 +92,8 @@ export interface MatchSummary {
   /** % de los kills del equipo en los que participó (kills + assists propios / kills totales del equipo). */
   killParticipationPct: number;
   items: number[];
+  /** Los dos hechizos de invocador que llevó a esta partida (summoner1Id/summoner2Id de match-v5, resueltos a ícono) — vacío si no se pudo resolver alguno contra el listado de Data Dragon. */
+  summonerSpells: SummonerSpellIcon[];
   durationSeconds: number;
   gameEndTimestamp: number;
   /** Los 10 jugadores de la partida (ambos equipos) + bans, para el scoreboard expandido. */
@@ -191,6 +202,19 @@ export async function GET(request: Request) {
     // mapa queda vacío y cada ban cae a null en vez de romper el historial.
   }
 
+  // Mismo criterio que championIdToDDragonId de arriba: summoner1Id/
+  // summoner2Id de match-v5 vienen como id NUMÉRICO de Riot, no el id de
+  // texto de Data Dragon que usan los íconos (ver SummonerSpell.key en
+  // src/lib/summoner-spells.ts).
+  let spellKeyToSpell = new Map<string, { name: string; iconUrl: string }>();
+  try {
+    const spells = await getSummonerSpellList();
+    spellKeyToSpell = new Map(spells.map((s) => [s.key, { name: s.name, iconUrl: s.iconUrl }]));
+  } catch {
+    // Sin listado de hechizos no se pueden resolver a ícono — cada partida
+    // queda con summonerSpells vacío en vez de romper el historial.
+  }
+
   const matches: Omit<MatchSummary, "lpChange">[] = [];
 
   for (const matchId of matchIds) {
@@ -225,6 +249,10 @@ export async function GET(request: Request) {
             (p) => p.teamId !== mp.teamId && p.teamPosition === mp.teamPosition,
           )
         : undefined;
+
+      const summonerSpells = [mp.summoner1Id, mp.summoner2Id]
+        .map((id) => spellKeyToSpell.get(String(id)))
+        .filter((s): s is SummonerSpellIcon => s !== undefined);
 
       const items = [
         mp.item0,
@@ -287,6 +315,7 @@ export async function GET(request: Request) {
         cs: mp.totalMinionsKilled + mp.neutralMinionsKilled,
         killParticipationPct,
         items,
+        summonerSpells,
         durationSeconds: match.info.gameDuration,
         gameEndTimestamp: match.info.gameEndTimestamp,
         teams,
