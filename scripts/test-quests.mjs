@@ -176,41 +176,42 @@ const ZERO = { win_streak: 0, kda_streak: 0, deathless_win: 0, beat_participant:
   assertEqual(result.mangoCount, 2, "ambas quests completas: mangoCount sube en 2");
 }
 
-// --- 8. CASO LÍMITE: ya tiene 3 mangos (cupo lleno) -> no se otorga, progreso queda pegado en el target ---
+// --- 8. CASO LÍMITE: ya tiene 3 mangos (cupo lleno) -> la misión se completa igual, pero el mango se pierde y el progreso vuelve a 0 (confirmado por el usuario: sin cupo en el momento exacto, no hay segunda oportunidad) ---
 {
   const seq = [win("f1"), win("f2"), win("f3"), win("f4"), win("f5"), win("f6")]; // 6 wins seguidas, cupo lleno todo el tiempo
   const result = processNewMatches({ progress: ZERO, matches: seq, mangoCount: MAX_MANGO_INVENTORY });
-  assertEqual(result.grants.filter((g) => g.quest_type === "win_streak"), [], "cupo lleno: no se otorga ningún mango de win_streak");
+  assertEqual(result.grants.filter((g) => g.quest_type === "win_streak"), [], "cupo lleno: no se otorga ningún mango de win_streak, se pierde");
   assertEqual(
     result.progress.win_streak,
-    QUEST_TARGETS.win_streak,
-    "cupo lleno: win_streak queda pegado en el target (5), ni resetea ni sigue subiendo con la 6ta victoria",
+    1,
+    "cupo lleno: win_streak se completa en f5 y resetea a 0 igual (mango perdido) — la 6ta victoria (f6) ya es la 1ra de la próxima racha",
   );
-  assertEqual(result.mangoCount, MAX_MANGO_INVENTORY, "cupo lleno: mangoCount no cambia");
+  assertEqual(result.mangoCount, MAX_MANGO_INVENTORY, "cupo lleno: mangoCount no cambia (nunca se otorgó nada)");
 }
 
-// --- 9. CASO LÍMITE: cupo lleno y llega una DERROTA -> el progreso pegado en el target NO se resetea ---
+// --- 9. CASO LÍMITE: cupo lleno -> la racha se completa y se pierde en el momento, no queda "pegada" esperando nada ---
 {
   const seq = [win("g1"), win("g2"), win("g3"), win("g4"), win("g5"), loss("g6"), loss("g7")];
   const result = processNewMatches({ progress: ZERO, matches: seq, mangoCount: MAX_MANGO_INVENTORY });
   assertEqual(
     result.progress.win_streak,
-    QUEST_TARGETS.win_streak,
-    "cupo lleno + derrotas después: la racha ya cumplida no se pierde, sigue esperando cupo",
+    0,
+    "cupo lleno: la racha se completa y se pierde en g5 (resetea a 0 ahí mismo) — las derrotas después no tienen nada que cortar",
   );
+  assertEqual(result.grants.filter((g) => g.quest_type === "win_streak"), [], "cupo lleno: nunca se otorgó el mango de win_streak");
 }
 
-// --- 10. Se libera cupo entre corridas (progreso ya en el target, sin partidas nuevas esta vez) -> se otorga al toque ---
+// --- 10. Red de seguridad: si llega un progreso YA en el target (dato viejo, de antes de que el mango se pierda al instante en vez de quedar pendiente), lo resuelve apenas arranca en vez de dejarlo pegado para siempre ---
 {
   const stuckProgress = { win_streak: QUEST_TARGETS.win_streak, kda_streak: 0, deathless_win: 0, beat_participant: 0 };
   const result = processNewMatches({ progress: stuckProgress, matches: [], mangoCount: MAX_MANGO_INVENTORY - 1 });
   assertEqual(
     result.grants,
     [{ matchId: null, quest_type: "win_streak" }],
-    "se libera cupo sin partidas nuevas: se otorga el mango pendiente igual (matchId null, no hay partida asociada)",
+    "progreso viejo ya en el target, con cupo libre: se otorga el mango al toque (matchId null, no hay partida asociada)",
   );
-  assertEqual(result.progress.win_streak, 0, "se libera cupo: win_streak resetea a 0 tras otorgarse");
-  assertEqual(result.mangoCount, MAX_MANGO_INVENTORY, "se libera cupo: mangoCount vuelve a estar lleno");
+  assertEqual(result.progress.win_streak, 0, "progreso viejo resuelto: win_streak resetea a 0 tras otorgarse");
+  assertEqual(result.mangoCount, MAX_MANGO_INVENTORY, "progreso viejo resuelto: mangoCount vuelve a estar lleno");
 }
 
 // --- 11. Sin partidas nuevas y sin nada pendiente: no pasa nada ---
@@ -242,13 +243,13 @@ const ZERO = { win_streak: 0, kda_streak: 0, deathless_win: 0, beat_participant:
   assertEqual(
     result.grants.map((g) => g.matchId),
     ["i5", "i10", "i15"],
-    "20 wins seguidas: se otorgan solo 3 mangos (i5, i10, i15) — el 4to (que caería en i20) se bloquea por el tope",
+    "20 wins seguidas: se otorgan solo 3 mangos (i5, i10, i15) — el 4to (que se completaría en i20) se pierde por el tope",
   );
   assertEqual(result.mangoCount, MAX_MANGO_INVENTORY, "20 wins: mangoCount tope en 3");
   assertEqual(
     result.progress.win_streak,
-    QUEST_TARGETS.win_streak,
-    "20 wins: tras i15 el tope ya está lleno, así que i16..i20 (5 wins más) dejan win_streak pegado en 5, no se pierden ni se resetean",
+    0,
+    "20 wins: la 4ta racha (i16..i20) también se completa y resetea a 0 en i20, aunque el mango se pierda por no haber cupo",
   );
 }
 
@@ -299,7 +300,7 @@ const ZERO = { win_streak: 0, kda_streak: 0, deathless_win: 0, beat_participant:
   );
 }
 
-// --- 18. CASO LÍMITE: cupo lleno -> deathless_win también queda pegado en el target esperando espacio ---
+// --- 18. CASO LÍMITE: cupo lleno -> deathless_win se completa y se pierde cada vez, sin quedar pegada ---
 {
   const seq = [
     match("o1", { win: true, kda: 10, deaths: 0 }),
@@ -309,12 +310,12 @@ const ZERO = { win_streak: 0, kda_streak: 0, deathless_win: 0, beat_participant:
   assertEqual(
     result.grants.filter((g) => g.quest_type === "deathless_win"),
     [],
-    "cupo lleno: ninguna de las 2 victorias sin morir otorga mango",
+    "cupo lleno: ninguna de las 2 victorias sin morir otorga mango, se pierden las dos",
   );
   assertEqual(
     result.progress.deathless_win,
-    QUEST_TARGETS.deathless_win,
-    "cupo lleno: deathless_win queda pegado en el target (1), esperando espacio como las otras dos quests",
+    0,
+    "cupo lleno: deathless_win resetea a 0 en cada una (no es racha, se completa y se pierde de nuevo en o2)",
   );
 }
 
@@ -418,19 +419,19 @@ const ZERO = { win_streak: 0, kda_streak: 0, deathless_win: 0, beat_participant:
   );
 }
 
-// --- 28. CASO LÍMITE: cupo lleno -> beat_participant también queda pegado en el target esperando espacio ---
+// --- 28. CASO LÍMITE: cupo lleno -> beat_participant se completa y se pierde igual, sin quedar pegada ---
 {
   const seq = [beatWin("v7")];
   const result = processNewMatches({ progress: ZERO, matches: seq, mangoCount: MAX_MANGO_INVENTORY });
   assertEqual(
     result.grants.filter((g) => g.quest_type === "beat_participant"),
     [],
-    "cupo lleno: la victoria contra un participante registrado no otorga mango",
+    "cupo lleno: la victoria contra un participante registrado no otorga mango, se pierde",
   );
   assertEqual(
     result.progress.beat_participant,
-    QUEST_TARGETS.beat_participant,
-    "cupo lleno: beat_participant queda pegado en el target (1), esperando espacio como las otras quests",
+    0,
+    "cupo lleno: beat_participant resetea a 0 igual (mango perdido, no queda pegada en el target)",
   );
 }
 

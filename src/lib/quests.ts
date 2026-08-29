@@ -116,12 +116,14 @@ export interface ProcessMatchesResult {
  *   racha existente (para win_streak/deathless_win, que sí resetean con una
  *   partida que no cumple: un remake NO es "una partida que no cumple", es
  *   como si no se hubiera jugado).
- * - Al completar una quest (progress === target), se otorga un Mango
- *   (siempre que haya cupo) y el progreso de ESA quest vuelve a 0.
- * - Cupo máximo de MAX_MANGO_INVENTORY mangos 'in_inventory' simultáneos: si
- *   ya está lleno, NO se otorga el mango, pero el progreso tampoco se
- *   resetea — se queda pegado en el target ("esperando a que tenga espacio")
- *   hasta que en una corrida futura haya cupo libre.
+ * - Al completar una quest (progress === target), el progreso de ESA quest
+ *   vuelve a 0 SIEMPRE, haya o no cupo. Cupo máximo de MAX_MANGO_INVENTORY
+ *   mangos 'in_inventory' simultáneos: si hay lugar, se otorga el Mango; si
+ *   el inventario ya está lleno, el mango se PIERDE (confirmado por el
+ *   usuario) — no se guarda "esperando cupo" para una corrida futura.
+ *   Completar una misión sin haber lanzado/vaciado el inventario a tiempo
+ *   no da una segunda oportunidad: hay que tener lugar libre en el momento
+ *   exacto en que se cumple.
  */
 export function processNewMatches({
   progress,
@@ -142,16 +144,22 @@ export function processNewMatches({
   let lastProcessedMatchId: string | null = null;
 
   function tryGrant(questType: QuestType, matchId: string | null) {
-    if (current[questType] >= QUEST_TARGETS[questType] && mangoCount < maxMangoInventory) {
+    if (current[questType] < QUEST_TARGETS[questType]) return;
+    // Se cumplió la misión: el progreso vuelve a 0 sí o sí. Con cupo libre
+    // se otorga el mango; sin cupo, se pierde — no queda "pendiente" para
+    // más adelante (ver el comentario de la función de arriba).
+    if (mangoCount < maxMangoInventory) {
       grants.push({ matchId, quest_type: questType });
       mangoCount += 1;
-      current[questType] = 0;
     }
+    current[questType] = 0;
   }
 
-  // Progreso que ya estaba completo desde una corrida anterior pero sin
-  // cupo en ese momento (ver comentario de arriba): reintentar antes de
-  // procesar partidas nuevas, por si ahora hay espacio libre.
+  // En operación normal esto no debería encontrar nada (una quest nunca
+  // debería persistir a mitad de corrida ya en el target, ver tryGrant):
+  // sirve de red de seguridad por si un progreso quedó pegado en el target
+  // por datos viejos (de antes de este comportamiento) — lo resuelve una
+  // sola vez, antes de tocar ninguna partida nueva.
   for (const questType of QUEST_TYPES) tryGrant(questType, null);
 
   for (const match of matches) {
@@ -164,9 +172,11 @@ export function processNewMatches({
     if (match.gameDurationSeconds < MIN_MATCH_DURATION_SECONDS) continue; // remake: no cuenta para nada
 
     for (const questType of QUEST_TYPES) {
-      // Si ya está en el target esperando cupo (mangoCount lleno), no se
-      // vuelve a tocar por esta partida — ni sube más allá del target, ni se
-      // resetea por no cumplir: la racha ya se cumplió, solo falta el cupo.
+      // En operación normal current[questType] siempre entra acá por debajo
+      // del target: tryGrant ya lo resetea a 0 apenas se cumple, haya o no
+      // mango de por medio (ver más arriba) — este chequeo es solo para no
+      // sumarle de más a una quest que, por datos viejos, todavía esté
+      // pegada en el target de antes de este fix.
       if (current[questType] < QUEST_TARGETS[questType]) {
         if (QUEST_CRITERIA[questType](match)) {
           current[questType] += 1;
