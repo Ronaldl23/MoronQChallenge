@@ -141,24 +141,41 @@ curl "https://tu-sitio.vercel.app/api/update-rankings?secret=TU_CRON_SECRET"
 curl -H "Authorization: Bearer TU_CRON_SECRET" https://tu-sitio.vercel.app/api/update-rankings
 ```
 
-### Automatizarlo cada 15 minutos
+### Automatizarlo cada 5 minutos
 
 **Recomendado: un cron externo dedicado** (ej. [cron-job.org](https://cron-job.org),
 gratis) apuntando directo a
-`https://tu-dominio/api/update-rankings?secret=TU_CRON_SECRET` cada 15
+`https://tu-dominio/api/update-rankings?secret=TU_CRON_SECRET` cada 5
 minutos. El disparador `schedule` de GitHub Actions (ver más abajo) NO es
 confiable para intervalos cortos — GitHub mismo avisa que puede demorarse
 bajo carga, y en la práctica los huecos reales entre corridas terminan
-siendo de 20-100+ minutos en vez de 15. Si tu cron externo tiene un timeout
-de respuesta corto (cron-job.org gratis corta a los 30s), subilo a 60-90s
-en su configuración — el endpoint responde `started: true` casi al toque
-igual (ver arriba), pero el primer request a un route recién compilado
-puede tardar unos segundos de más.
+siendo de 20-100+ minutos en vez del intervalo configurado. Si tu cron
+externo tiene un timeout de respuesta corto (cron-job.org gratis corta a
+los 30s), subilo a 60-90s en su configuración — el endpoint responde
+`started: true` casi al toque igual (ver arriba), pero el primer request a
+un route recién compilado puede tardar unos segundos de más.
+
+**Por qué 5 y no 15:** el LP ganado/perdido por partida no viene directo de
+Riot — se estima cruzando la hora de fin de cada partida contra estos mismos
+snapshots (ver `src/lib/lp-correlation.ts`). Si dos partidas de un mismo
+jugador caen en el mismo hueco entre corridas, no hay forma de saber cuánto
+LP se llevó cada una por separado y las dos quedan sin mostrar. Correr cada
+5 minutos en vez de cada 15 reduce bastante las chances de que eso pase,
+sobre todo con jugadores que encadenan partidas rápido. La cuota de la API
+de Riot no debería ser un problema: cada corrida ya espacia sus llamadas
+(`RIOT_API_REQUEST_DELAY_MS`, 100ms por defecto) y reintenta sola ante un
+429 (`riotFetch`, ver `/api/update-rankings/route.ts`) — triplicar la
+frecuencia triplica el total de llamadas por hora, pero no la ráfaga por
+corrida. Si empezás a ver muchos `riot_api_error_429` en los logs de Vercel
+después del cambio, subí `RIOT_API_REQUEST_DELAY_MS` o volvé a un intervalo
+más largo.
 
 `.github/workflows/update-rankings.yml` (alternativa, con las limitaciones
-de arriba) llama a este endpoint cada 15 minutos vía `cron`, y se puede
-disparar a mano desde la pestaña Actions (`workflow_dispatch`) — sirve como
-respaldo manual aunque uses un cron externo como disparador principal. Usa
+de arriba) llama a este endpoint mediante `cron` y se puede disparar a mano
+desde la pestaña Actions (`workflow_dispatch`) — sirve como respaldo manual
+aunque uses un cron externo como disparador principal (el `schedule` de
+ese workflow está desactivado a propósito, ver el comentario en el
+archivo). Usa
 `curl --fail-with-body`, así que si el endpoint responde un error HTTP el
 step falla y el run queda en rojo en la pestaña Actions — con el cuerpo de
 la respuesta impreso en el log para que veas qué pasó. `concurrency` evita
