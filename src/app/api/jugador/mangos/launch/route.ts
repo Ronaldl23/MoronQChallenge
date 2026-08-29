@@ -7,8 +7,10 @@ import { getSummonerSpellList } from "@/lib/summoner-spells";
 import {
   rollFirstOutcome,
   rollPenaltyOutcome,
-  DAILY_RECEIVE_LIMIT,
-  hoursAgoIso,
+  MAX_ACTIVE_PENALTIES,
+  BOUNCE_PROBABILITY_PERCENT,
+  EXPIRED_BOUNCE_PROBABILITY_PERCENT,
+  isMangoExpired,
   SUPPORT_ASSIGNMENT,
   NO_FLASH_ASSIGNMENT,
   type PunishmentOutcome,
@@ -77,7 +79,7 @@ export async function POST(request: Request) {
   // service role + este chequeo explícito ES el límite de autorización.
   const { data: mango, error: mangoError } = await supabase
     .from("mangos")
-    .select("id, owner_participant_id, status")
+    .select("id, owner_participant_id, status, inventory_since")
     .eq("id", mango_id)
     .maybeSingle();
 
@@ -93,7 +95,7 @@ export async function POST(request: Request) {
 
   const { data: target, error: targetError } = await supabase
     .from("participants")
-    .select("id, nombre_display")
+    .select("id, nombre_display, mango_protection_until")
     .eq("id", target_participant_id)
     .maybeSingle();
 
@@ -104,18 +106,33 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Participante objetivo no encontrado" }, { status: 404 });
   }
 
-  const { count: receivedCount, error: countError } = await supabase
+  // Protección de PROTECTION_HOURS que gana un jugador al cumplir un
+  // castigo teniendo sus MAX_ACTIVE_PENALTIES activos a la vez (ver
+  // processParticipantPenalties en /api/update-rankings) — se chequea
+  // ANTES que el cupo de abajo porque puede estar protegido con menos de
+  // MAX_ACTIVE_PENALTIES activos (por diseño: recién liberó un cupo).
+  if (target.mango_protection_until && new Date(target.mango_protection_until) > new Date()) {
+    return NextResponse.json(
+      { error: `${target.nombre_display} está protegido contra mangos por ahora` },
+      { status: 409 },
+    );
+  }
+
+  // Cupo de castigos ACTIVOS simultáneos (penalty_progress en 'pending') —
+  // ya no importa cuándo los recibió, importa cuántos tiene sin resolver
+  // ahora mismo (reemplaza al viejo límite "3 recibidos por día").
+  const { count: activePenaltyCount, error: countError } = await supabase
     .from("penalty_progress")
     .select("id", { count: "exact", head: true })
     .eq("participant_id", target_participant_id)
-    .gte("created_at", hoursAgoIso(24));
+    .eq("status", "pending");
 
   if (countError) {
     return NextResponse.json({ error: countError.message }, { status: 500 });
   }
-  if ((receivedCount ?? 0) >= DAILY_RECEIVE_LIMIT) {
+  if ((activePenaltyCount ?? 0) >= MAX_ACTIVE_PENALTIES) {
     return NextResponse.json(
-      { error: `${target.nombre_display} ya alcanzó el límite diario de mangos recibidos` },
+      { error: `${target.nombre_display} ya alcanzó el máximo de castigos disponibles` },
       { status: 409 },
     );
   }
@@ -131,7 +148,12 @@ export async function POST(request: Request) {
     );
   }
 
-  const outcome = rollFirstOutcome(champions, spells);
+  // Mango "podrido" (24h+ sin lanzarse, ver isMangoExpired): más chance de
+  // rebote — castiga holdear un mango sin usarlo en vez de acumularlo.
+  const bounceProbabilityPercent = isMangoExpired(mango.inventory_since)
+    ? EXPIRED_BOUNCE_PROBABILITY_PERCENT
+    : BOUNCE_PROBABILITY_PERCENT;
+  const outcome = rollFirstOutcome(champions, spells, bounceProbabilityPercent);
 
   if (outcome.kind !== "bounce") {
     const { error: updateError } = await supabase
@@ -159,9 +181,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, targetNombreDisplay: target.nombre_display });
   }
 
-  // Rebote (10%): el mango original SÍ se gasta — se marca 'returned' (un
-  // status que ya existía en el schema desde la Fase 1 pero nunca se usaba)
-  // para sacarlo del inventario, igual que un lanzamiento normal. El
+  // Rebote (BOUNCE_PROBABILITY_PERCENT normal, o EXPIRED_ si el mango
+  // estaba podrido): el mango original SÍ se gasta — se marca 'returned'
+  // (un status que ya existía en el schema desde la Fase 1 pero nunca se
+  // usaba) para sacarlo del inventario, igual que un lanzamiento normal. El
   // segundo roll (solo champion/Support, sin balde de rebote — un rebote no
   // puede volver a rebotar) también se decide ACÁ, en el mismo request, así
   // que para cuando cualquiera revele algo, el azar ya terminó de principio
@@ -170,11 +193,12 @@ export async function POST(request: Request) {
   // penalty_progress), solo que el mango nuevo lo "envía" el objetivo
   // (quien devolvió la jugada) y la víctima es quien lanzó originalmente.
   // No cuenta contra el cupo de inventario de nadie (nace directo en
-  // status='pending_reveal') ni contra el límite diario del lanzador
-  // original — es una consecuencia automática de SU lanzamiento, no un
-  // blanco nuevo que alguien eligió a propósito. El objetivo original NUNCA
-  // se entera de nada de esto: ni mango, ni penalty_progress, ni revelación
-  // — el rebote es invisible para él, igual que en el diseño anterior.
+  // status='pending_reveal') ni contra el cupo de castigos activos del
+  // lanzador original — es una consecuencia automática de SU lanzamiento,
+  // no un blanco nuevo que alguien eligió a propósito. El objetivo
+  // original NUNCA se entera de nada de esto: ni mango, ni
+  // penalty_progress, ni revelación — el rebote es invisible para él,
+  // igual que en el diseño anterior.
   const bounceOutcome = rollPenaltyOutcome(champions, spells);
 
   const { error: returnedUpdateError } = await supabase

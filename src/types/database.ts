@@ -70,6 +70,15 @@ export type Participant = {
   manually_disqualified: boolean;
   /** Motivo que cargó el admin al descalificar manualmente — null si nunca se usó esta vía. Admin-only, no se expone en el leaderboard público. */
   disqualification_reason: string | null;
+  /**
+   * Hasta cuándo este jugador está protegido contra mangos nuevos — null
+   * si no tiene protección activa. Se activa desde /api/update-rankings al
+   * cumplir un castigo TENIENDO 3 activos (ver PROTECTION_HOURS en
+   * src/lib/mango-launch.ts), nunca por otra razón. Admin-only en la
+   * práctica (solo lo lee /api/jugador/mangos/launch con el service role),
+   * no se expone en el leaderboard público.
+   */
+  mango_protection_until: string | null;
 };
 
 /**
@@ -92,6 +101,14 @@ export type Mango = {
   created_at: string;
   /** true solo en la fila creada por un rebote (10%) — informativo, no cambia la lógica de juego. */
   is_bounce_back: boolean;
+  /**
+   * Cuándo entró ESTE mango al inventario (se resetea a NOW en cada mango
+   * nuevo otorgado por misión, nunca se toca en un lanzamiento/rebote —
+   * ver 0020_mango_expiry_and_protection.sql). Pasadas MANGO_EXPIRY_HOURS
+   * sin lanzarlo queda "podrido": sube su chance de rebote y cambia de
+   * ícono en el inventario (ver isMangoExpired en src/lib/mango-launch.ts).
+   */
+  inventory_since: string;
   /** Si quien lanzó este mango ya vio el aviso de "X recibió tu mango con el castigo: Y" — mismo patrón que penalty_progress.seen. */
   launcher_notified: boolean;
 };
@@ -250,6 +267,7 @@ export type Database = {
           | "aegis_count"
           | "manually_disqualified"
           | "disqualification_reason"
+          | "mango_protection_until"
         > & {
           id?: string;
           profile_icon_id?: number | null;
@@ -262,6 +280,7 @@ export type Database = {
           aegis_count?: number;
           manually_disqualified?: boolean;
           disqualification_reason?: string | null;
+          mango_protection_until?: string | null;
         };
         Update: Partial<Omit<Participant, "id">>;
         Relationships: [];
@@ -295,6 +314,7 @@ export type Database = {
           | "champion_assigned"
           | "is_bounce_back"
           | "launcher_notified"
+          | "inventory_since"
         > & {
           id?: string;
           created_at?: string;
@@ -303,6 +323,7 @@ export type Database = {
           champion_assigned?: string | null;
           is_bounce_back?: boolean;
           launcher_notified?: boolean;
+          inventory_since?: string;
         };
         Update: Partial<Omit<Mango, "id">>;
         Relationships: [

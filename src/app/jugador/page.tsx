@@ -2,7 +2,7 @@ import { getAuthenticatedParticipantId } from "@/lib/player-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getChampionList, type Champion } from "@/lib/champions";
 import { getSummonerSpellList, type SummonerSpell } from "@/lib/summoner-spells";
-import { DAILY_RECEIVE_LIMIT, hoursAgoIso, resolveAssignedPunishment } from "@/lib/mango-launch";
+import { MAX_ACTIVE_PENALTIES, isMangoExpired, resolveAssignedPunishment } from "@/lib/mango-launch";
 import { QUEST_TARGETS } from "@/lib/quests";
 import { PENALTY_GAME_LIMIT } from "@/lib/penalty";
 import { isOnline } from "@/lib/presence";
@@ -57,7 +57,7 @@ export default async function JugadorPage() {
       .maybeSingle(),
     supabase
       .from("mangos")
-      .select("id")
+      .select("id, inventory_since")
       .eq("owner_participant_id", participantId)
       .eq("status", "in_inventory")
       .order("created_at", { ascending: true }),
@@ -67,7 +67,7 @@ export default async function JugadorPage() {
       .eq("participant_id", participantId),
     supabase
       .from("participants")
-      .select("id, nombre_display, last_seen_at")
+      .select("id, nombre_display, last_seen_at, mango_protection_until")
       .neq("id", participantId),
     // Solo status='pending': todavía dentro de las 3 partidas para
     // cumplirlo (Fase 4). 'disqualified' ya salió de la ventana de
@@ -119,7 +119,15 @@ export default async function JugadorPage() {
     );
   }
 
-  const mangos = mangosResult.data ?? [];
+  // "Podrido" (ver isMangoExpired/MANGO_EXPIRY_HOURS): 24h+ en el
+  // inventario sin lanzarse — sube su chance de rebote al lanzarlo (eso lo
+  // decide /api/jugador/mangos/launch) y acá solo cambia el ícono
+  // (MangoPodrido/MangoPodridoFurioso en vez de MangoHappy/MangoAngry, ver
+  // InventoryPanel.tsx).
+  const mangos = (mangosResult.data ?? []).map((m) => ({
+    id: m.id,
+    isExpired: isMangoExpired(m.inventory_since),
+  }));
 
   const questByType = new Map(
     (questsResult.data ?? []).map((q) => [q.quest_type, q] as const),
@@ -142,24 +150,29 @@ export default async function JugadorPage() {
   };
 
   const others = othersResult.data ?? [];
-  const { data: recentPenalties } = await supabase
+  // Cupo de castigos ACTIVOS simultáneos por jugador (penalty_progress en
+  // 'pending') — reemplaza al viejo "recibidos en las últimas 24hs". Ya no
+  // importa cuándo los recibió, importa cuántos tiene sin resolver ahora
+  // mismo (ver MAX_ACTIVE_PENALTIES).
+  const { data: activePenalties } = await supabase
     .from("penalty_progress")
     .select("participant_id")
-    .gte("created_at", hoursAgoIso(24));
+    .eq("status", "pending");
 
-  const receivedCountByParticipant = new Map<string, number>();
-  for (const row of recentPenalties ?? []) {
-    receivedCountByParticipant.set(
+  const activePenaltyCountByParticipant = new Map<string, number>();
+  for (const row of activePenalties ?? []) {
+    activePenaltyCountByParticipant.set(
       row.participant_id,
-      (receivedCountByParticipant.get(row.participant_id) ?? 0) + 1,
+      (activePenaltyCountByParticipant.get(row.participant_id) ?? 0) + 1,
     );
   }
 
   const otherParticipants: LaunchTarget[] = others.map((p) => ({
     id: p.id,
     nombre_display: p.nombre_display,
-    receivedLast24h: receivedCountByParticipant.get(p.id) ?? 0,
-    dailyLimit: DAILY_RECEIVE_LIMIT,
+    activePenaltyCount: activePenaltyCountByParticipant.get(p.id) ?? 0,
+    maxActivePenalties: MAX_ACTIVE_PENALTIES,
+    protectedUntil: p.mango_protection_until,
     online: isOnline(p.last_seen_at),
   }));
 

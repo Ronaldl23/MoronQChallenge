@@ -6,6 +6,8 @@ import { LaunchModal, type LaunchTarget } from "./LaunchModal";
 
 export interface InventoryMango {
   id: string;
+  /** 24h+ en el inventario sin lanzarse (ver isMangoExpired/MANGO_EXPIRY_HOURS) — cambia el ícono y, al lanzarlo, sube su chance de rebote (eso lo decide el servidor). */
+  isExpired: boolean;
 }
 
 export interface QuestProgressView {
@@ -54,6 +56,7 @@ export function InventoryPanel({
             <MangoSlot
               key={mango?.id ?? `empty-${i}`}
               filled={!!mango}
+              isExpired={mango?.isExpired ?? false}
               onClick={mango ? () => setSelectedMangoId(mango.id) : undefined}
             />
           ))}
@@ -94,9 +97,22 @@ export function InventoryPanel({
   );
 }
 
-function MangoSlot({ filled, onClick }: { filled: boolean; onClick?: () => void }) {
+function MangoSlot({
+  filled,
+  isExpired,
+  onClick,
+}: {
+  filled: boolean;
+  isExpired: boolean;
+  onClick?: () => void;
+}) {
   const [hover, setHover] = useState(false);
   const clickable = filled && !!onClick;
+  // Podrido (24h+ sin lanzarse, ver isMangoExpired): MangoPodrido/
+  // MangoPodridoFurioso en vez de MangoHappy/MangoAngry — mismo hover,
+  // solo cambia qué imagen usa.
+  const idleImage = isExpired ? "/MangoPodrido.png" : "/MangoHappy.png";
+  const hoverImage = isExpired ? "/MangoPodridoFurioso.png" : "/MangoAngry.png";
 
   return (
     <button
@@ -106,6 +122,7 @@ function MangoSlot({ filled, onClick }: { filled: boolean; onClick?: () => void 
       onMouseLeave={() => setHover(false)}
       onClick={onClick}
       aria-label={filled ? "Lanzar mango" : "Slot vacío"}
+      title={filled && isExpired ? "Este mango está podrido: más chance de que rebote" : undefined}
       className={`group relative flex h-24 w-24 items-center justify-center rounded-xl border-2 transition-colors ${
         filled
           ? "cursor-pointer border-gold/50 bg-bg-elevated hover:border-gold"
@@ -116,7 +133,7 @@ function MangoSlot({ filled, onClick }: { filled: boolean; onClick?: () => void 
         <>
           {/* eslint-disable-next-line @next/next/no-img-element -- asset local */}
           <img
-            src={hover ? "/MangoAngry.png" : "/MangoHappy.png"}
+            src={hover ? hoverImage : idleImage}
             alt="Mango"
             className="h-16 w-16 object-contain"
           />

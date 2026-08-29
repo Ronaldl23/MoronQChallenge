@@ -11,10 +11,22 @@ type Step =
 export interface LaunchTarget {
   id: string;
   nombre_display: string;
-  receivedLast24h: number;
-  dailyLimit: number;
+  /** Castigos activos ahora mismo (penalty_progress en 'pending') — ver MAX_ACTIVE_PENALTIES en src/lib/mango-launch.ts. */
+  activePenaltyCount: number;
+  maxActivePenalties: number;
+  /** ISO — null o en el pasado si no tiene protección activa. Se gana al cumplir un castigo teniendo maxActivePenalties activos a la vez (ver PROTECTION_HOURS). */
+  protectedUntil: string | null;
   /** Presencia (últimos 45s de last_seen_at) — ver src/lib/presence.ts. Calculado server-side. */
   online: boolean;
+}
+
+function isProtected(target: LaunchTarget): boolean {
+  return target.protectedUntil !== null && new Date(target.protectedUntil) > new Date();
+}
+
+/** Horas enteras redondeadas hacia arriba que le quedan de protección — para mostrar "protegido 3h" en vez de un timestamp crudo. */
+function protectionHoursLeft(protectedUntil: string): number {
+  return Math.max(1, Math.ceil((new Date(protectedUntil).getTime() - Date.now()) / (60 * 60 * 1000)));
 }
 
 /**
@@ -80,15 +92,17 @@ export function LaunchModal({
                 <p className="text-sm text-text-secondary">No hay otros participantes todavía.</p>
               )}
               {otherParticipants.map((p) => {
-                const atLimit = p.receivedLast24h >= p.dailyLimit;
+                const protectedNow = isProtected(p);
+                const atLimit = p.activePenaltyCount >= p.maxActivePenalties;
+                const disabled = protectedNow || atLimit;
                 return (
                   <button
                     key={p.id}
                     type="button"
-                    disabled={atLimit}
+                    disabled={disabled}
                     onClick={() => handleSelectTarget(p.id, p.nombre_display)}
                     className={`flex items-center justify-between rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
-                      atLimit
+                      disabled
                         ? "cursor-not-allowed border-border-hairline bg-bg-elevated/40 text-text-muted"
                         : "border-border-hairline bg-bg-elevated text-text-primary hover:border-gold/50"
                     }`}
@@ -103,11 +117,15 @@ export function LaunchModal({
                       />
                       <span className={p.online ? "" : "text-text-muted"}>{p.nombre_display}</span>
                     </span>
-                    {atLimit ? (
-                      <span className="text-xs text-loss">límite diario alcanzado</span>
+                    {protectedNow ? (
+                      <span className="text-xs text-loss">
+                        protegido {protectionHoursLeft(p.protectedUntil!)}h
+                      </span>
+                    ) : atLimit ? (
+                      <span className="text-xs text-loss">máximo de castigos disponibles</span>
                     ) : (
                       <span className="text-xs text-text-secondary">
-                        {p.receivedLast24h}/{p.dailyLimit} hoy
+                        {p.activePenaltyCount}/{p.maxActivePenalties} castigos
                       </span>
                     )}
                   </button>

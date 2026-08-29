@@ -12,6 +12,7 @@ import {
   type MatchOutcome,
 } from "@/lib/quests";
 import { processPenaltyMatches, type PenaltyMatchOutcome, type PendingPenalty } from "@/lib/penalty";
+import { MAX_ACTIVE_PENALTIES, PROTECTION_HOURS, hoursFromNowIso } from "@/lib/mango-launch";
 import { isProbableAegisProc } from "@/lib/aegis";
 import { computeLpStats, TREND_WINDOW_DAYS } from "@/lib/lp-stats";
 import { correlateSingleMatchLp } from "@/lib/lp-correlation";
@@ -401,7 +402,10 @@ async function processParticipantQuests({
  * partida cuenta simultáneamente para todos los castigos pendientes, así
  * que una sola corrida puede completar más de uno a la vez, y el contador
  * de partidas-sin-cumplir es UNO SOLO por participante (no por castigo).
- * Llamado desde adentro del mismo try/catch que envuelve
+ * También activa la protección de PROTECTION_HOURS contra mangos nuevos
+ * (ver src/lib/mango-launch.ts) si el participante tenía sus
+ * MAX_ACTIVE_PENALTIES castigos activos a la vez y esta corrida le cumplió
+ * alguno. Llamado desde adentro del mismo try/catch que envuelve
  * processParticipantQuests: un error acá tampoco debe afectar al resto de
  * la actualización.
  */
@@ -488,6 +492,25 @@ async function processParticipantPenalties({
       .update({ penalty_games_without_compliance: result.gamesWithoutCompliance })
       .eq("id", participantId);
     if (counterError) throw counterError;
+  }
+
+  // Protección de PROTECTION_HOURS contra mangos nuevos (ver
+  // src/lib/mango-launch.ts) — SOLO si tenía sus MAX_ACTIVE_PENALTIES
+  // castigos activos a la vez (o sea, ya no podía recibir uno más) Y esta
+  // corrida cumplió AL MENOS uno. `penalties` de arriba es el estado antes
+  // de procesar las partidas de esta corrida, así que penalties.length es
+  // exactamente cuántos tenía activos al arrancar. Cumplir un castigo
+  // teniendo 1 o 2 activos (nunca llegó a estar "lleno") no da protección
+  // — regla explícita del usuario.
+  if (
+    penalties.length === MAX_ACTIVE_PENALTIES &&
+    result.updates.some((update) => update.status === "completed")
+  ) {
+    const { error: protectionError } = await supabase
+      .from("participants")
+      .update({ mango_protection_until: hoursFromNowIso(PROTECTION_HOURS) })
+      .eq("id", participantId);
+    if (protectionError) throw protectionError;
   }
 }
 

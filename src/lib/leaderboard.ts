@@ -11,10 +11,12 @@ import type { Participant, Snapshot } from "@/types/database";
  * getLeaderboard). penalty_games_without_compliance y last_seen_at tampoco:
  * son datos de contexto de /jugador (contador compartido de castigos,
  * presencia online), no algo que el leaderboard público necesite mostrar
- * por jugador. disqualification_reason tampoco: es admin-only a propósito
- * (el motivo de una descalificación manual no se expone públicamente, ver
- * 0019_manual_disqualification.sql) — ninguna de las cuatro se pide en el
- * select de abajo.
+ * por jugador. disqualification_reason y mango_protection_until tampoco:
+ * son admin-only/de /jugador a propósito (ni el motivo de una
+ * descalificación manual ni la protección contra mangos se exponen
+ * públicamente, ver 0019_manual_disqualification.sql y
+ * 0020_mango_expiry_and_protection.sql) — ninguna de las cinco se pide en
+ * el select de abajo.
  */
 type PublicParticipant = Omit<
   Participant,
@@ -22,6 +24,7 @@ type PublicParticipant = Omit<
   | "penalty_games_without_compliance"
   | "last_seen_at"
   | "disqualification_reason"
+  | "mango_protection_until"
 >;
 
 /** Un castigo pendiente o en revisión, en formato listo para mostrar (Fase 5) — mismo shape que el banner de /jugador. */

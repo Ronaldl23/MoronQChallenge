@@ -2,22 +2,53 @@ import { randomInt } from "node:crypto";
 import type { Champion } from "@/lib/champions";
 import type { SummonerSpell } from "@/lib/summoner-spells";
 
-/** 10% de probabilidad de que la ruleta devuelva el mango (rebote). */
+/** 10% de probabilidad de que la ruleta devuelva el mango (rebote) — mango normal, no caduco. Ver EXPIRED_BOUNCE_PROBABILITY_PERCENT para uno caduco. */
 export const BOUNCE_PROBABILITY_PERCENT = 10;
+/**
+ * 30% de probabilidad de rebote para un mango CADUCO (ver
+ * MANGO_EXPIRY_HOURS/isMangoExpired más abajo) — 3x el 10% normal, a
+ * propósito: castiga "holdear" un mango sin lanzarlo. Solo cambia el
+ * balde de rebote de la ruleta principal — el resto (Support/hechizo)
+ * mantiene su % absoluto, así que el que se achica es el de campeón
+ * puntual (ver rollFirstOutcome).
+ */
+export const EXPIRED_BOUNCE_PROBABILITY_PERCENT = 30;
 /** 20% de probabilidad de que el castigo sea "jugar de Support" en vez de un campeón puntual. */
 export const SUPPORT_PROBABILITY_PERCENT = 20;
-/** 50% de probabilidad de que el castigo sea un hechizo de invocador obligatorio (o "sin Flash"), repartido uniforme entre las SPELL_POOL_SIZE opciones de abajo. */
-export const SPELL_PROBABILITY_PERCENT = 50;
+/** 40% de probabilidad de que el castigo sea un hechizo de invocador obligatorio (o "sin Flash"), repartido entre las SPELL_POOL_SIZE opciones de abajo (no uniforme, ver SPELL_SLOT_WEIGHTS). */
+export const SPELL_PROBABILITY_PERCENT = 40;
 /**
  * El resto se reparte en partes iguales entre todos los campeones
- * individuales (pickRandomChampion ya es uniforme) — 20% en la ruleta
- * principal (100 - BOUNCE - SUPPORT - SPELL) y 30% en la ruleta de rebote
- * (100 - SUPPORT - SPELL, sin balde de rebote), ver rollFirstOutcome y
- * rollPenaltyOutcome más abajo.
+ * individuales (pickRandomChampion ya es uniforme) — con un mango normal,
+ * 30% en la ruleta principal (100 - BOUNCE - SUPPORT - SPELL) y 40% en la
+ * ruleta de rebote (100 - SUPPORT - SPELL, sin balde de rebote); con un
+ * mango caduco, el balde de campeón de la ruleta principal se achica a 10%
+ * (100 - EXPIRED_BOUNCE - SUPPORT - SPELL) porque el rebote le come más
+ * lugar — ver rollFirstOutcome y rollPenaltyOutcome más abajo.
  */
 
-/** Máximo de mangos que un mismo jugador puede RECIBIR en 24hs (distinto del máximo de 3 en inventario propio, Fase 2). */
-export const DAILY_RECEIVE_LIMIT = 3;
+/** Cuántas horas puede estar un mango sin lanzarse antes de quedar "podrido" (ver isMangoExpired) — sube su chance de rebote y cambia de ícono en el inventario. */
+export const MANGO_EXPIRY_HOURS = 24;
+
+/**
+ * Cuántos castigos puede tener un jugador ACTIVOS (penalty_progress en
+ * 'pending') al mismo tiempo — mientras tenga MAX_ACTIVE_PENALTIES, no se
+ * le puede lanzar uno más. Reemplaza al viejo límite "3 recibidos por día"
+ * — ya no importa CUÁNDO los recibió, importa CUÁNTOS tiene sin resolver
+ * ahora mismo. Sin relación con MAX_MANGO_INVENTORY (src/lib/quests.ts),
+ * que es el cupo de mangos PROPIOS sin lanzar de cada jugador — mismo
+ * número (3) de casualidad, conceptos distintos.
+ */
+export const MAX_ACTIVE_PENALTIES = 3;
+
+/**
+ * Horas de protección contra mangos nuevos que gana un jugador al cumplir
+ * un castigo TENIENDO sus MAX_ACTIVE_PENALTIES activos a la vez (ver
+ * processParticipantPenalties en /api/update-rankings) — nunca si tenía
+ * menos de MAX_ACTIVE_PENALTIES pendientes. Se guarda en
+ * participants.mango_protection_until.
+ */
+export const PROTECTION_HOURS = 5;
 
 /**
  * Valor reservado para `mangos.champion_assigned` cuando el castigo es "jugar
@@ -57,17 +88,32 @@ export const FLASH_SPELL_ID = "SummonerFlash";
 
 /**
  * Caso especial: todo el mundo ya lleva Flash por default, así que "debes
- * llevar Flash" no sería un castigo real — el 9no slot uniforme del balde
- * de hechizos en cambio castiga con "JUGAR SIN FLASH" en la próxima
- * partida. Se guarda con este sentinel (mismo truco que SUPPORT_ASSIGNMENT)
- * en vez del id de Flash — así resolveAssignedPunishment/isCompliant lo
+ * llevar Flash" no sería un castigo real — el 9no slot del balde de
+ * hechizos en cambio castiga con "JUGAR SIN FLASH" en la próxima partida.
+ * Se guarda con este sentinel (mismo truco que SUPPORT_ASSIGNMENT) en vez
+ * del id de Flash — así resolveAssignedPunishment/isCompliant lo
  * distinguen sin ambigüedad de "debes llevar Flash" (que no existe como
  * castigo).
  */
 export const NO_FLASH_ASSIGNMENT = "NO_FLASH";
 
-/** Los 8 hechizos normales + el caso especial "sin Flash" = 9 opciones uniformes dentro del balde de hechizos (SPELL_PROBABILITY_PERCENT). */
+/** Los 8 hechizos normales + el caso especial "sin Flash" = 9 opciones dentro del balde de hechizos (SPELL_PROBABILITY_PERCENT) — no uniformes, ver SPELL_SLOT_WEIGHTS. */
 export const SPELL_POOL_SIZE = MANDATORY_SPELL_IDS.length + 1;
+
+/** Peso de cada hechizo "normal" dentro del balde — el resto son NORMAL_SPELL_WEIGHT salvo los boosteados (ver BOOSTED_SPELL_WEIGHT). */
+const NORMAL_SPELL_WEIGHT = 10;
+/** Hoz (Smite) y Sin Flash pesan un 30% más que un hechizo normal (10 * 1.3 = 13) — a pedido explícito, más chance que el resto del balde. */
+const BOOSTED_SPELL_WEIGHT = 13;
+
+/**
+ * Un peso por cada uno de los SPELL_POOL_SIZE slots (mismo orden que
+ * MANDATORY_SPELL_IDS + el slot final de "sin Flash") — "Hoz" (el último
+ * de MANDATORY_SPELL_IDS) y "sin Flash" (el slot extra al final) pesan
+ * BOOSTED_SPELL_WEIGHT, el resto NORMAL_SPELL_WEIGHT. Ver pickWeightedIndex.
+ */
+const SPELL_SLOT_WEIGHTS: number[] = MANDATORY_SPELL_IDS.map((id) =>
+  id === "SummonerSmite" ? BOOSTED_SPELL_WEIGHT : NORMAL_SPELL_WEIGHT,
+).concat(BOOSTED_SPELL_WEIGHT);
 
 export type SpellPunishmentOutcome =
   | { noFlash: false; spell: SummonerSpell }
@@ -85,13 +131,30 @@ export function pickRandomChampion(champions: Champion[]): Champion {
 }
 
 /**
- * Elige uniforme una de las SPELL_POOL_SIZE opciones del balde de hechizos
- * — slot 0..7 = uno de los MANDATORY_SPELL_IDS ("debes llevar X"), slot 8
- * (el último, correspondiente a "Flash" en el mapeo del usuario) = el caso
- * especial "sin Flash" (ver NO_FLASH_ASSIGNMENT).
+ * Elige un índice 0..weights.length-1 con probabilidad proporcional al
+ * peso de cada uno (no uniforme) — un solo roll de 0 a la suma total de
+ * pesos, restando pesos hasta encontrar en cuál "cae".
+ */
+export function pickWeightedIndex(weights: number[]): number {
+  const total = weights.reduce((sum, w) => sum + w, 0);
+  let roll = randomInt(total);
+  for (let i = 0; i < weights.length; i++) {
+    if (roll < weights[i]) return i;
+    roll -= weights[i];
+  }
+  // No debería llegar acá nunca (roll < total siempre cae en algún slot) —
+  // solo por si weights viniera vacío o con pesos <= 0.
+  throw new Error("pickWeightedIndex: pesos inválidos");
+}
+
+/**
+ * Elige un hechizo del balde con pesos (ver SPELL_SLOT_WEIGHTS) — slot
+ * 0..7 = uno de los MANDATORY_SPELL_IDS ("debes llevar X", "Hoz" con más
+ * peso), slot 8 (el último) = el caso especial "sin Flash" (también con
+ * más peso, ver NO_FLASH_ASSIGNMENT).
  */
 function rollSpellOutcome(spells: SummonerSpell[]): SpellPunishmentOutcome {
-  const slot = randomInt(SPELL_POOL_SIZE);
+  const slot = pickWeightedIndex(SPELL_SLOT_WEIGHTS);
   if (slot === MANDATORY_SPELL_IDS.length) return { noFlash: true };
 
   const spellId = MANDATORY_SPELL_IDS[slot];
@@ -102,20 +165,26 @@ function rollSpellOutcome(spells: SummonerSpell[]): SpellPunishmentOutcome {
 }
 
 /**
- * Ruleta principal (lanzamiento a un objetivo): 10% rebote, 20% Support,
- * 50% hechizo de invocador (uniforme entre las 9 opciones), 20% repartido
- * uniforme entre todos los campeones — pickRandomChampion ya reparte
- * parejo, así que alcanza con un solo roll de 0-99 para decidir el "balde"
- * y, si toca campeón u hechizo, un segundo roll uniforme dentro de esa lista.
+ * Ruleta principal (lanzamiento a un objetivo): rebote (10% normal, 30% si
+ * el mango está caduco — ver isMangoExpired, el caller decide cuál pasar),
+ * 20% Support, 40% hechizo de invocador (pesado, ver SPELL_SLOT_WEIGHTS), y
+ * el resto repartido uniforme entre todos los campeones — pickRandomChampion
+ * ya reparte parejo, así que alcanza con un solo roll de 0-99 para decidir
+ * el "balde" y, si toca campeón u hechizo, un segundo roll dentro de esa
+ * lista.
  */
 export function rollFirstOutcome(
   champions: Champion[],
   spells: SummonerSpell[],
+  bounceProbabilityPercent: number = BOUNCE_PROBABILITY_PERCENT,
 ): FirstRollOutcome {
   const roll = randomInt(100);
-  if (roll < BOUNCE_PROBABILITY_PERCENT) return { kind: "bounce" };
-  if (roll < BOUNCE_PROBABILITY_PERCENT + SUPPORT_PROBABILITY_PERCENT) return { kind: "support" };
-  if (roll < BOUNCE_PROBABILITY_PERCENT + SUPPORT_PROBABILITY_PERCENT + SPELL_PROBABILITY_PERCENT) {
+  if (roll < bounceProbabilityPercent) return { kind: "bounce" };
+  if (roll < bounceProbabilityPercent + SUPPORT_PROBABILITY_PERCENT) return { kind: "support" };
+  if (
+    roll <
+    bounceProbabilityPercent + SUPPORT_PROBABILITY_PERCENT + SPELL_PROBABILITY_PERCENT
+  ) {
     return { kind: "spell", ...rollSpellOutcome(spells) };
   }
   return { kind: "champion", champion: pickRandomChampion(champions) };
@@ -124,11 +193,12 @@ export function rollFirstOutcome(
 /**
  * Ruleta del castigo que rebota (segunda ruleta tras un "MANGO DEVUELTO"):
  * sin balde de rebote — un rebote no puede volver a rebotar, ver
- * /api/jugador/mangos/launch. Mismos % de Support (20%) y hechizo (50%) que
- * la primera ruleta, el resto (30%) para campeones — no se renormaliza por
- * simplicidad, mismo criterio que ya usaba esta función antes de agregar
- * hechizos (ver el comentario original: la intención de cada balde pesa lo
- * mismo en las dos ruletas, el campeón se queda con lo que sobra).
+ * /api/jugador/mangos/launch. Mismos % de Support (20%) y hechizo (40%) que
+ * la primera ruleta con un mango normal, el resto (40%) para campeones — no
+ * se renormaliza por simplicidad, mismo criterio que ya usaba esta función
+ * antes de agregar hechizos (ver el comentario original: la intención de
+ * cada balde pesa lo mismo en las dos ruletas, el campeón se queda con lo
+ * que sobra).
  */
 export function rollPenaltyOutcome(
   champions: Champion[],
@@ -168,6 +238,18 @@ export function resolveAssignedPunishment(
   return { name: champion?.name ?? championAssigned, iconUrl: champion?.iconUrl ?? null };
 }
 
-export function hoursAgoIso(hours: number): string {
-  return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+/**
+ * true si un mango lleva MANGO_EXPIRY_HOURS o más sin lanzarse desde que
+ * entró al inventario (`mangos.inventory_since`) — "podrido": sube su
+ * chance de rebote (ver EXPIRED_BOUNCE_PROBABILITY_PERCENT) y cambia de
+ * ícono en /jugador (MangoPodrido/MangoPodridoFurioso en vez de
+ * MangoHappy/MangoAngry, ver InventoryPanel.tsx).
+ */
+export function isMangoExpired(inventorySince: string, now: Date = new Date()): boolean {
+  const ageMs = now.getTime() - new Date(inventorySince).getTime();
+  return ageMs >= MANGO_EXPIRY_HOURS * 60 * 60 * 1000;
+}
+
+export function hoursFromNowIso(hours: number): string {
+  return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
 }
