@@ -13,11 +13,13 @@ import {
   isMangoExpired,
   mangoExpiresAt,
   hoursFromNowIso,
+  computeBullyingBonusPercent,
   MANDATORY_SPELL_IDS,
   FLASH_SPELL_ID,
   BOUNCE_PROBABILITY_PERCENT,
   EXPIRED_BOUNCE_PROBABILITY_PERCENT,
   MANGO_EXPIRY_HOURS,
+  BULLYING_BOUNCE_PERCENT_PER_RANK,
 } from "../src/lib/mango-launch.ts";
 
 let passed = 0;
@@ -168,6 +170,36 @@ const spells = [
     true,
     "mangoExpiresAt y isMangoExpired son consistentes en el borde exacto",
   );
+}
+
+// === computeBullyingBonusPercent ===
+
+// --- 12. El primero le lanza al puesto 20 (ejemplo del usuario): 19 puestos de diferencia * 4% ---
+{
+  const result = computeBullyingBonusPercent(1, 20);
+  assertEqual(result, 19 * BULLYING_BOUNCE_PERCENT_PER_RANK, "rank 1 -> rank 20: 19 puestos * 4% = 76%");
+}
+
+// --- 13. Mismo puesto (no debería poder pasar en la práctica, pero por las dudas) -> 0 ---
+{
+  assertEqual(computeBullyingBonusPercent(5, 5), 0, "mismo rank: sin bono");
+}
+
+// --- 14. Lanzarle a alguien MEJOR rankeado (para "arriba") -> 0, nunca negativo ---
+{
+  assertEqual(computeBullyingBonusPercent(10, 1), 0, "lanzar para arriba (rank 10 -> rank 1): sin bono, nunca negativo");
+}
+
+// --- 15. Un solo puesto de diferencia -> un solo 4% ---
+{
+  assertEqual(computeBullyingBonusPercent(3, 4), BULLYING_BOUNCE_PERCENT_PER_RANK, "un puesto de diferencia: un 4%");
+}
+
+// --- 16. Sin rank de alguno de los dos (todavía sin partidas ranked) -> 0, no explota ---
+{
+  assertEqual(computeBullyingBonusPercent(null, 5), 0, "sin rank del lanzador: sin bono");
+  assertEqual(computeBullyingBonusPercent(5, null), 0, "sin rank del objetivo: sin bono");
+  assertEqual(computeBullyingBonusPercent(null, null), 0, "sin rank de ninguno: sin bono");
 }
 
 // === hoursFromNowIso ===

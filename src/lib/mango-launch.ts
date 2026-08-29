@@ -51,6 +51,37 @@ export const MAX_ACTIVE_PENALTIES = 3;
 export const PROTECTION_HOURS = 5;
 
 /**
+ * "Anti-bullying": por cada puesto del ranking que el objetivo esté por
+ * DEBAJO de quien lanza, +4% de probabilidad de rebote (ver
+ * computeBullyingBonusPercent) — castiga "pegarle para abajo" a alguien
+ * mucho peor rankeado. 0% si el objetivo está igual o mejor rankeado (nunca
+ * penaliza lanzar "para arriba"), y 0% si no se puede determinar el rank de
+ * alguno de los dos (todavía sin partidas ranked, ver fetchRankOrder en
+ * src/lib/ranking.ts). Se suma (no reemplaza) al bounceProbabilityPercent
+ * base — puede terminar sumando más del 100% entre las dos cosas, se
+ * clampea a 100 en el caller (ver /api/jugador/mangos/launch). Con
+ * diferencias de rank grandes, esto empieza a comerse por completo los
+ * baldes de hechizo/campeón de rollFirstOutcome (no se renormalizan) — a
+ * propósito: cuanto más "bullying", más domina el rebote sobre cualquier
+ * otro resultado.
+ */
+export const BULLYING_BOUNCE_PERCENT_PER_RANK = 4;
+
+/**
+ * Bono de probabilidad de rebote (en puntos porcentuales, para sumarle al
+ * bounceProbabilityPercent base) por lanzarle a alguien peor rankeado que
+ * quien lanza. null en cualquiera de los dos ranks = no se puede evaluar
+ * "quién está arriba de quién" todavía, 0 de bono (no penaliza ni premia).
+ */
+export function computeBullyingBonusPercent(
+  launcherRank: number | null,
+  targetRank: number | null,
+): number {
+  if (launcherRank === null || targetRank === null) return 0;
+  return Math.max(0, (targetRank - launcherRank) * BULLYING_BOUNCE_PERCENT_PER_RANK);
+}
+
+/**
  * Valor reservado para `mangos.champion_assigned` cuando el castigo es "jugar
  * de Support" en vez de un campeón específico. No hace falta una columna
  * aparte: ningún id de campeón de Data Dragon es literalmente "SUPPORT" (son

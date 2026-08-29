@@ -4,6 +4,7 @@ import { getSummonerSpellList, type SummonerSpell } from "@/lib/summoner-spells"
 import { resolveAssignedPunishment } from "@/lib/mango-launch";
 import { computeLpStats, TREND_WINDOW_DAYS } from "@/lib/lp-stats";
 import { computeRankChanges, findEloScoreAtOrBefore, RANK_CHANGE_MIN_AGE_MS } from "@/lib/rank-change";
+import { effectiveEloScoreForRanking } from "@/lib/ranking";
 import type { Participant, Snapshot } from "@/types/database";
 
 /**
@@ -361,24 +362,24 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
 
   // Un jugador descalificado cae al último lugar del ranking hasta que un
   // admin lo perdone (ver /api/admin/penalties/resolve) — se modela como un
-  // elo_score "efectivo" de -Infinity solo para ordenar/rankear, nunca se
-  // toca el elo_score real guardado en el snapshot. previousEloScore NO se
-  // pisa: sigue siendo su elo real de la corrida anterior, así que
-  // rankChange refleja correctamente la caída real a último lugar en vez de
-  // mostrar un número que no coincide con dónde queda la fila.
-  // MIN_SAFE_INTEGER en vez de -Infinity: con dos descalificados a la vez,
-  // "-Infinity - -Infinity" da NaN (comparador inválido, orden de sort sin
-  // garantías) — un número finito bien por debajo de cualquier elo_score
-  // real evita eso y sigue ordenándolos entre sí por su elo real.
-  const effectiveEloScore = (e: { latest: Snapshot; isDisqualified: boolean }) =>
-    e.isDisqualified ? Number.MIN_SAFE_INTEGER : e.latest.elo_score;
-
-  entries.sort((a, b) => effectiveEloScore(b) - effectiveEloScore(a));
+  // elo_score "efectivo" bien bajo solo para ordenar/rankear (ver
+  // effectiveEloScoreForRanking en src/lib/ranking.ts, mismo criterio que
+  // usa fetchRankOrder para el bono anti-bullying del sistema de mangos),
+  // nunca se toca el elo_score real guardado en el snapshot.
+  // previousEloScore NO se pisa: sigue siendo su elo real de la corrida
+  // anterior, así que rankChange refleja correctamente la caída real a
+  // último lugar en vez de mostrar un número que no coincide con dónde
+  // queda la fila.
+  entries.sort(
+    (a, b) =>
+      effectiveEloScoreForRanking(b.latest.elo_score, b.isDisqualified) -
+      effectiveEloScoreForRanking(a.latest.elo_score, a.isDisqualified),
+  );
 
   const rankChangeByParticipantId = computeRankChanges(
     entries.map((e) => ({
       id: e.participant.id,
-      currentEloScore: effectiveEloScore(e),
+      currentEloScore: effectiveEloScoreForRanking(e.latest.elo_score, e.isDisqualified),
       previousEloScore: previousEloScoreByParticipantId.get(e.participant.id) ?? null,
     })),
   );

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAuthenticatedParticipantId } from "@/lib/player-auth";
 import { isParticipantDisqualified } from "@/lib/disqualification";
+import { fetchRankOrder } from "@/lib/ranking";
 import { getChampionList } from "@/lib/champions";
 import { getSummonerSpellList } from "@/lib/summoner-spells";
 import {
@@ -11,6 +12,7 @@ import {
   BOUNCE_PROBABILITY_PERCENT,
   EXPIRED_BOUNCE_PROBABILITY_PERCENT,
   isMangoExpired,
+  computeBullyingBonusPercent,
   SUPPORT_ASSIGNMENT,
   NO_FLASH_ASSIGNMENT,
   type PunishmentOutcome,
@@ -150,9 +152,23 @@ export async function POST(request: Request) {
 
   // Mango "podrido" (24h+ sin lanzarse, ver isMangoExpired): más chance de
   // rebote — castiga holdear un mango sin usarlo en vez de acumularlo.
-  const bounceProbabilityPercent = isMangoExpired(mango.inventory_since)
+  const baseBounceProbabilityPercent = isMangoExpired(mango.inventory_since)
     ? EXPIRED_BOUNCE_PROBABILITY_PERCENT
     : BOUNCE_PROBABILITY_PERCENT;
+
+  // Anti-bullying: +4% de rebote por cada puesto del ranking que el
+  // objetivo esté por debajo de quien lanza (ver
+  // computeBullyingBonusPercent) — 0 si a cualquiera de los dos todavía no
+  // se le puede calcular el rank (sin partidas ranked, ver fetchRankOrder).
+  const rankOrder = await fetchRankOrder(supabase);
+  const bullyingBonusPercent = computeBullyingBonusPercent(
+    rankOrder.get(participantId) ?? null,
+    rankOrder.get(target_participant_id) ?? null,
+  );
+  const bounceProbabilityPercent = Math.min(
+    100,
+    baseBounceProbabilityPercent + bullyingBonusPercent,
+  );
   const outcome = rollFirstOutcome(champions, spells, bounceProbabilityPercent);
 
   if (outcome.kind !== "bounce") {
