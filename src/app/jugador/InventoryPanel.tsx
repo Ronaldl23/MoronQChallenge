@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LaunchModal, type LaunchTarget } from "./LaunchModal";
 
 export interface InventoryMango {
   id: string;
-  /** 24h+ en el inventario sin lanzarse (ver isMangoExpired/MANGO_EXPIRY_HOURS) — cambia el ícono y, al lanzarlo, sube su chance de rebote (eso lo decide el servidor). */
-  isExpired: boolean;
+  /** inventory_since + MANGO_EXPIRY_HOURS (ver src/lib/mango-launch.ts) — cuándo se pudre este mango si no se lanza antes. MangoSlot arma la cuenta regresiva y decide "podrido" comparando esto contra la hora actual del cliente. */
+  expiresAt: string;
 }
 
 export interface QuestProgressView {
@@ -56,7 +56,7 @@ export function InventoryPanel({
             <MangoSlot
               key={mango?.id ?? `empty-${i}`}
               filled={!!mango}
-              isExpired={mango?.isExpired ?? false}
+              expiresAt={mango?.expiresAt}
               onClick={mango ? () => setSelectedMangoId(mango.id) : undefined}
             />
           ))}
@@ -97,56 +97,88 @@ export function InventoryPanel({
   );
 }
 
+/** Cuánto falta para MANGO_EXPIRY_HOURS, refrescado cada minuto mientras el slot esté montado (ver useEffect en MangoSlot) — no hace falta más precisión que minutos para una ventana de 24hs. */
+function useMillisRemaining(expiresAt: string | undefined): number | null {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!expiresAt) return;
+    const interval = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(interval);
+  }, [expiresAt]);
+
+  if (!expiresAt) return null;
+  return new Date(expiresAt).getTime() - now;
+}
+
+/** "23h 45m" con más de una hora restante, "45m" con menos de una — igual que cualquier cuenta regresiva de vencimiento. */
+function formatTimeRemaining(millis: number): string {
+  const totalMinutes = Math.max(0, Math.floor(millis / 60_000));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+}
+
 function MangoSlot({
   filled,
-  isExpired,
+  expiresAt,
   onClick,
 }: {
   filled: boolean;
-  isExpired: boolean;
+  /** undefined para un slot vacío — ver InventoryMango.expiresAt para uno lleno. */
+  expiresAt?: string;
   onClick?: () => void;
 }) {
   const [hover, setHover] = useState(false);
   const clickable = filled && !!onClick;
-  // Podrido (24h+ sin lanzarse, ver isMangoExpired): MangoPodrido/
+  const millisRemaining = useMillisRemaining(expiresAt);
+  // Podrido (24h+ sin lanzarse, ver MANGO_EXPIRY_HOURS): MangoPodrido/
   // MangoPodridoFurioso en vez de MangoHappy/MangoAngry — mismo hover,
   // solo cambia qué imagen usa.
+  const isExpired = millisRemaining !== null && millisRemaining <= 0;
   const idleImage = isExpired ? "/MangoPodrido.png" : "/MangoHappy.png";
   const hoverImage = isExpired ? "/MangoPodridoFurioso.png" : "/MangoAngry.png";
 
   return (
-    <button
-      type="button"
-      disabled={!clickable}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      onClick={onClick}
-      aria-label={filled ? "Lanzar mango" : "Slot vacío"}
-      title={filled && isExpired ? "Este mango está podrido: más chance de que rebote" : undefined}
-      className={`group relative flex h-24 w-24 items-center justify-center rounded-xl border-2 transition-colors ${
-        filled
-          ? "cursor-pointer border-gold/50 bg-bg-elevated hover:border-gold"
-          : "border-dashed border-border-hairline bg-bg-elevated/40"
-      }`}
-    >
-      {filled ? (
-        <>
-          {/* eslint-disable-next-line @next/next/no-img-element -- asset local */}
-          <img
-            src={hover ? hoverImage : idleImage}
-            alt="Mango"
-            className="h-16 w-16 object-contain"
-          />
-          {hover && (
-            <span className="absolute -top-8 rounded-full border border-border-hairline bg-bg-elevated px-2 py-1 text-xs font-semibold whitespace-nowrap text-text-primary shadow-lg">
-              Lanzar
-            </span>
-          )}
-        </>
-      ) : (
-        <span className="h-3 w-3 rounded-full bg-border-hairline" aria-hidden />
+    <div className="flex flex-col items-center gap-1">
+      <button
+        type="button"
+        disabled={!clickable}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+        onClick={onClick}
+        aria-label={filled ? "Lanzar mango" : "Slot vacío"}
+        title={filled && isExpired ? "Este mango está podrido: más chance de que rebote" : undefined}
+        className={`group relative flex h-24 w-24 items-center justify-center rounded-xl border-2 transition-colors ${
+          filled
+            ? "cursor-pointer border-gold/50 bg-bg-elevated hover:border-gold"
+            : "border-dashed border-border-hairline bg-bg-elevated/40"
+        }`}
+      >
+        {filled ? (
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element -- asset local */}
+            <img
+              src={hover ? hoverImage : idleImage}
+              alt="Mango"
+              className="h-16 w-16 object-contain"
+            />
+            {hover && (
+              <span className="absolute -top-8 rounded-full border border-border-hairline bg-bg-elevated px-2 py-1 text-xs font-semibold whitespace-nowrap text-text-primary shadow-lg">
+                Lanzar
+              </span>
+            )}
+          </>
+        ) : (
+          <span className="h-3 w-3 rounded-full bg-border-hairline" aria-hidden />
+        )}
+      </button>
+      {filled && millisRemaining !== null && (
+        <span className={`text-xs font-semibold ${isExpired ? "text-loss" : "text-text-secondary"}`}>
+          {isExpired ? "Podrido" : formatTimeRemaining(millisRemaining)}
+        </span>
       )}
-    </button>
+    </div>
   );
 }
 

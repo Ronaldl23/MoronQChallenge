@@ -250,6 +250,13 @@ export function isMangoExpired(inventorySince: string, now: Date = new Date()): 
   return ageMs >= MANGO_EXPIRY_HOURS * 60 * 60 * 1000;
 }
 
+/** Cuándo se pudre este mango si nadie lo lanza antes — inventory_since + MANGO_EXPIRY_HOURS, para mostrar la cuenta regresiva en el inventario (ver InventoryPanel.tsx). */
+export function mangoExpiresAt(inventorySince: string): string {
+  return new Date(
+    new Date(inventorySince).getTime() + MANGO_EXPIRY_HOURS * 60 * 60 * 1000,
+  ).toISOString();
+}
+
 export function hoursFromNowIso(hours: number): string {
   return new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
 }

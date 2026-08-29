@@ -2,7 +2,7 @@ import { getAuthenticatedParticipantId } from "@/lib/player-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getChampionList, type Champion } from "@/lib/champions";
 import { getSummonerSpellList, type SummonerSpell } from "@/lib/summoner-spells";
-import { MAX_ACTIVE_PENALTIES, isMangoExpired, resolveAssignedPunishment } from "@/lib/mango-launch";
+import { MAX_ACTIVE_PENALTIES, mangoExpiresAt, resolveAssignedPunishment } from "@/lib/mango-launch";
 import { QUEST_TARGETS } from "@/lib/quests";
 import { PENALTY_GAME_LIMIT } from "@/lib/penalty";
 import { isOnline } from "@/lib/presence";
@@ -119,14 +119,14 @@ export default async function JugadorPage() {
     );
   }
 
-  // "Podrido" (ver isMangoExpired/MANGO_EXPIRY_HOURS): 24h+ en el
-  // inventario sin lanzarse — sube su chance de rebote al lanzarlo (eso lo
-  // decide /api/jugador/mangos/launch) y acá solo cambia el ícono
-  // (MangoPodrido/MangoPodridoFurioso en vez de MangoHappy/MangoAngry, ver
-  // InventoryPanel.tsx).
+  // expiresAt (inventory_since + MANGO_EXPIRY_HOURS): InventoryPanel arma
+  // la cuenta regresiva del lado del cliente y decide solo cuándo mostrarlo
+  // "podrido" (ícono MangoPodrido/MangoPodridoFurioso) — acá solo se manda
+  // el timestamp, no un booleano ya calculado, para que la cuenta baje en
+  // vivo sin tener que recargar la página.
   const mangos = (mangosResult.data ?? []).map((m) => ({
     id: m.id,
-    isExpired: isMangoExpired(m.inventory_since),
+    expiresAt: mangoExpiresAt(m.inventory_since),
   }));
 
   const questByType = new Map(

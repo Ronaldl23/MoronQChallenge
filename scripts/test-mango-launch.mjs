@@ -11,6 +11,7 @@ import {
   pickWeightedIndex,
   rollFirstOutcome,
   isMangoExpired,
+  mangoExpiresAt,
   hoursFromNowIso,
   MANDATORY_SPELL_IDS,
   FLASH_SPELL_ID,
@@ -144,6 +145,29 @@ const spells = [
   const now = new Date("2026-01-10T00:00:00Z");
   const inventorySince = new Date("2026-01-01T00:00:00Z").toISOString();
   assertEqual(isMangoExpired(inventorySince, now), true, "9 días atrás: expirado");
+}
+
+// === mangoExpiresAt ===
+
+// --- 10. inventory_since + MANGO_EXPIRY_HOURS exacto ---
+{
+  const inventorySince = "2026-01-01T00:00:00.000Z";
+  const result = mangoExpiresAt(inventorySince);
+  const expected = new Date(
+    new Date(inventorySince).getTime() + MANGO_EXPIRY_HOURS * 60 * 60 * 1000,
+  ).toISOString();
+  assertEqual(result, expected, "mangoExpiresAt: inventory_since + MANGO_EXPIRY_HOURS");
+}
+
+// --- 11. Consistencia con isMangoExpired: justo en mangoExpiresAt(), ya cuenta como expirado ---
+{
+  const inventorySince = "2026-01-01T00:00:00.000Z";
+  const expiresAt = new Date(mangoExpiresAt(inventorySince));
+  assertEqual(
+    isMangoExpired(inventorySince, expiresAt),
+    true,
+    "mangoExpiresAt y isMangoExpired son consistentes en el borde exacto",
+  );
 }
 
 // === hoursFromNowIso ===
