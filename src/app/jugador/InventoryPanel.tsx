@@ -24,6 +24,7 @@ export function InventoryPanel({
   deathlessWin,
   beatParticipant,
   otherParticipants,
+  launchBlocked,
 }: {
   mangos: InventoryMango[];
   winStreak: QuestProgressView;
@@ -31,6 +32,8 @@ export function InventoryPanel({
   deathlessWin: QuestProgressView;
   beatParticipant: QuestProgressView;
   otherParticipants: LaunchTarget[];
+  /** true si ya tiene MÁS de MAX_ACTIVE_PENALTIES castigos activos propios (ver canLaunchMango en src/lib/mango-launch.ts) — puede pasar con un rebote propio estando ya en el tope, la única excepción aceptada. El chequeo real (que esto solo refleja) vive en /api/jugador/mangos/launch. */
+  launchBlocked: boolean;
 }) {
   const router = useRouter();
   const [selectedMangoId, setSelectedMangoId] = useState<string | null>(null);
@@ -48,16 +51,23 @@ export function InventoryPanel({
     <div className="flex flex-col gap-6">
       <section className="rounded-2xl border border-border-hairline bg-surface p-6">
         <h2 className="font-display text-lg font-semibold text-gold">Inventario de Mangos</h2>
-        <p className="mt-1 text-sm text-text-secondary">
-          Pasá el mouse por un mango y hacé click para lanzarlo.
-        </p>
+        {launchBlocked ? (
+          <p className="mt-1 text-sm text-loss">
+            Ya tenés más de 3 castigos activos — cumplí uno o esperá a que te perdonen antes de
+            lanzar otro mango.
+          </p>
+        ) : (
+          <p className="mt-1 text-sm text-text-secondary">
+            Pasá el mouse por un mango y hacé click para lanzarlo.
+          </p>
+        )}
         <div className="mt-4 flex gap-4">
           {Array.from({ length: MAX_SLOTS }, (_, i) => mangos[i] ?? null).map((mango, i) => (
             <MangoSlot
               key={mango?.id ?? `empty-${i}`}
               filled={!!mango}
               expiresAt={mango?.expiresAt}
-              onClick={mango ? () => setSelectedMangoId(mango.id) : undefined}
+              onClick={mango && !launchBlocked ? () => setSelectedMangoId(mango.id) : undefined}
             />
           ))}
         </div>

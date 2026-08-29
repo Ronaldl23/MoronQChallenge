@@ -9,6 +9,7 @@ import {
   rollFirstOutcome,
   rollPenaltyOutcome,
   MAX_ACTIVE_PENALTIES,
+  canLaunchMango,
   BOUNCE_PROBABILITY_PERCENT,
   EXPIRED_BOUNCE_PROBABILITY_PERCENT,
   isMangoExpired,
@@ -72,6 +73,31 @@ export async function POST(request: Request) {
   if (await isParticipantDisqualified(supabase, participantId)) {
     return NextResponse.json(
       { error: "Estás descalificado — no podés lanzar mangos hasta que te perdonen" },
+      { status: 403 },
+    );
+  }
+
+  // Vacío legal cerrado: MAX_ACTIVE_PENALTIES le pone techo a lo que a un
+  // jugador le PUEDEN lanzar (chequeo del objetivo, más abajo), pero nada
+  // le impedía a ÉL MISMO seguir lanzando más allá de su propio cupo — si
+  // ya tenía 3 y le rebotaba, quedaba en 4 (la única excepción aceptada:
+  // autoinfligida por su propio lanzamiento), pero podía seguir lanzando
+  // de ahí en más y acumular un 5to, 6to sin límite. canLaunchMango permite
+  // lanzar estando en el tope (para que ese rebote pueda pasar) y bloquea
+  // recién en MAX_ACTIVE_PENALTIES+1 en adelante.
+  const { count: ownActivePenaltyCount, error: ownCountError } = await supabase
+    .from("penalty_progress")
+    .select("id", { count: "exact", head: true })
+    .eq("participant_id", participantId)
+    .eq("status", "pending");
+  if (ownCountError) {
+    return NextResponse.json({ error: ownCountError.message }, { status: 500 });
+  }
+  if (!canLaunchMango(ownActivePenaltyCount ?? 0)) {
+    return NextResponse.json(
+      {
+        error: `Ya tenés más de ${MAX_ACTIVE_PENALTIES} castigos activos — cumplí uno o esperá a que te perdonen antes de lanzar otro mango`,
+      },
       { status: 403 },
     );
   }

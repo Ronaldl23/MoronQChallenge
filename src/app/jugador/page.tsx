@@ -187,6 +187,13 @@ export default async function JugadorPage() {
   const spellById = new Map(spells.map((s) => [s.id, s]));
 
   const pendingPenalties = pendingPenaltiesResult.data ?? [];
+  // Vacío legal cerrado (ver el chequeo real en /api/jugador/mangos/launch,
+  // esto es solo la UI): un jugador puede seguir lanzando estando en el
+  // tope de MAX_ACTIVE_PENALTIES (para que un rebote propio pueda sumarle
+  // un 4to, la única excepción aceptada), pero no una vez que YA tiene más
+  // — ahí se le deshabilita el inventario hasta que baje de nuevo a 3 o
+  // menos.
+  const launchBlocked = pendingPenalties.length > MAX_ACTIVE_PENALTIES;
 
   let pendingPunishments: {
     name: string;
@@ -303,6 +310,7 @@ export default async function JugadorPage() {
           deathlessWin={deathlessWin}
           beatParticipant={beatParticipant}
           otherParticipants={otherParticipants}
+          launchBlocked={launchBlocked}
         />
       )}
     </PageShell>

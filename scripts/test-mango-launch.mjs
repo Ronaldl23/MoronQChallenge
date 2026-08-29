@@ -14,12 +14,14 @@ import {
   mangoExpiresAt,
   hoursFromNowIso,
   computeBullyingBonusPercent,
+  canLaunchMango,
   MANDATORY_SPELL_IDS,
   FLASH_SPELL_ID,
   BOUNCE_PROBABILITY_PERCENT,
   EXPIRED_BOUNCE_PROBABILITY_PERCENT,
   MANGO_EXPIRY_HOURS,
   BULLYING_BOUNCE_PERCENT_PER_RANK,
+  MAX_ACTIVE_PENALTIES,
 } from "../src/lib/mango-launch.ts";
 
 let passed = 0;
@@ -200,6 +202,30 @@ const spells = [
   assertEqual(computeBullyingBonusPercent(null, 5), 0, "sin rank del lanzador: sin bono");
   assertEqual(computeBullyingBonusPercent(5, null), 0, "sin rank del objetivo: sin bono");
   assertEqual(computeBullyingBonusPercent(null, null), 0, "sin rank de ninguno: sin bono");
+}
+
+// === canLaunchMango (vacío legal: el rebote propio te puede sumar UN 4to, pero no más) ===
+
+// --- 17. Con 0..MAX_ACTIVE_PENALTIES castigos activos propios -> puede lanzar ---
+{
+  for (let n = 0; n <= MAX_ACTIVE_PENALTIES; n++) {
+    assertEqual(canLaunchMango(n), true, `con ${n} castigos activos (<= ${MAX_ACTIVE_PENALTIES}): puede lanzar`);
+  }
+}
+
+// --- 18. Justo en el tope (3): TODAVÍA puede lanzar — así el rebote propio puede sumarle el 4to ---
+{
+  assertEqual(canLaunchMango(MAX_ACTIVE_PENALTIES), true, "en el tope exacto: puede lanzar (para que el rebote propio pueda pasar)");
+}
+
+// --- 19. Con MAX_ACTIVE_PENALTIES + 1 (el 4to, ya sumado por un rebote propio) -> bloqueado ---
+{
+  assertEqual(canLaunchMango(MAX_ACTIVE_PENALTIES + 1), false, "con el 4to ya sumado: bloqueado hasta bajar de nuevo");
+}
+
+// --- 20. Muy por encima del tope -> sigue bloqueado, no hay un techo mágico aparte ---
+{
+  assertEqual(canLaunchMango(MAX_ACTIVE_PENALTIES + 5), false, "muy por encima del tope: sigue bloqueado");
 }
 
 // === hoursFromNowIso ===
