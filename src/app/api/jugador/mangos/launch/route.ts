@@ -198,17 +198,37 @@ export async function POST(request: Request) {
   const outcome = rollFirstOutcome(champions, spells, bounceProbabilityPercent);
 
   if (outcome.kind !== "bounce") {
-    const { error: updateError } = await supabase
+    // UPDATE condicional (.eq("status", "in_inventory")) + chequeo de filas
+    // afectadas, mismo patrón que la doble-revelación en reveal/route.ts:
+    // entre el SELECT de arriba y acá hubo varios await (listas de
+    // campeones/hechizos, fetchRankOrder) — tiempo de sobra para que dos
+    // requests casi simultáneas sobre el MISMO mango (doble click, retry de
+    // red) pasen las dos el chequeo inicial y las dos lleguen hasta acá. Sin
+    // esta condición, las dos ganan el UPDATE y las dos insertan su propia
+    // fila en penalty_progress más abajo — duplicado real que después
+    // rompe la revelación (.maybeSingle() truena con "multiple rows" en
+    // reveal/route.ts) y desincroniza el conteo de castigos.
+    const { data: updatedMangoRows, error: updateError } = await supabase
       .from("mangos")
       .update({
         status: "pending_reveal",
         sent_by_participant_id: participantId,
         champion_assigned: toStoredAssignment(outcome),
       })
-      .eq("id", mango.id);
+      .eq("id", mango.id)
+      .eq("status", "in_inventory")
+      .select("id");
     if (updateError) {
       console.error("launch: fallo marcando el mango pending_reveal:", updateError.message);
       return NextResponse.json({ error: updateError.message }, { status: 500 });
+    }
+    if ((updatedMangoRows?.length ?? 0) === 0) {
+      // Perdió la carrera: otra request ya lo lanzó entre el SELECT de
+      // arriba y este UPDATE — no insertar un segundo penalty_progress.
+      return NextResponse.json(
+        { error: "Ese mango no está disponible para lanzar" },
+        { status: 409 },
+      );
     }
 
     const { error: penaltyError } = await supabase.from("penalty_progress").insert({
@@ -243,13 +263,25 @@ export async function POST(request: Request) {
   // igual que en el diseño anterior.
   const bounceOutcome = rollPenaltyOutcome(champions, spells);
 
-  const { error: returnedUpdateError } = await supabase
+  // Mismo UPDATE condicional que el camino normal de arriba, por la misma
+  // razón: dos requests casi simultáneas sobre el mismo mango no deben
+  // terminar las dos acá abajo insertando su propio mango de rebote +
+  // penalty_progress.
+  const { data: updatedReturnedRows, error: returnedUpdateError } = await supabase
     .from("mangos")
     .update({ status: "returned" })
-    .eq("id", mango.id);
+    .eq("id", mango.id)
+    .eq("status", "in_inventory")
+    .select("id");
   if (returnedUpdateError) {
     console.error("launch: fallo marcando el mango original 'returned':", returnedUpdateError.message);
     return NextResponse.json({ error: returnedUpdateError.message }, { status: 500 });
+  }
+  if ((updatedReturnedRows?.length ?? 0) === 0) {
+    return NextResponse.json(
+      { error: "Ese mango no está disponible para lanzar" },
+      { status: 409 },
+    );
   }
 
   const { data: bounceMango, error: bounceMangoError } = await supabase
