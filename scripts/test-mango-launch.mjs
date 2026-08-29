@@ -176,10 +176,14 @@ const spells = [
 
 // === computeBullyingBonusPercent ===
 
-// --- 12. El primero le lanza al puesto 20 (ejemplo del usuario): 19 puestos de diferencia * 4% ---
+// --- 12. El primero le lanza al puesto 20 (ejemplo del usuario): 19 puestos de diferencia * BULLYING_BOUNCE_PERCENT_PER_RANK ---
 {
   const result = computeBullyingBonusPercent(1, 20);
-  assertEqual(result, 19 * BULLYING_BOUNCE_PERCENT_PER_RANK, "rank 1 -> rank 20: 19 puestos * 4% = 76%");
+  assertEqual(
+    result,
+    19 * BULLYING_BOUNCE_PERCENT_PER_RANK,
+    `rank 1 -> rank 20: 19 puestos * ${BULLYING_BOUNCE_PERCENT_PER_RANK}% = ${19 * BULLYING_BOUNCE_PERCENT_PER_RANK}%`,
+  );
 }
 
 // --- 13. Mismo puesto (no debería poder pasar en la práctica, pero por las dudas) -> 0 ---
@@ -192,9 +196,13 @@ const spells = [
   assertEqual(computeBullyingBonusPercent(10, 1), 0, "lanzar para arriba (rank 10 -> rank 1): sin bono, nunca negativo");
 }
 
-// --- 15. Un solo puesto de diferencia -> un solo 4% ---
+// --- 15. Un solo puesto de diferencia -> un solo BULLYING_BOUNCE_PERCENT_PER_RANK ---
 {
-  assertEqual(computeBullyingBonusPercent(3, 4), BULLYING_BOUNCE_PERCENT_PER_RANK, "un puesto de diferencia: un 4%");
+  assertEqual(
+    computeBullyingBonusPercent(3, 4),
+    BULLYING_BOUNCE_PERCENT_PER_RANK,
+    `un puesto de diferencia: ${BULLYING_BOUNCE_PERCENT_PER_RANK}%`,
+  );
 }
 
 // --- 16. Sin rank de alguno de los dos (todavía sin partidas ranked) -> 0, no explota ---

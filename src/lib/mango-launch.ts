@@ -73,7 +73,7 @@ export const PROTECTION_HOURS = 5;
 
 /**
  * "Anti-bullying": por cada puesto del ranking que el objetivo esté por
- * DEBAJO de quien lanza, +4% de probabilidad de rebote (ver
+ * DEBAJO de quien lanza, +2% de probabilidad de rebote (ver
  * computeBullyingBonusPercent) — castiga "pegarle para abajo" a alguien
  * mucho peor rankeado. 0% si el objetivo está igual o mejor rankeado (nunca
  * penaliza lanzar "para arriba"), y 0% si no se puede determinar el rank de
@@ -86,7 +86,7 @@ export const PROTECTION_HOURS = 5;
  * propósito: cuanto más "bullying", más domina el rebote sobre cualquier
  * otro resultado.
  */
-export const BULLYING_BOUNCE_PERCENT_PER_RANK = 4;
+export const BULLYING_BOUNCE_PERCENT_PER_RANK = 2;
 
 /**
  * Bono de probabilidad de rebote (en puntos porcentuales, para sumarle al

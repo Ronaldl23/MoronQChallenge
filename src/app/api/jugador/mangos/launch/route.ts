@@ -182,8 +182,8 @@ export async function POST(request: Request) {
     ? EXPIRED_BOUNCE_PROBABILITY_PERCENT
     : BOUNCE_PROBABILITY_PERCENT;
 
-  // Anti-bullying: +4% de rebote por cada puesto del ranking que el
-  // objetivo esté por debajo de quien lanza (ver
+  // Anti-bullying: +BULLYING_BOUNCE_PERCENT_PER_RANK de rebote por cada
+  // puesto del ranking que el objetivo esté por debajo de quien lanza (ver
   // computeBullyingBonusPercent) — 0 si a cualquiera de los dos todavía no
   // se le puede calcular el rank (sin partidas ranked, ver fetchRankOrder).
   const rankOrder = await fetchRankOrder(supabase);
