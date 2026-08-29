@@ -51,16 +51,9 @@ export function InventoryPanel({
     <div className="flex flex-col gap-6">
       <section className="rounded-2xl border border-border-hairline bg-surface p-6">
         <h2 className="font-display text-lg font-semibold text-gold">Inventario de Mangos</h2>
-        {launchBlocked ? (
-          <p className="mt-1 text-sm text-loss">
-            Ya tenés más de 3 castigos activos — cumplí uno o esperá a que te perdonen antes de
-            lanzar otro mango.
-          </p>
-        ) : (
-          <p className="mt-1 text-sm text-text-secondary">
-            Pasá el mouse por un mango y hacé click para lanzarlo.
-          </p>
-        )}
+        <p className="mt-1 text-sm text-text-secondary">
+          Pasá el mouse por un mango y hacé click para lanzarlo.
+        </p>
         <div className="mt-4 flex gap-4">
           {Array.from({ length: MAX_SLOTS }, (_, i) => mangos[i] ?? null).map((mango, i) => (
             <MangoSlot
