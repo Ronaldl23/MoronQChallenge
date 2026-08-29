@@ -167,6 +167,63 @@ export default async function JugadorPage() {
     );
   }
 
+  // Estadísticas de mangos (apartado nuevo dentro del inventario) — cuentan
+  // TODA la vida del torneo, no una ventana de tiempo: cuántos mangos
+  // lanzó/recibió cada participante y cuántos de los que lanzó rebotaron,
+  // más el top 5 de lanzadores y de receptores. is_bounce_back=false en
+  // "mangos" filtra los mangos ORIGINALES lanzados a propósito por alguien
+  // (excluye el mango nuevo que nace del rebote en sí, que "envía" el
+  // objetivo devolviendo la jugada — no fue una decisión suya, ver
+  // /api/jugador/mangos/launch). penalty_progress no distingue normal vs.
+  // rebote: "recibido" cuenta las dos cosas por igual, es lo que a uno le
+  // tocó cumplir, venga de donde venga.
+  const [{ data: allMangosSent }, { data: allPenalties }, { data: allParticipants }] =
+    await Promise.all([
+      supabase
+        .from("mangos")
+        .select("sent_by_participant_id, status")
+        .not("sent_by_participant_id", "is", null)
+        .eq("is_bounce_back", false),
+      supabase.from("penalty_progress").select("participant_id"),
+      supabase.from("participants").select("id, nombre_display"),
+    ]);
+
+  const nameById = new Map((allParticipants ?? []).map((p) => [p.id, p.nombre_display]));
+
+  const launchedByParticipant = new Map<string, number>();
+  const bouncedByParticipant = new Map<string, number>();
+  for (const row of allMangosSent ?? []) {
+    const senderId = row.sent_by_participant_id!;
+    launchedByParticipant.set(senderId, (launchedByParticipant.get(senderId) ?? 0) + 1);
+    if (row.status === "returned") {
+      bouncedByParticipant.set(senderId, (bouncedByParticipant.get(senderId) ?? 0) + 1);
+    }
+  }
+
+  const receivedByParticipant = new Map<string, number>();
+  for (const row of allPenalties ?? []) {
+    receivedByParticipant.set(
+      row.participant_id,
+      (receivedByParticipant.get(row.participant_id) ?? 0) + 1,
+    );
+  }
+
+  const TOP_N = 5;
+  function topN(counts: Map<string, number>): { name: string; count: number }[] {
+    return [...counts.entries()]
+      .map(([id, count]) => ({ name: nameById.get(id) ?? "?", count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, TOP_N);
+  }
+
+  const mangoStats = {
+    launched: launchedByParticipant.get(participantId) ?? 0,
+    received: receivedByParticipant.get(participantId) ?? 0,
+    bounced: bouncedByParticipant.get(participantId) ?? 0,
+    topLaunchers: topN(launchedByParticipant),
+    topReceivers: topN(receivedByParticipant),
+  };
+
   const otherParticipants: LaunchTarget[] = others.map((p) => ({
     id: p.id,
     nombre_display: p.nombre_display,
@@ -311,6 +368,7 @@ export default async function JugadorPage() {
           beatParticipant={beatParticipant}
           otherParticipants={otherParticipants}
           launchBlocked={launchBlocked}
+          mangoStats={mangoStats}
         />
       )}
     </PageShell>

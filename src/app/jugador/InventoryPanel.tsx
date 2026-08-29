@@ -15,6 +15,22 @@ export interface QuestProgressView {
   target: number;
 }
 
+export interface MangoLeaderboardEntry {
+  name: string;
+  count: number;
+}
+
+export interface MangoStatsView {
+  /** Mangos ORIGINALES (no el que nace de un rebote) que lanzaste, contando toda la vida del torneo — llegaran a destino o hayan rebotado. */
+  launched: number;
+  /** Castigos que te tocó cumplir en total — normales o por rebote de un lanzamiento tuyo, cuentan igual. */
+  received: number;
+  /** De los que lanzaste vos, cuántos rebotaron. */
+  bounced: number;
+  topLaunchers: MangoLeaderboardEntry[];
+  topReceivers: MangoLeaderboardEntry[];
+}
+
 const MAX_SLOTS = 3;
 
 export function InventoryPanel({
@@ -25,6 +41,7 @@ export function InventoryPanel({
   beatParticipant,
   otherParticipants,
   launchBlocked,
+  mangoStats,
 }: {
   mangos: InventoryMango[];
   winStreak: QuestProgressView;
@@ -34,6 +51,7 @@ export function InventoryPanel({
   otherParticipants: LaunchTarget[];
   /** true si ya tiene MÁS de MAX_ACTIVE_PENALTIES castigos activos propios (ver canLaunchMango en src/lib/mango-launch.ts) — puede pasar con un rebote propio estando ya en el tope, la única excepción aceptada. El chequeo real (que esto solo refleja) vive en /api/jugador/mangos/launch. */
   launchBlocked: boolean;
+  mangoStats: MangoStatsView;
 }) {
   const router = useRouter();
   const [selectedMangoId, setSelectedMangoId] = useState<string | null>(null);
@@ -63,6 +81,19 @@ export function InventoryPanel({
               onClick={mango && !launchBlocked ? () => setSelectedMangoId(mango.id) : undefined}
             />
           ))}
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-border-hairline bg-surface p-6">
+        <h2 className="font-display text-lg font-semibold text-gold">Estadísticas</h2>
+        <div className="mt-4 grid grid-cols-3 gap-3">
+          <StatTile label="Lanzados" value={mangoStats.launched} />
+          <StatTile label="Recibidos" value={mangoStats.received} />
+          <StatTile label="Rebotados" value={mangoStats.bounced} />
+        </div>
+        <div className="mt-6 grid gap-6 sm:grid-cols-2">
+          <MangoTopList title="Top lanzadores" entries={mangoStats.topLaunchers} />
+          <MangoTopList title="Top receptores" entries={mangoStats.topReceivers} />
         </div>
       </section>
 
@@ -180,6 +211,38 @@ function MangoSlot({
         <span className={`text-xs font-semibold ${isExpired ? "text-loss" : "text-text-secondary"}`}>
           {isExpired ? "Podrido" : formatTimeRemaining(millisRemaining)}
         </span>
+      )}
+    </div>
+  );
+}
+
+function StatTile({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="flex flex-col items-center gap-1 rounded-xl border border-border-hairline bg-bg-elevated py-3">
+      <span className="font-display text-2xl font-bold text-text-primary">{value}</span>
+      <span className="text-xs text-text-secondary">{label}</span>
+    </div>
+  );
+}
+
+function MangoTopList({ title, entries }: { title: string; entries: MangoLeaderboardEntry[] }) {
+  return (
+    <div>
+      <h3 className="text-sm font-semibold text-text-secondary">{title}</h3>
+      {entries.length === 0 ? (
+        <p className="mt-2 text-xs text-text-muted">Todavía no hay datos.</p>
+      ) : (
+        <ol className="mt-2 flex flex-col gap-1.5">
+          {entries.map((entry, i) => (
+            <li key={entry.name} className="flex items-center justify-between text-sm">
+              <span className="flex items-center gap-2 text-text-primary">
+                <span className="text-xs font-semibold text-text-muted">{i + 1}.</span>
+                {entry.name}
+              </span>
+              <span className="font-semibold text-gold">{entry.count}</span>
+            </li>
+          ))}
+        </ol>
       )}
     </div>
   );
