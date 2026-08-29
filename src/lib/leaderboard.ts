@@ -257,7 +257,7 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
   if (activePenaltyRows.length > 0) {
     const { data: mangoDetails } = await supabase
       .from("mangos")
-      .select("id, champion_assigned, sent_by_participant_id")
+      .select("id, status, champion_assigned, sent_by_participant_id")
       .in(
         "id",
         activePenaltyRows.map((r) => r.mango_id),
@@ -279,6 +279,14 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
 
     for (const row of activePenaltyRows) {
       const mango = mangoById.get(row.mango_id);
+      // Todavía 'pending_reveal': el propio jugador afectado ni vio de qué
+      // se trata (recién se entera con SU ruleta, ver /jugador/page.tsx —
+      // mismo filtro ahí). Contarlo o mostrar su campeón/hechizo acá sería
+      // un spoiler público de un castigo que ni su propia víctima reveló
+      // todavía, y además desincroniza este badge del banner de /jugador
+      // (que sí lo excluye) mostrando un número que la propia página del
+      // jugador no puede respaldar.
+      if (mango?.status === "pending_reveal") continue;
       const resolved = resolveAssignedPunishment(
         mango?.champion_assigned ?? null,
         championById,
