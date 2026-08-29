@@ -222,6 +222,68 @@ const UNKNOWN_AEGIS_SIGNAL: AegisMatchSignal = {
 };
 
 /**
+ * Corre el motor de misiones puro (processNewMatches, ver src/lib/quests.ts)
+ * y persiste el resultado — extraído para poder llamarlo TANTO con
+ * partidas nuevas de verdad COMO con `matches: []` (ver el comentario en
+ * processParticipantQuests sobre por qué hace falta lo segundo): con
+ * matches=[] el loop de partidas de processNewMatches no itera nada, pero
+ * su primer paso (tryGrant para cada quest ANTES de procesar partidas, ver
+ * quests.ts) sigue corriendo igual — es exactamente el reintento de "esta
+ * quest ya está en el target, ¿ahora hay cupo de inventario libre?" que
+ * antes solo se disparaba si había una partida nueva que procesar.
+ */
+async function grantCompletedQuests({
+  supabase,
+  participant,
+  questRows,
+  referenceRow,
+  matches,
+}: {
+  supabase: SupabaseClient<Database>;
+  participant: { id: string };
+  questRows: Map<QuestType, QuestProgress>;
+  referenceRow: QuestProgress;
+  matches: MatchOutcome[];
+}): Promise<void> {
+  const mangoCount = await countMangoInventory(supabase, participant.id);
+
+  const progress = Object.fromEntries(
+    QUEST_TYPES.map((questType) => [questType, questRows.get(questType)!.current_progress]),
+  ) as Record<QuestType, number>;
+
+  const result = processNewMatches({ progress, matches, mangoCount });
+
+  // Sin partidas nuevas (matches=[]), result.lastProcessedMatchId queda
+  // null (nunca se pisa dentro del loop, que no itera nada) — el cursor
+  // existente se mantiene tal cual en vez de borrarse.
+  const lastProcessedMatchId = result.lastProcessedMatchId ?? referenceRow.last_processed_match_id;
+  const updatedAt = new Date().toISOString();
+
+  await Promise.all(
+    QUEST_TYPES.map((questType) =>
+      supabase
+        .from("quest_progress")
+        .update({
+          current_progress: result.progress[questType],
+          last_processed_match_id: lastProcessedMatchId,
+          updated_at: updatedAt,
+        })
+        .eq("id", questRows.get(questType)!.id),
+    ),
+  );
+
+  if (result.grants.length > 0) {
+    const { error: mangoInsertError } = await supabase.from("mangos").insert(
+      result.grants.map(() => ({
+        owner_participant_id: participant.id,
+        status: "in_inventory" as const,
+      })),
+    );
+    if (mangoInsertError) throw mangoInsertError;
+  }
+}
+
+/**
  * Aislado a propósito: se llama con su propio try/catch desde el loop
  * principal — si Riot falla acá, o hay un error de datos, no debe tocar el
  * resto de la actualización de ese participante ni de los demás.
@@ -272,6 +334,15 @@ async function processParticipantQuests({
     MAX_NEW_MATCHES_PER_RUN,
   );
   if (newMatchIds.length === 0) {
+    // Sin partidas ranked nuevas esta corrida no significa "nada para
+    // hacer": una quest puede haber llegado a su target en una corrida
+    // ANTERIOR sin cupo de inventario libre en ese momento (ver tryGrant en
+    // quests.ts). Si ese cupo se liberó después (lanzó o le revelaron un
+    // mango) pero el jugador no volvió a jugar ranked, ese reintento nunca
+    // se disparaba antes de este fix — la misión quedaba pegada en el
+    // target indefinidamente, con el inventario visiblemente vacío, hasta
+    // la próxima partida (el bug reportado).
+    await grantCompletedQuests({ supabase, participant, questRows, referenceRow, matches: [] });
     return { newMatchCount: 0, singleNewMatchIsNonRemakeWin: null, singleNewMatchGameEndTimestamp: null };
   }
 
@@ -353,43 +424,7 @@ async function processParticipantQuests({
     penaltyMatches,
   });
 
-  const mangoCount = await countMangoInventory(supabase, participant.id);
-
-  const progress = Object.fromEntries(
-    QUEST_TYPES.map((questType) => [questType, questRows.get(questType)!.current_progress]),
-  ) as Record<QuestType, number>;
-
-  const result = processNewMatches({
-    progress,
-    matches: outcomes,
-    mangoCount,
-  });
-
-  const lastProcessedMatchId = result.lastProcessedMatchId ?? referenceRow.last_processed_match_id;
-  const updatedAt = new Date().toISOString();
-
-  await Promise.all(
-    QUEST_TYPES.map((questType) =>
-      supabase
-        .from("quest_progress")
-        .update({
-          current_progress: result.progress[questType],
-          last_processed_match_id: lastProcessedMatchId,
-          updated_at: updatedAt,
-        })
-        .eq("id", questRows.get(questType)!.id),
-    ),
-  );
-
-  if (result.grants.length > 0) {
-    const { error: mangoInsertError } = await supabase.from("mangos").insert(
-      result.grants.map(() => ({
-        owner_participant_id: participant.id,
-        status: "in_inventory" as const,
-      })),
-    );
-    if (mangoInsertError) throw mangoInsertError;
-  }
+  await grantCompletedQuests({ supabase, participant, questRows, referenceRow, matches: outcomes });
 
   return signal;
 }
