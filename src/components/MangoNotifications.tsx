@@ -152,7 +152,6 @@ export function MangoNotifications({
     if (receivedNotif) {
       receivedByMangoIdRef.current.delete(nextId);
       setToasts((prev) => [...prev, receivedNotif]);
-      audioRef.current?.play().catch(() => {});
 
       fetch("/api/jugador/notifications/ack", {
         method: "POST",
@@ -160,10 +159,30 @@ export function MangoNotifications({
         body: JSON.stringify({ items: [{ id: receivedNotif.id, kind: receivedNotif.kind }] }),
       }).catch(() => null);
 
-      setTimeout(() => {
+      // El delay hacia la ruleta tiene que contar desde que el sonido
+      // REALMENTE arrancó, no desde que se llamó a .play() — antes corrían
+      // en paralelo (el setTimeout no esperaba nada), así que si el audio
+      // tardaba en arrancar (buffering, conexión lenta) la ruleta podía
+      // salir antes o al mismo tiempo que el sonido en vez de después. Si
+      // el navegador todavía tiene el audio bloqueado (sin gesto previo del
+      // usuario, ver el desbloqueo más arriba) .play() rechaza — ahí no hay
+      // forma de forzar el sonido (restricción del navegador, no de este
+      // código), así que se sigue igual para no trabar la cola entera
+      // esperando un sonido que nunca va a sonar.
+      const audio = audioRef.current;
+      const startReveal = () => {
         if (!mountedRef.current) return;
         setActiveRevealMangoId(nextId);
-      }, REVEAL_DELAY_AFTER_TOAST_MS);
+      };
+      if (audio) {
+        audio.currentTime = 0;
+        audio
+          .play()
+          .then(() => setTimeout(startReveal, REVEAL_DELAY_AFTER_TOAST_MS))
+          .catch(() => setTimeout(startReveal, REVEAL_DELAY_AFTER_TOAST_MS));
+      } else {
+        setTimeout(startReveal, REVEAL_DELAY_AFTER_TOAST_MS);
+      }
     } else {
       // Ya se había mostrado el toast en una carga anterior (ej. se
       // recargó la página a mitad de la secuencia) — no repetir sonido ni
