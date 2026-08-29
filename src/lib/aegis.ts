@@ -37,9 +37,11 @@ export interface AegisCheckInput {
   singleNewMatchIsNonRemakeWin: boolean | null;
   /**
    * LP ganado en esa única partida nueva: delta entre el snapshot de esta
-   * corrida y el snapshot inmediatamente anterior, SOLO si ambos son del
-   * mismo tier/división (si no, el LP se resetea y no es comparable) y
-   * existe un snapshot anterior. null si no es comparable.
+   * corrida y el snapshot inmediatamente anterior (vía calculateEloScore,
+   * ver src/lib/lp-correlation.ts — así un ascenso/descenso de
+   * tier/división de por medio sigue dando el LP real ganado en esa
+   * partida, no lo descarta). null solo si no existe un snapshot anterior
+   * con el que comparar.
    */
   lpGainedThisMatch: number | null;
   /**

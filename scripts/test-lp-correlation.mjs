@@ -55,7 +55,9 @@ function snap(tier, division, lp, iso) {
   assertEqual(toObj(result), {}, "2 partidas en el mismo hueco -> ninguna se puede aislar");
 }
 
-// --- 3. Cambio de tier/división entre snapshots -> no comparable ---
+// --- 3. Cambio de tier entre snapshots -> se calcula vía calculateEloScore
+// en vez de descartarse (Oro I 95 LP -> Platino IV 10 LP: ganó 95->100,
+// asciende, y le quedan 10 más = 15 LP reales en esa partida) ---
 {
   const snapshots = [
     snap("GOLD", "I", 95, "2026-01-01T00:00:00Z"),
@@ -65,7 +67,22 @@ function snap(tier, division, lp, iso) {
     [{ matchId: "m1", gameEndTimestamp: new Date("2026-01-01T00:10:00Z").getTime() }],
     snapshots,
   );
-  assertEqual(toObj(result), {}, "asciende de tier en el medio -> LP no comparable, se descarta");
+  assertEqual(toObj(result), { m1: 15 }, "asciende de tier en el medio -> +15 LP, ya no se descarta");
+}
+
+// --- 3b. Cambio de división dentro del mismo tier -> mismo criterio (ej.
+// del usuario: Oro II 27 LP -> Oro I 7 LP, un salto grande que podría ser
+// un Aegis y antes quedaba invisible solo por cruzar de división) ---
+{
+  const snapshots = [
+    snap("GOLD", "II", 27, "2026-01-01T00:00:00Z"),
+    snap("GOLD", "I", 7, "2026-01-01T00:20:00Z"),
+  ];
+  const result = correlateLpChanges(
+    [{ matchId: "m1", gameEndTimestamp: new Date("2026-01-01T00:10:00Z").getTime() }],
+    snapshots,
+  );
+  assertEqual(toObj(result), { m1: 80 }, "asciende de división en el medio -> +80 LP reales, ya no se descarta");
 }
 
 // --- 4. Sin snapshot "antes" disponible -> se descarta ---
@@ -131,7 +148,7 @@ function snap(tier, division, lp, iso) {
   assertEqual(result.priorSnapshots, [], "sin snapshot anterior -> priorSnapshots vacío");
 }
 
-// --- 8. Cambio de tier en el medio -> lpGained null, pero priorSnapshots igual se arma bien ---
+// --- 8. Cambio de tier en el medio -> ya no da null, se calcula vía calculateEloScore (esto es lo que ahora deja detectar un Aegis que cruza de tier/división) ---
 {
   const snapshots = [
     snap("GOLD", "I", 95, "2026-01-01T00:00:00Z"),
@@ -141,7 +158,7 @@ function snap(tier, division, lp, iso) {
     gameEndTimestamp: new Date("2026-01-01T00:10:00Z").getTime(),
     snapshots,
   });
-  assertEqual(result.lpGained, null, "asciende de tier -> lpGained null (no comparable)");
+  assertEqual(result.lpGained, 15, "asciende de tier -> +15 LP reales, ya no null");
   assertEqual(
     result.priorSnapshots,
     [snapshots[0]],

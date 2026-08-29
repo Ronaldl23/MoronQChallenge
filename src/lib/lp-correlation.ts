@@ -15,11 +15,28 @@
  * detectar). Anclar la comparación a la hora REAL de la partida en vez de
  * a qué corrida del cron la detectó primero arregla eso sin importar
  * cuánto se haya atrasado la detección.
+ *
+ * El delta se calcula con calculateEloScore (tier_base + division_offset +
+ * lp, ver src/lib/elo.ts) en vez de restar el campo `lp` crudo. Antes, un
+ * ascenso/descenso de tier/división entre los dos snapshots que bracketean
+ * la partida hacía descartar el resultado por completo ("el LP se resetea,
+ * no es comparable") — pero el ascenso de división de Riot de verdad
+ * arrastra el excedente de LP a la división siguiente (ej. Oro II a 95 LP +
+ * una victoria de 20 LP asciende a Oro I con 15 LP, no se pierde nada), y
+ * calculateEloScore modela exactamente ese mismo esquema de 100 unidades
+ * por división / 400 por tier — con lo cual su delta entre dos snapshots
+ * consecutivos coincide con el LP real ganado/perdido en esa partida, haya
+ * o no ascenso/descenso de por medio. Esto es lo que permite detectar un
+ * Aegis (LP duplicado) que además cruza de división, y mostrar el LP de
+ * partidas del historial que antes quedaban sin dato solo por eso.
  */
 
+import { calculateEloScore } from "./elo.ts";
+import type { RankDivision, RankTier } from "@/types/database";
+
 export interface SnapshotPoint {
-  tier: string;
-  division: string | null;
+  tier: RankTier;
+  division: RankDivision | null;
   lp: number;
   created_at: string;
 }
@@ -66,16 +83,14 @@ export function correlateLpChanges(
 
     const next = snapshots[idx];
     const prev = snapshots[idx - 1];
-    if (prev.tier !== next.tier || prev.division !== next.division) continue;
-
-    result.set(matchId, next.lp - prev.lp);
+    result.set(matchId, calculateEloScore(next) - calculateEloScore(prev));
   }
 
   return result;
 }
 
 export interface SingleMatchLpResult<T> {
-  /** null si no se pudo aislar (sin snapshot "antes" todavía, o cambió de tier/división en el medio). */
+  /** null solo si no se pudo aislar (sin snapshot "antes" todavía) — un ascenso/descenso de tier/división en el medio ya NO da null, ver el delta vía calculateEloScore más arriba. */
   lpGained: number | null;
   /**
    * Los snapshots estrictamente ANTERIORES al bracket de esta partida —
@@ -116,10 +131,7 @@ export function correlateSingleMatchLp<T extends SnapshotPoint>({
 
   const before = snapshots[afterIdx - 1];
   const after = snapshots[afterIdx];
-  const lpGained =
-    before.tier === after.tier && before.division === after.division
-      ? after.lp - before.lp
-      : null;
+  const lpGained = calculateEloScore(after) - calculateEloScore(before);
 
   return { lpGained, priorSnapshots: snapshots.slice(0, afterIdx) };
 }
