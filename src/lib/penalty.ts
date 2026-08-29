@@ -14,7 +14,7 @@ const SUPPORT_ASSIGNMENT = "SUPPORT";
  * duplicado a propósito, mismo motivo que SUPPORT_ASSIGNMENT arriba.
  * scripts/test-penalty.mjs verifica que no se desincronice.
  */
-const MIN_MATCH_DURATION_SECONDS = 300;
+const MIN_MATCH_DURATION_SECONDS = 240;
 
 /**
  * Mismo valor que NO_FLASH_ASSIGNMENT en src/lib/mango-launch.ts —

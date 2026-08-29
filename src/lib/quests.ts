@@ -27,7 +27,8 @@ export const MAX_MANGO_INVENTORY = 3;
  * scripts/test-quests.mjs y scripts/test-penalty.mjs verifican que ambos
  * sigan sincronizados.
  */
-export const MIN_MATCH_DURATION_SECONDS = 300;
+/** 4 minutos — antes de eso, se considera remake (regla confirmada por el usuario). */
+export const MIN_MATCH_DURATION_SECONDS = 240;
 
 /**
  * Si una quest resetea a 0 al toparse con una partida que NO cumple su

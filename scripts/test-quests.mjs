@@ -435,7 +435,7 @@ const ZERO = { win_streak: 0, kda_streak: 0, deathless_win: 0, beat_participant:
   );
 }
 
-assertEqual(MIN_MATCH_DURATION_SECONDS, 300, "MIN_MATCH_DURATION_SECONDS es 300 (5 minutos, regla confirmada por el usuario)");
+assertEqual(MIN_MATCH_DURATION_SECONDS, 240, "MIN_MATCH_DURATION_SECONDS es 240 (4 minutos, regla confirmada por el usuario)");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

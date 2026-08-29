@@ -366,8 +366,8 @@ function statusOf(result, id) {
 assertEqual(PENALTY_GAME_LIMIT, 3, "PENALTY_GAME_LIMIT es 3 (regla confirmada por el usuario)");
 assertEqual(
   MIN_MATCH_DURATION_SECONDS,
-  300,
-  "MIN_MATCH_DURATION_SECONDS sincronizado con quests.ts (300s = 5 min, regla confirmada por el usuario)",
+  240,
+  "MIN_MATCH_DURATION_SECONDS sincronizado con quests.ts (240s = 4 min, regla confirmada por el usuario)",
 );
 
 console.log(`\n${passed} passed, ${failed} failed`);
