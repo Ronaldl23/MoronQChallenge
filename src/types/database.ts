@@ -80,16 +80,20 @@ export type Participant = {
    */
   mango_protection_until: string | null;
   /**
-   * Hasta qué momento ya se evaluaron partidas reales contra los castigos
-   * pendientes actuales de este jugador — null significa "todavía no se
-   * evaluó nada para el grupo actual" (arranca desde el created_at más
-   * viejo entre los pendientes). Se resetea a null cuando el grupo de
-   * castigos pendientes queda vacío — ver checkPenaltyCompliance en
-   * /api/update-rankings/route.ts y 0023_penalty_check_cursor.sql. Evita
-   * que la misma partida real se cuente más de una vez contra el contador
-   * compartido (penalty_games_without_compliance) en corridas sucesivas.
+   * Última partida de match-v5 (Riot) ya evaluada contra los castigos
+   * pendientes actuales de este jugador — igual que
+   * quest_progress.last_processed_match_id, pero para el cumplimiento de
+   * castigos. null significa "todavía no se evaluó nada para el grupo
+   * actual" (arranca tomando toda la ventana reciente como nueva). Se
+   * resetea a null cuando el grupo de castigos pendientes queda vacío —
+   * ver checkPenaltyCompliance en /api/update-rankings/route.ts y
+   * 0024_penalty_cursor_by_match_id.sql. Basado en match id (no en hora)
+   * a propósito: evita la ambigüedad del borde inclusivo del `startTime`
+   * de Riot, que podía recontar la misma partida real más de una vez
+   * contra el contador compartido (penalty_games_without_compliance) en
+   * corridas sucesivas.
    */
-  penalty_check_since: string | null;
+  penalty_last_processed_match_id: string | null;
 };
 
 /**
@@ -284,7 +288,7 @@ export type Database = {
           | "manually_disqualified"
           | "disqualification_reason"
           | "mango_protection_until"
-          | "penalty_check_since"
+          | "penalty_last_processed_match_id"
         > & {
           id?: string;
           profile_icon_id?: number | null;
@@ -298,7 +302,7 @@ export type Database = {
           manually_disqualified?: boolean;
           disqualification_reason?: string | null;
           mango_protection_until?: string | null;
-          penalty_check_since?: string | null;
+          penalty_last_processed_match_id?: string | null;
         };
         Update: Partial<Omit<Participant, "id">>;
         Relationships: [];
