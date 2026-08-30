@@ -472,6 +472,8 @@ async function checkPenaltyCompliance({
     puuid: string;
     region_platform: string;
     penalty_games_without_compliance: number;
+    /** Cursor propio (ver 0023_penalty_check_cursor.sql) — hasta dónde ya se evaluaron partidas reales contra el grupo de castigos pendientes ACTUAL. Evita recontar la misma partida en corridas sucesivas (el bug real detrás de una descalificación con muchas menos de PENALTY_GAME_LIMIT partidas jugadas). */
+    penalty_check_since: string | null;
   };
   riotApiKey: string;
 }): Promise<void> {
@@ -487,19 +489,20 @@ async function checkPenaltyCompliance({
   // Regla 5 (src/lib/penalty.ts): sin castigos pendientes no hay contador
   // corriendo. Reset barato (sin pedirle nada a Riot) si quedó un resto de
   // un grupo anterior — evita que un valor viejo le robe intentos reales a
-  // la próxima tanda de castigos que le lleguen.
-  async function resetCounterIfStale() {
-    if (participant.penalty_games_without_compliance !== 0) {
-      const { error } = await supabase
-        .from("participants")
-        .update({ penalty_games_without_compliance: 0 })
-        .eq("id", participantId);
-      if (error) throw error;
-    }
+  // la próxima tanda de castigos que le lleguen. penalty_check_since
+  // también se resetea: un grupo nuevo arranca fresco, sin arrastrar el
+  // progreso de evaluación de un grupo ya resuelto.
+  async function resetGroupState() {
+    const patch: { penalty_games_without_compliance?: number; penalty_check_since?: null } = {};
+    if (participant.penalty_games_without_compliance !== 0) patch.penalty_games_without_compliance = 0;
+    if (participant.penalty_check_since !== null) patch.penalty_check_since = null;
+    if (Object.keys(patch).length === 0) return;
+    const { error } = await supabase.from("participants").update(patch).eq("id", participantId);
+    if (error) throw error;
   }
 
   if (!pendingRows || pendingRows.length === 0) {
-    await resetCounterIfStale();
+    await resetGroupState();
     return;
   }
 
@@ -540,7 +543,7 @@ async function checkPenaltyCompliance({
   });
 
   if (penalties.length === 0) {
-    await resetCounterIfStale();
+    await resetGroupState();
     return;
   }
 
@@ -551,45 +554,65 @@ async function checkPenaltyCompliance({
     (min, p) => (p.createdAt < min ? p.createdAt : min),
     penalties[0].createdAt,
   );
-  const startTimeSeconds = Math.floor(new Date(earliestCreatedAt).getTime() / 1000);
+  // Nunca antes de que exista el castigo, NI volver a mirar partidas ya
+  // evaluadas con éxito en una corrida anterior (penalty_check_since,
+  // normalizado a ISO completo antes de comparar — mismo motivo que
+  // earliestCreatedAt arriba, un timestamptz crudo de Supabase no siempre
+  // coincide en formato). Este es el fix del bug real: antes se volvía a
+  // pedir SIEMPRE desde earliestCreatedAt sin memoria de lo ya evaluado, y
+  // la MISMA partida se recontaba contra el contador compartido en cada
+  // corrida sucesiva (cada 10 min) — suficiente para descalificar a
+  // alguien sin que jugara ni cerca de PENALTY_GAME_LIMIT partidas reales.
+  const checkSinceIso = participant.penalty_check_since
+    ? new Date(participant.penalty_check_since).toISOString()
+    : null;
+  const lowerBound = checkSinceIso && checkSinceIso > earliestCreatedAt ? checkSinceIso : earliestCreatedAt;
+  const startTimeSeconds = Math.floor(new Date(lowerBound).getTime() / 1000);
 
   const idsRes = await riotFetch(
     `https://${continent}.api.riotgames.com/lol/match/v5/matches/by-puuid/${participant.puuid}/ids?startTime=${startTimeSeconds}&queue=${RANKED_SOLO_QUEUE_ID}&start=0&count=${MATCH_HISTORY_WINDOW}`,
     riotApiKey,
   );
   await sleep(RIOT_REQUEST_DELAY_MS);
-  if (!idsRes.ok) return; // best-effort — se reintenta entera en la próxima corrida
+  if (!idsRes.ok) return; // best-effort — se reintenta entera en la próxima corrida, mismo lowerBound
 
   const matchIds = (await idsRes.json()) as string[]; // más nueva primero
 
   const penaltyMatches: PenaltyMatchOutcome[] = [];
-  // Cronológico, más vieja primero — mismo orden que espera processPenaltyMatches.
+  // Hasta dónde se pudo evaluar CON ÉXITO y en orden esta corrida — se
+  // persiste al final como el nuevo penalty_check_since. Corta (no
+  // saltea) en el primer fetch fallido para no dejar un hueco sin evaluar
+  // en el medio: la próxima corrida reintenta desde ahí, con
+  // RIOT_FETCH_MAX_ATTEMPTS reintentos por partida.
+  let advancedTo: string | null = null;
   for (const matchId of [...matchIds].reverse()) {
     const matchRes = await riotFetch(
       `https://${continent}.api.riotgames.com/lol/match/v5/matches/${matchId}`,
       riotApiKey,
     );
     await sleep(RIOT_REQUEST_DELAY_MS);
-    // A diferencia del cursor incremental de misiones, acá no hay ningún
-    // cursor que trabar — si UNA partida puntual falla al bajarse, se
-    // saltea esa nomás (se reintenta sola la próxima corrida, junto con
-    // todo el resto de la ventana) en vez de cortar el resto.
-    if (!matchRes.ok) continue;
+    if (!matchRes.ok) break;
 
     const match = (await matchRes.json()) as RiotMatchDetail;
     const mp = match.info.participants.find((p) => p.puuid === participant.puuid);
-    if (!mp) continue;
+    if (!mp) break;
 
+    const playedAtIso = new Date(match.info.gameEndTimestamp).toISOString();
     penaltyMatches.push({
       matchId,
-      playedAt: new Date(match.info.gameEndTimestamp).toISOString(),
+      playedAt: playedAtIso,
       championPlayed: mp.championName,
       teamPosition: mp.teamPosition,
       summoner1Id: mp.summoner1Id,
       summoner2Id: mp.summoner2Id,
       gameDurationSeconds: match.info.gameDuration,
     });
+    advancedTo = playedAtIso;
   }
+
+  // Nada nuevo esta corrida (ni una partida se pudo evaluar) — no hay
+  // nada que persistir, ni counter ni cursor.
+  if (penaltyMatches.length === 0) return;
 
   const result = processPenaltyMatches({
     penalties,
@@ -611,13 +634,21 @@ async function checkPenaltyCompliance({
       ),
   );
 
+  // Si el grupo se resolvió del todo esta corrida (todos completed o
+  // disqualified), penalty_check_since queda sin sentido para lo que
+  // siga — se resetea a null en vez de guardar `advancedTo`, así el
+  // próximo grupo (si hay uno) arranca fresco desde su propio
+  // created_at, sin heredar el progreso de este.
+  const groupFullyResolved = result.updates.every((update) => update.status !== "pending");
+
+  const patch: { penalty_games_without_compliance?: number; penalty_check_since: string | null } = {
+    penalty_check_since: groupFullyResolved ? null : advancedTo,
+  };
   if (result.gamesWithoutCompliance !== participant.penalty_games_without_compliance) {
-    const { error: counterError } = await supabase
-      .from("participants")
-      .update({ penalty_games_without_compliance: result.gamesWithoutCompliance })
-      .eq("id", participantId);
-    if (counterError) throw counterError;
+    patch.penalty_games_without_compliance = result.gamesWithoutCompliance;
   }
+  const { error: persistError } = await supabase.from("participants").update(patch).eq("id", participantId);
+  if (persistError) throw persistError;
 
   // Protección de PROTECTION_HOURS contra mangos nuevos (ver
   // src/lib/mango-launch.ts) — SOLO si tenía sus MAX_ACTIVE_PENALTIES
@@ -667,7 +698,7 @@ export async function GET(request: Request) {
   const { data: participants, error } = await supabase
     .from("participants")
     .select(
-      "id, puuid, region_platform, nombre_display, penalty_games_without_compliance, aegis_count",
+      "id, puuid, region_platform, nombre_display, penalty_games_without_compliance, penalty_check_since, aegis_count",
     );
 
   if (error) {
