@@ -598,6 +598,17 @@ async function checkPenaltyCompliance({
     if (!mp) break;
 
     const playedAtIso = new Date(match.info.gameEndTimestamp).toISOString();
+
+    // Guarda extra contra el borde inclusivo del `startTime` de Riot: si
+    // esta partida es la misma (o una anterior) a la última que ya se
+    // evaluó con éxito, Riot la puede devolver de nuevo igual — sin este
+    // chequeo se recontaba la MISMA partida en cada corrida sucesiva sin
+    // que el jugador jugara nada nuevo, suficiente para descalificar a
+    // alguien que dejó su castigo para la última partida (bug real
+    // reportado por el usuario). No cuenta ni a favor ni en contra: se
+    // saltea sin tocar penaltyMatches ni advancedTo.
+    if (checkSinceIso && playedAtIso <= checkSinceIso) continue;
+
     penaltyMatches.push({
       matchId,
       playedAt: playedAtIso,
