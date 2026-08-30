@@ -478,6 +478,21 @@ async function checkPenaltyCompliance({
 }): Promise<void> {
   const participantId = participant.id;
 
+  // Rastro de diagnóstico (ver 0025_penalty_check_debug.sql) — se pisa cada
+  // corrida con qué pasó, para poder ver la causa de un cursor trabado con
+  // una consulta SQL directa en vez de depender de los logs de Vercel (que
+  // el usuario no revisa). Best-effort: si esto falla, no debe tumbar el
+  // resto del chequeo real.
+  async function writeDebug(message: string) {
+    const { error } = await supabase
+      .from("participants")
+      .update({ penalty_check_debug: `${new Date().toISOString()} ${message}` })
+      .eq("id", participantId);
+    if (error) {
+      console.error(`No se pudo guardar penalty_check_debug para ${participantId}:`, error.message);
+    }
+  }
+
   const { data: pendingRows, error: pendingError } = await supabase
     .from("penalty_progress")
     .select("id, mango_id, created_at")
@@ -502,6 +517,7 @@ async function checkPenaltyCompliance({
 
   if (!pendingRows || pendingRows.length === 0) {
     await resetGroupState();
+    await writeDebug("sin castigos pendientes");
     return;
   }
 
@@ -543,18 +559,27 @@ async function checkPenaltyCompliance({
 
   if (penalties.length === 0) {
     await resetGroupState();
+    await writeDebug(
+      `${pendingRows.length} castigo(s) pendiente(s) pero ningún mango evaluable todavía (pending_reveal o sin campeón asignado)`,
+    );
     return;
   }
 
   const continent = platformToContinent(participant.region_platform);
-  if (!continent) return; // no debería pasar (region_platform inválida) — se reintenta solo la próxima corrida
+  if (!continent) {
+    await writeDebug(`region_platform inválida: "${participant.region_platform}"`);
+    return; // no debería pasar — se reintenta solo la próxima corrida
+  }
 
   const idsRes = await riotFetch(
     `https://${continent}.api.riotgames.com/lol/match/v5/matches/by-puuid/${participant.puuid}/ids?start=0&count=${MATCH_HISTORY_WINDOW}&queue=${RANKED_SOLO_QUEUE_ID}`,
     riotApiKey,
   );
   await sleep(RIOT_REQUEST_DELAY_MS);
-  if (!idsRes.ok) return; // best-effort — se reintenta entera en la próxima corrida, mismo cursor
+  if (!idsRes.ok) {
+    await writeDebug(`Riot devolvió ${idsRes.status} al pedir el historial de partidas`);
+    return; // best-effort — se reintenta entera en la próxima corrida, mismo cursor
+  }
 
   const recentIds = (await idsRes.json()) as string[]; // más nueva primero
   // Mismo helper que usa el motor de misiones (findNewMatchIds) — cursor
@@ -563,7 +588,12 @@ async function checkPenaltyCompliance({
   // ignora sola cualquier partida jugada antes de earliestCreatedAt, así
   // que traer de más acá no rompe nada, solo avanza el cursor de una.
   const newMatchIds = findNewMatchIds(recentIds, participant.penalty_last_processed_match_id);
-  if (newMatchIds.length === 0) return; // nada nuevo desde la última vez que se evaluó este grupo
+  if (newMatchIds.length === 0) {
+    await writeDebug(
+      `sin partidas nuevas (Riot devolvió ${recentIds.length} en la ventana, cursor actual: ${participant.penalty_last_processed_match_id ?? "null"})`,
+    );
+    return; // nada nuevo desde la última vez que se evaluó este grupo
+  }
 
   const penaltyMatches: PenaltyMatchOutcome[] = [];
   // Último match id evaluado CON ÉXITO y en orden esta corrida — se
@@ -599,7 +629,12 @@ async function checkPenaltyCompliance({
   // Ni una sola partida se pudo bajar (falló la primera de la lista) — no
   // hay nada que persistir, ni counter ni cursor; se reintenta desde el
   // mismo cursor la próxima corrida.
-  if (penaltyMatches.length === 0) return;
+  if (penaltyMatches.length === 0) {
+    await writeDebug(
+      `${newMatchIds.length} partida(s) nueva(s) detectada(s) pero falló bajar el detalle de la primera (${newMatchIds[0]})`,
+    );
+    return;
+  }
 
   const result = processPenaltyMatches({
     penalties,
@@ -636,6 +671,10 @@ async function checkPenaltyCompliance({
   }
   const { error: persistError } = await supabase.from("participants").update(patch).eq("id", participantId);
   if (persistError) throw persistError;
+
+  await writeDebug(
+    `ok: ${penaltyMatches.length} partida(s) evaluada(s), ${result.updates.filter((u) => u.status === "completed").length} completada(s), ${result.updates.filter((u) => u.status === "disqualified").length} descalificada(s), contador ${result.gamesWithoutCompliance}, cursor ${patch.penalty_last_processed_match_id ?? "null"}`,
+  );
 
   // Protección de PROTECTION_HOURS contra mangos nuevos (ver
   // src/lib/mango-launch.ts) — SOLO si tenía sus MAX_ACTIVE_PENALTIES

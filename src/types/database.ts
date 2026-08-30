@@ -94,6 +94,14 @@ export type Participant = {
    * corridas sucesivas.
    */
   penalty_last_processed_match_id: string | null;
+  /**
+   * Diagnóstico de la última corrida de checkPenaltyCompliance para este
+   * jugador — texto plano, se pisa cada corrida (no es historial). Existe
+   * para poder ver con una consulta SQL directa qué pasó (ok, sin castigos
+   * pendientes, falla de Riot con su status, etc.) sin depender de revisar
+   * logs de Vercel — ver 0025_penalty_check_debug.sql.
+   */
+  penalty_check_debug: string | null;
 };
 
 /**
@@ -289,6 +297,7 @@ export type Database = {
           | "disqualification_reason"
           | "mango_protection_until"
           | "penalty_last_processed_match_id"
+          | "penalty_check_debug"
         > & {
           id?: string;
           profile_icon_id?: number | null;
@@ -303,6 +312,7 @@ export type Database = {
           disqualification_reason?: string | null;
           mango_protection_until?: string | null;
           penalty_last_processed_match_id?: string | null;
+          penalty_check_debug?: string | null;
         };
         Update: Partial<Omit<Participant, "id">>;
         Relationships: [];

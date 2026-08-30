@@ -10,21 +10,22 @@ import type { Participant, Snapshot } from "@/types/database";
 /**
  * login_code no viaja acá — el leaderboard público nunca lo selecciona (ver
  * getLeaderboard). penalty_games_without_compliance,
- * penalty_last_processed_match_id y last_seen_at tampoco: son datos de
- * contexto de /jugador (contador compartido de castigos y su cursor
- * interno, presencia online), no algo que el leaderboard público necesite
- * mostrar por jugador. disqualification_reason y mango_protection_until
- * tampoco: son admin-only/de /jugador a propósito (ni el motivo de una
- * descalificación manual ni la protección contra mangos se exponen
- * públicamente, ver 0019_manual_disqualification.sql y
- * 0020_mango_expiry_and_protection.sql) — ninguna de las seis se pide en
- * el select de abajo.
+ * penalty_last_processed_match_id, penalty_check_debug y last_seen_at
+ * tampoco: son datos de contexto de /jugador (contador compartido de
+ * castigos, su cursor interno, su diagnóstico, presencia online), no algo
+ * que el leaderboard público necesite mostrar por jugador.
+ * disqualification_reason y mango_protection_until tampoco: son
+ * admin-only/de /jugador a propósito (ni el motivo de una descalificación
+ * manual ni la protección contra mangos se exponen públicamente, ver
+ * 0019_manual_disqualification.sql y 0020_mango_expiry_and_protection.sql)
+ * — ninguno de los siete se pide en el select de abajo.
  */
 type PublicParticipant = Omit<
   Participant,
   | "login_code"
   | "penalty_games_without_compliance"
   | "penalty_last_processed_match_id"
+  | "penalty_check_debug"
   | "last_seen_at"
   | "disqualification_reason"
   | "mango_protection_until"
