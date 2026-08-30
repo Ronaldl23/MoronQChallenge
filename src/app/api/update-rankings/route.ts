@@ -41,14 +41,30 @@ function sleep(ms: number) {
 }
 
 /**
- * fetch a Riot con un reintento automático ante 429: espera lo que indica
- * el header Retry-After (la propia API te dice cuánto esperar, no hace
- * falta adivinar) y reintenta una sola vez, en vez de marcar al
- * participante como error definitivo por un rate limit pasajero.
+ * Intentos totales de riotFetch ante 429 seguidos (el primero + reintentos)
+ * antes de darse por vencido. Antes era 1 reintento (2 intentos totales) —
+ * con el cron corriendo cada 5 min en vez de 15 (3x más corridas por hora
+ * pegándole a la API de Riot), un segundo 429 seguido ya no es tan raro, y
+ * cuando pasa en processParticipantQuests el fetch de esa partida puntual
+ * queda como "fallida" — el loop corta ahí (ver el break más abajo) y el
+ * cursor (last_processed_match_id) NUNCA avanza más allá de ESA partida:
+ * queda reintentándose corrida tras corrida, bloqueando todo lo que venga
+ * después (cumplimiento de castigos, Aegis) indefinidamente hasta que esa
+ * partida puntual logre bajarse con éxito. Más intentos acá reduce mucho
+ * la chance de llegar a ese punto en primer lugar.
  */
-async function riotFetch(url: string, apiKey: string): Promise<Response> {
+const RIOT_FETCH_MAX_ATTEMPTS = 4;
+
+/**
+ * fetch a Riot con reintento automático ante 429: espera lo que indica el
+ * header Retry-After (la propia API te dice cuánto esperar, no hace falta
+ * adivinar) y reintenta hasta RIOT_FETCH_MAX_ATTEMPTS veces en total, en
+ * vez de marcar al participante como error definitivo por un rate limit
+ * pasajero.
+ */
+async function riotFetch(url: string, apiKey: string, attempt = 1): Promise<Response> {
   const res = await fetch(url, { headers: { "X-Riot-Token": apiKey }, cache: "no-store" });
-  if (res.status !== 429) return res;
+  if (res.status !== 429 || attempt >= RIOT_FETCH_MAX_ATTEMPTS) return res;
 
   const retryAfterHeader = Number(res.headers.get("Retry-After"));
   const retryAfterSeconds = Number.isFinite(retryAfterHeader) && retryAfterHeader > 0
@@ -56,7 +72,7 @@ async function riotFetch(url: string, apiKey: string): Promise<Response> {
     : 2;
   await sleep(retryAfterSeconds * 1000 + 250);
 
-  return fetch(url, { headers: { "X-Riot-Token": apiKey }, cache: "no-store" });
+  return riotFetch(url, apiKey, attempt + 1);
 }
 
 interface RiotLeagueEntry {
