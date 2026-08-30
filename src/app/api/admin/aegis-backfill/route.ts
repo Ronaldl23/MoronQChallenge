@@ -25,6 +25,15 @@ const RANKED_SOLO_QUEUE_ID = 420;
  */
 const BACKFILL_WINDOW = 8;
 /**
+ * Ventana usada cuando se filtra a UN SOLO participante (`?nombre=` o
+ * `?participant_id=`, ver GET más abajo) — mucho más amplia que
+ * BACKFILL_WINDOW porque acá el presupuesto de tiempo lo gasta un solo
+ * jugador, no ~20 a la vez. Sirve para revisar un caso puntual reportado
+ * (p.ej. una partida de hace varias horas que ya se salió de la ventana
+ * corta del backfill general) sin arriesgar el timeout.
+ */
+const SINGLE_PARTICIPANT_WINDOW = 30;
+/**
  * Corta el trabajo (entre participantes Y en el medio de uno solo, ver los
  * chequeos de budgetExceeded() más abajo) si se acerca al límite de
  * Vercel, en vez de arriesgar que la función se corte de golpe sin
@@ -94,6 +103,12 @@ interface BackfillResult {
  * hoy, cuando ese chequeo solo evaluaba una corrida si llegaba EXACTAMENTE 1
  * partida nueva a la vez (ver isProbableAegisProc en src/lib/aegis.ts).
  *
+ * Query params opcionales para revisar a UN SOLO participante con una
+ * ventana mucho más ancha (SINGLE_PARTICIPANT_WINDOW) — útil para un caso
+ * puntual reportado que ya se salió de la ventana corta del backfill
+ * general: `?nombre=Benimaru` (nombre_display, sin distinguir mayúsculas)
+ * o `?participant_id=<uuid>`.
+ *
  * Nunca resta aegis_count, solo lo sube si esta pasada encuentra más
  * candidatas de Aegis de las que ya estaban contadas (Math.max, no suma
  * directa) — evita descontar créditos legítimos de partidas más viejas que
@@ -118,11 +133,29 @@ export async function GET(request: Request) {
   }
 
   const supabase = createAdminClient();
-  const { data: participants, error } = await supabase
+  const { data: allParticipants, error } = await supabase
     .from("participants")
     .select("id, puuid, region_platform, nombre_display, aegis_count");
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  // ?nombre=Benimaru o ?participant_id=<uuid> — revisa SOLO a esa persona,
+  // con una ventana bastante más ancha (SINGLE_PARTICIPANT_WINDOW) ya que
+  // el presupuesto de tiempo lo gasta un solo jugador. Sin ninguno de los
+  // dos, corre para todos con la ventana chica (BACKFILL_WINDOW).
+  const url = new URL(request.url);
+  const nombreFilter = url.searchParams.get("nombre")?.trim().toLowerCase();
+  const participantIdFilter = url.searchParams.get("participant_id");
+  const participants = participantIdFilter
+    ? (allParticipants ?? []).filter((p) => p.id === participantIdFilter)
+    : nombreFilter
+      ? (allParticipants ?? []).filter((p) => p.nombre_display.toLowerCase() === nombreFilter)
+      : allParticipants;
+  const backfillWindow = participantIdFilter || nombreFilter ? SINGLE_PARTICIPANT_WINDOW : BACKFILL_WINDOW;
+
+  if ((participantIdFilter || nombreFilter) && (participants ?? []).length === 0) {
+    return NextResponse.json({ error: "No se encontró ningún participante con ese filtro" }, { status: 404 });
   }
 
   const startedAt = Date.now();
@@ -151,7 +184,7 @@ export async function GET(request: Request) {
 
     try {
       const idsRes = await riotFetch(
-        `https://${continent}.api.riotgames.com/lol/match/v5/matches/by-puuid/${participant.puuid}/ids?start=0&count=${BACKFILL_WINDOW}&queue=${RANKED_SOLO_QUEUE_ID}`,
+        `https://${continent}.api.riotgames.com/lol/match/v5/matches/by-puuid/${participant.puuid}/ids?start=0&count=${backfillWindow}&queue=${RANKED_SOLO_QUEUE_ID}`,
         riotApiKey,
       );
       await sleep(RIOT_REQUEST_DELAY_MS);
