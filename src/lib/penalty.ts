@@ -55,7 +55,10 @@ const FLASH_SPELL_KEY = 4;
  * jugador que aplica a todo el grupo de castigos pendientes:
  * - Cada partida ranked: si cumple CUALQUIERA de los castigos pendientes,
  *   ese/esos se marcan 'completed' y el contador vuelve a 0 (ventana fresca
- *   para los que queden).
+ *   para los que queden). Si dos castigos pendientes tienen la MISMA
+ *   asignación (p.ej. dos veces Hoz), esa partida cumple uno solo — el más
+ *   viejo de los dos — nunca ambos a la vez; el otro necesita su propia
+ *   partida.
  * - Si no cumple ninguno, el contador sube en 1.
  * - Si el contador llega al límite sin ninguna coincidencia, TODOS los
  *   castigos que sigan pendientes en ese momento pasan a 'disqualified'
@@ -190,7 +193,24 @@ export function processPenaltyMatches({
     const compliant = stillPending.filter((p) => isCompliant(p.championAssigned, match));
 
     if (compliant.length > 0) {
+      // Si hay más de un castigo pendiente con el MISMO championAssigned
+      // (p.ej. dos castigos de Hoz/SummonerSmite a la vez), esta partida
+      // cumple UNO SOLO — el más viejo de esa asignación — no los dos
+      // juntos: cada instancia repetida necesita su propia partida que la
+      // cumpla, igual que si fueran dos castigos distintos que hay que
+      // resolver de a uno. Bug real reportado por el usuario (Juan Ruiz:
+      // dos Hoz + un Vayne, jugó Hoz una vez y se le quitaron los dos Hoz
+      // juntos). Asignaciones DISTINTAS sí pueden cumplirse juntas en la
+      // misma partida (p.ej. iba de soporte Y sin Flash a la vez) — el
+      // filtro es por championAssigned, no un límite de uno por partida.
+      const oldestByAssignment = new Map<string, PendingPenalty>();
       for (const p of compliant) {
+        const current = oldestByAssignment.get(p.championAssigned);
+        if (!current || p.createdAt < current.createdAt) {
+          oldestByAssignment.set(p.championAssigned, p);
+        }
+      }
+      for (const p of oldestByAssignment.values()) {
         state.set(p.id, { status: "completed", completedOnMatchId: match.matchId });
       }
       counter = 0; // Ventana fresca para los castigos que queden pendientes.

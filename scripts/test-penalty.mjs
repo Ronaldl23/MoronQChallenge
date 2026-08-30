@@ -153,17 +153,60 @@ function statusOf(result, id) {
   assertEqual(result.gamesWithoutCompliance, 0, "los 3 disqualified juntos: el contador vuelve a 0");
 }
 
-// --- 5. Una misma partida cumple DOS castigos a la vez (dos Support pendientes) -> ambos completed en la misma partida ---
+// --- 5. Dos castigos pendientes con la MISMA asignación (dos Support): una partida cumple UNO SOLO (el más viejo), no los dos ---
 {
-  const penalties = [penalty("s1", SUPPORT_ASSIGNMENT), penalty("s2", SUPPORT_ASSIGNMENT)];
+  const penalties = [
+    penalty("s1", SUPPORT_ASSIGNMENT, { createdAt: at(0) }),
+    penalty("s2", SUPPORT_ASSIGNMENT, { createdAt: at(0.5) }),
+  ];
   const matches = [match("m1", { playedAt: at(1), championPlayed: "Lulu", teamPosition: "UTILITY" })];
   const result = run(penalties, matches);
-  assertEqual(statusOf(result, "s1"), "completed", "2 castigos Support: la misma partida cumple los DOS a la vez (s1)");
-  assertEqual(statusOf(result, "s2"), "completed", "2 castigos Support: la misma partida cumple los DOS a la vez (s2)");
+  assertEqual(statusOf(result, "s1"), "completed", "2 castigos Support duplicados: se cumple el más viejo (s1)");
+  assertEqual(statusOf(result, "s2"), "pending", "2 castigos Support duplicados: el otro sigue pendiente, necesita su propia partida");
   assertEqual(
     result.updates.find((u) => u.id === "s1").completedOnMatchId,
     "m1",
-    "ambos quedan marcados con la misma partida que los cumplió",
+    "el que se cumplió queda marcado con la partida que lo cumplió",
+  );
+}
+
+// --- 5b. CASO REAL (Juan Ruiz): dos Hoz + un Vayne pendientes, juega Hoz una vez -> se cumple UN Hoz, quedan pendientes el otro Hoz y el Vayne ---
+{
+  const penalties = [
+    penalty("hoz1", "SummonerSmite", { createdAt: at(0) }), // Hoz, id 11
+    penalty("hoz2", "SummonerSmite", { createdAt: at(0.5) }),
+    penalty("vayne", "Vayne", { createdAt: at(0) }),
+  ];
+  const matches = [match("m1", { playedAt: at(1), championPlayed: "Ahri", summoner1Id: 11, summoner2Id: 4 })];
+  const result = run(penalties, matches);
+  assertEqual(statusOf(result, "hoz1"), "completed", "Juan Ruiz: se cumple el Hoz más viejo (hoz1)");
+  assertEqual(statusOf(result, "hoz2"), "pending", "Juan Ruiz: el segundo Hoz sigue pendiente, necesita otra partida con Hoz");
+  assertEqual(statusOf(result, "vayne"), "pending", "Juan Ruiz: el Vayne no se toca, no jugó Vayne");
+  assertEqual(result.gamesWithoutCompliance, 0, "Juan Ruiz: al cumplir uno, el contador compartido igual se resetea");
+}
+
+// --- 5c. Dos Hoz pendientes: hacen falta DOS partidas separadas con Hoz para cumplir ambos, no una sola ---
+{
+  const penalties = [
+    penalty("hoz1", "SummonerSmite", { createdAt: at(0) }),
+    penalty("hoz2", "SummonerSmite", { createdAt: at(0.5) }),
+  ];
+  const matches = [
+    match("m1", { playedAt: at(1), summoner1Id: 11, summoner2Id: 4 }), // cumple hoz1
+    match("m2", { playedAt: at(2), summoner1Id: 11, summoner2Id: 4 }), // cumple hoz2
+  ];
+  const result = run(penalties, matches);
+  assertEqual(statusOf(result, "hoz1"), "completed", "dos Hoz: la primera partida con Hoz cumple hoz1");
+  assertEqual(statusOf(result, "hoz2"), "completed", "dos Hoz: la segunda partida con Hoz cumple hoz2");
+  assertEqual(
+    result.updates.find((u) => u.id === "hoz1").completedOnMatchId,
+    "m1",
+    "hoz1 se cumplió con m1",
+  );
+  assertEqual(
+    result.updates.find((u) => u.id === "hoz2").completedOnMatchId,
+    "m2",
+    "hoz2 se cumplió con m2, no con m1",
   );
 }
 
