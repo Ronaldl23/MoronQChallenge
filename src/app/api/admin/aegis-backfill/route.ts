@@ -13,17 +13,15 @@ export const maxDuration = 60;
 const RIOT_REQUEST_DELAY_MS = Number(process.env.RIOT_API_REQUEST_DELAY_MS) || 100;
 const RANKED_SOLO_QUEUE_ID = 420;
 /**
- * Ventana a re-examinar por participante. Más angosta que
- * MATCH_HISTORY_WINDOW (20) de /api/update-rankings a propósito: esto pide
- * el detalle COMPLETO de cada partida de la ventana, para TODOS los
- * participantes, en una sola invocación. Bajada de 15 a 8 después de que
- * una corrida real se colgara: con varios participantes recibiendo 429 de
- * Riot y reintentando, hasta 15 partidas × ~20 participantes no entraba ni
- * cerca de maxDuration=60 — Vercel mató la función a los 60s con un 504
- * antes de que llegara a devolver ninguna respuesta. 8 alcanza para "las
- * últimas partidas" con bastante más margen.
+ * Ventana a re-examinar por participante cuando se corre para TODOS (sin
+ * `?nombre=`/`?participant_id=`). Subida de 8 a 20 (mismo tamaño que
+ * MATCH_HISTORY_WINDOW de /api/update-rankings) ahora que el corte por
+ * TIME_BUDGET_MS ya funciona DENTRO de cada participante (no solo entre
+ * ellos, ver el 504 real que pasó con la versión anterior) — una corrida
+ * que no llegue a cubrir a todos simplemente devuelve `volver_a_llamar:
+ * true`, y es seguro pedir la misma URL de nuevo (Math.max nunca duplica).
  */
-const BACKFILL_WINDOW = 8;
+const BACKFILL_WINDOW = 20;
 /**
  * Ventana usada cuando se filtra a UN SOLO participante (`?nombre=` o
  * `?participant_id=`, ver GET más abajo) — mucho más amplia que
