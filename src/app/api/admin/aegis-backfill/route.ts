@@ -16,16 +16,35 @@ const RANKED_SOLO_QUEUE_ID = 420;
  * Ventana a re-examinar por participante. Más angosta que
  * MATCH_HISTORY_WINDOW (20) de /api/update-rankings a propósito: esto pide
  * el detalle COMPLETO de cada partida de la ventana, para TODOS los
- * participantes, en una sola invocación — con 20 participantes × 20
- * partidas cada uno no entraría cómodo en maxDuration=60. 15 alcanza de
- * sobra para "las últimas partidas" sin arriesgar el límite de tiempo.
+ * participantes, en una sola invocación. Bajada de 15 a 8 después de que
+ * una corrida real se colgara: con varios participantes recibiendo 429 de
+ * Riot y reintentando, hasta 15 partidas × ~20 participantes no entraba ni
+ * cerca de maxDuration=60 — Vercel mató la función a los 60s con un 504
+ * antes de que llegara a devolver ninguna respuesta. 8 alcanza para "las
+ * últimas partidas" con bastante más margen.
  */
-const BACKFILL_WINDOW = 15;
-/** Corta el loop de participantes si se acerca al límite de Vercel, en vez de arriesgar que la función se corte a mitad de un participante. Volver a llamar al endpoint es seguro (ver el comentario de GREATEST más abajo) — retoma los que quedaron sin procesar. */
-const TIME_BUDGET_MS = 48_000;
+const BACKFILL_WINDOW = 8;
+/**
+ * Corta el trabajo (entre participantes Y en el medio de uno solo, ver los
+ * chequeos de budgetExceeded() más abajo) si se acerca al límite de
+ * Vercel, en vez de arriesgar que la función se corte de golpe sin
+ * devolver nada (el 504 real que pasó). Volver a llamar al endpoint es
+ * seguro (ver el comentario de GREATEST más abajo) — retoma los que
+ * quedaron sin procesar.
+ */
+const TIME_BUDGET_MS = 40_000;
 
-/** Mismo tope que /api/update-rankings (RIOT_FETCH_MAX_ATTEMPTS) — sin esto, un 429 pasajero (bastante probable acá: este endpoint pega ~20 participantes × hasta 16 llamadas cada uno, todo seguido) tumbaba el fetch entero sin reintentar, y el participante quedaba salteado en silencio. */
-const RIOT_FETCH_MAX_ATTEMPTS = 4;
+/**
+ * Más bajo que el de /api/update-rankings (4) a propósito: con el
+ * presupuesto de tiempo tan ajustado acá (hay que dejar margen para
+ * devolver una respuesta antes de los 60s duros de Vercel), esperar el
+ * backoff completo de un 429 varias veces seguidas puede comerse todo el
+ * presupuesto en una sola llamada. Mejor fallar rápido y que el usuario
+ * vuelva a llamar al endpoint (seguro, es idempotente) que colgarse.
+ */
+const RIOT_FETCH_MAX_ATTEMPTS = 2;
+/** Tope duro al backoff de un 429, aunque Retry-After pida más — mismo motivo que RIOT_FETCH_MAX_ATTEMPTS más bajo. */
+const MAX_RETRY_AFTER_SECONDS = 3;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -36,7 +55,10 @@ async function riotFetch(url: string, apiKey: string, attempt = 1): Promise<Resp
   if (res.status !== 429 || attempt >= RIOT_FETCH_MAX_ATTEMPTS) return res;
 
   const retryAfterHeader = Number(res.headers.get("Retry-After"));
-  const retryAfterSeconds = Number.isFinite(retryAfterHeader) && retryAfterHeader > 0 ? retryAfterHeader : 2;
+  const retryAfterSeconds = Math.min(
+    Number.isFinite(retryAfterHeader) && retryAfterHeader > 0 ? retryAfterHeader : 2,
+    MAX_RETRY_AFTER_SECONDS,
+  );
   await sleep(retryAfterSeconds * 1000 + 250);
 
   return riotFetch(url, apiKey, attempt + 1);
@@ -104,11 +126,13 @@ export async function GET(request: Request) {
   }
 
   const startedAt = Date.now();
+  const budgetExceeded = () => Date.now() - startedAt > TIME_BUDGET_MS;
   const results: BackfillResult[] = [];
   let skippedByTimeBudget = 0;
+  let anyCutByBudget = false;
 
   for (const participant of participants ?? []) {
-    if (Date.now() - startedAt > TIME_BUDGET_MS) {
+    if (budgetExceeded()) {
       skippedByTimeBudget += 1;
       continue;
     }
@@ -146,7 +170,13 @@ export async function GET(request: Request) {
 
       const candidates: Array<{ matchId: string; gameEndTimestamp: number; isNonRemakeWin: boolean }> = [];
       let matchFetchFailures = 0;
+      let cutByBudget = false;
       for (const matchId of matchIds) {
+        if (budgetExceeded()) {
+          cutByBudget = true;
+          break; // no arrancar una llamada más — hay que dejar margen para devolver la respuesta
+        }
+
         const matchRes = await riotFetch(
           `https://${continent}.api.riotgames.com/lol/match/v5/matches/${matchId}`,
           riotApiKey,
@@ -168,14 +198,17 @@ export async function GET(request: Request) {
         });
       }
 
+      if (cutByBudget) anyCutByBudget = true;
+
       if (candidates.length === 0) {
         results.push({
           nombre_display: participant.nombre_display,
           aegis_count_antes: participant.aegis_count,
           aegis_count_despues: participant.aegis_count,
           candidatas_encontradas: 0,
-          estado:
-            matchFetchFailures > 0
+          estado: cutByBudget
+            ? "cortado por límite de tiempo antes de bajar ninguna partida — volver a llamar al endpoint"
+            : matchFetchFailures > 0
               ? `sin partidas evaluables — ${matchFetchFailures} fallaron al bajarse`
               : "sin partidas ranked en la ventana",
         });
@@ -230,7 +263,9 @@ export async function GET(request: Request) {
         aegis_count_antes: participant.aegis_count,
         aegis_count_despues: newCount,
         candidatas_encontradas: aegisFound,
-        estado: "ok",
+        estado: cutByBudget
+          ? "ok, pero cortado por límite de tiempo antes de revisar toda la ventana — volver a llamar al endpoint"
+          : "ok",
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -250,7 +285,7 @@ export async function GET(request: Request) {
     procesados: results.length,
     total_participantes: participants?.length ?? 0,
     saltados_por_tiempo: skippedByTimeBudget,
-    volver_a_llamar: skippedByTimeBudget > 0,
+    volver_a_llamar: skippedByTimeBudget > 0 || anyCutByBudget,
     results,
   });
 }
