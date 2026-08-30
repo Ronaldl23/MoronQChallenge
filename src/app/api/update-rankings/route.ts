@@ -517,6 +517,27 @@ async function processParticipantPenalties({
     ];
   });
 
+  // Log de diagnóstico — el resultado de processPenaltyMatches (qué partida
+  // cumplió qué castigo) nunca se persiste en la base, así que sin esto no
+  // hay forma de reconstruir después "¿esta partida llegó a evaluarse
+  // contra este castigo?" — solo se loguea cuando hay algo real para
+  // evaluar (penalties y penaltyMatches no vacíos), para no ensuciar los
+  // logs con corridas sin nada pendiente.
+  if (penalties.length > 0 && penaltyMatches.length > 0) {
+    console.log(
+      `penalties: evaluando participantId=${participantId} — pendientes=${JSON.stringify(
+        penalties.map((p) => ({ id: p.id, championAssigned: p.championAssigned, createdAt: p.createdAt })),
+      )} contra partidas=${JSON.stringify(
+        penaltyMatches.map((m) => ({
+          matchId: m.matchId,
+          championPlayed: m.championPlayed,
+          playedAt: m.playedAt,
+          gameDurationSeconds: m.gameDurationSeconds,
+        })),
+      )}`,
+    );
+  }
+
   const result = processPenaltyMatches({
     penalties,
     matches: penaltyMatches,
