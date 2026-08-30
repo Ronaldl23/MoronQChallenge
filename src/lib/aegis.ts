@@ -5,72 +5,63 @@
  *
  * Riot da doble LP en una victoria ranked cuando el jugador fue autofilleado
  * a un rol no preferido ("Aegis of Valor"). La API no expone si esto pasó
- * en una partida puntual, así que se ESTIMA: cuando en una corrida de
- * /api/update-rankings se puede aislar el LP ganado por UNA sola partida
- * nueva (ver detectMatchDeltaWindow más abajo — exactamente 1 partida ranked
- * SoloQ nueva desde la corrida anterior, no un remake), si esa partida fue
- * una victoria y el LP ganado en ella es >= AEGIS_LP_MULTIPLIER veces el
- * promedio histórico de LP por victoria de ese jugador, se cuenta como un
- * "probable Aegis".
+ * en una partida puntual, así que se ESTIMA: por cada partida ranked SoloQ
+ * nueva que el caller pueda aislar sin ambigüedad contra el historial de
+ * snapshots (ver correlateLpChanges en src/lib/lp-correlation.ts — puede
+ * ser más de una por corrida, no solo "la más reciente"), si esa partida
+ * fue una victoria y el LP ganado en ella es >= AEGIS_LP_MULTIPLIER veces
+ * el promedio histórico de LP por victoria de ese jugador ANTES de esa
+ * partida, se cuenta como un "probable Aegis".
  *
- * Con 2+ partidas nuevas en la misma corrida no se puede saber cuál de
- * ellas dio cuánto LP (el LP crudo de league-v4 es un acumulado, no viene
- * partida por partida) — se salta por completo, ni cuenta ni descarta nada,
- * mismo criterio que un remake para las quests (ver MIN_MATCH_DURATION_SECONDS
- * en quests.ts).
+ * La aislación (cuál partida cae en qué hueco entre snapshots, y cuándo dos
+ * partidas comparten el mismo hueco sin forma de repartir el LP entre
+ * ellas) es responsabilidad del caller vía correlateLpChanges — este módulo
+ * solo evalúa el umbral una vez que ya se resolvió el LP de una partida
+ * puntual.
  */
 
 export const AEGIS_LP_MULTIPLIER = 1.7;
 
 export interface AegisCheckInput {
   /**
-   * Partidas ranked SoloQ nuevas detectadas esta corrida (mismo conteo que
-   * usa el motor de misiones, ver findNewMatchIds en update-rankings/route.ts).
-   * null cuando no se pudo determinar (falla de Riot al pedir el historial).
+   * true si esta partida fue una victoria que no es remake. null/false si
+   * fue derrota, remake, o no se pudo bajar su detalle — nunca proc.
    */
-  newMatchCount: number | null;
+  isNonRemakeWin: boolean | null;
   /**
-   * true si esa ÚNICA partida nueva fue una victoria que no es remake.
-   * Solo tiene sentido cuando newMatchCount === 1; se ignora en cualquier
-   * otro caso. null si no se pudo bajar el detalle de esa partida.
+   * LP ganado en esta partida puntual, ya aislado por el caller (vía
+   * calculateEloScore, ver src/lib/lp-correlation.ts — así un
+   * ascenso/descenso de tier/división de por medio sigue dando el LP real
+   * ganado en esa partida, no lo descarta). null si no se pudo aislar sin
+   * ambigüedad (comparte hueco de snapshots con otra partida, o no hay
+   * snapshot "antes" todavía).
    */
-  singleNewMatchIsNonRemakeWin: boolean | null;
-  /**
-   * LP ganado en esa única partida nueva: delta entre el snapshot de esta
-   * corrida y el snapshot inmediatamente anterior (vía calculateEloScore,
-   * ver src/lib/lp-correlation.ts — así un ascenso/descenso de
-   * tier/división de por medio sigue dando el LP real ganado en esa
-   * partida, no lo descarta). null solo si no existe un snapshot anterior
-   * con el que comparar.
-   */
-  lpGainedThisMatch: number | null;
+  lpGained: number | null;
   /**
    * Promedio histórico de LP ganado por victoria de este participante,
-   * calculado ANTES de esta partida nueva (computeLpStats sobre su
-   * historial previo, ver lp-stats.ts). 0 si no hay historial suficiente
-   * todavía.
+   * calculado ANTES de esta partida (computeLpStats sobre su historial
+   * previo, ver lp-stats.ts). 0 si no hay historial suficiente todavía.
    */
   historicalAvgLpGained: number;
 }
 
 /**
- * true si esta corrida corresponde a un "probable Aegis" para el
- * participante — el caller es responsable de incrementar aegis_count.
+ * true si esta partida puntual corresponde a un "probable Aegis" para el
+ * participante — el caller es responsable de incrementar aegis_count (una
+ * vez por cada partida que dé true, si evalúa varias de la misma corrida).
  */
 export function isProbableAegisProc({
-  newMatchCount,
-  singleNewMatchIsNonRemakeWin,
-  lpGainedThisMatch,
+  isNonRemakeWin,
+  lpGained,
   historicalAvgLpGained,
 }: AegisCheckInput): boolean {
-  if (newMatchCount !== 1) return false; // 0, 2+, o desconocido: no aislable.
-  if (!singleNewMatchIsNonRemakeWin) return false; // derrota, remake, o desconocido.
-  if (lpGainedThisMatch === null || lpGainedThisMatch <= 0) return false;
+  if (!isNonRemakeWin) return false; // derrota, remake, o desconocido.
+  if (lpGained === null || lpGained <= 0) return false;
   // Sin promedio histórico todavía (menos de una victoria previa con cambio
   // de LP detectado en la ventana) no hay con qué comparar — de lo
   // contrario CUALQUIER LP ganado pasaría el umbral (1.7 * 0 = 0),
   // disparando falsos positivos en la primera partida de cada jugador.
   if (historicalAvgLpGained <= 0) return false;
 
-  return lpGainedThisMatch >= historicalAvgLpGained * AEGIS_LP_MULTIPLIER;
+  return lpGained >= historicalAvgLpGained * AEGIS_LP_MULTIPLIER;
 }

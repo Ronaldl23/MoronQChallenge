@@ -15,7 +15,7 @@ import { processPenaltyMatches, type PenaltyMatchOutcome, type PendingPenalty } 
 import { MAX_ACTIVE_PENALTIES, PROTECTION_HOURS, hoursFromNowIso } from "@/lib/mango-launch";
 import { isProbableAegisProc } from "@/lib/aegis";
 import { computeLpStats, TREND_WINDOW_DAYS } from "@/lib/lp-stats";
-import { correlateSingleMatchLp } from "@/lib/lp-correlation";
+import { correlateLpChanges, correlateSingleMatchLp } from "@/lib/lp-correlation";
 import { platformToContinent } from "@/lib/riot";
 import type { Database, QuestProgress, QuestType, RankDivision, RankTier } from "@/types/database";
 
@@ -207,35 +207,37 @@ function findNewMatchIds(
 
 /**
  * Señal que el motor de misiones le pasa al sistema "Aegis" (ver
- * src/lib/aegis.ts): cuántas partidas ranked SoloQ nuevas se detectaron
- * esta corrida, y si esa partida fue una victoria no-remake cuando se
- * puede aislar exactamente 1. null en los campos que no se pudieron
- * determinar (Riot no respondió, no aplica, etc.) — el caller trata eso
- * como "no evaluar Aegis esta corrida", nunca como 0.
+ * src/lib/aegis.ts): TODAS las partidas ranked SoloQ nuevas detectadas
+ * esta corrida (no solo "la más reciente"), con lo necesario para intentar
+ * aislar el LP ganado de CADA UNA contra el historial de snapshots (ver
+ * correlateLpChanges en src/lib/lp-correlation.ts).
+ *
+ * Antes esto solo tenía sentido cuando se detectaba EXACTAMENTE 1 partida
+ * nueva en la corrida — con 2 o más (el cron se atrasó, o el jugador
+ * encadenó partidas rápido) Aegis se salteaba COMPLETO para todas esas
+ * partidas, sin volver a evaluarlas nunca más (el cursor de misiones ya
+ * las marca como "vistas"). Ahora cada partida nueva se intenta aislar por
+ * separado: si cae en un hueco de snapshots que no comparte con ninguna
+ * otra (ver correlateLpChanges), se evalúa igual aunque hayan llegado
+ * varias juntas en la misma corrida — solo se pierden las que de verdad
+ * son ambiguas (dos partidas reales en el mismo hueco de ~10 minutos entre
+ * snapshots, sin forma de repartir el LP entre ellas).
  */
-interface AegisMatchSignal {
-  newMatchCount: number | null;
-  singleNewMatchIsNonRemakeWin: boolean | null;
+interface AegisCandidateMatch {
+  matchId: string;
   /**
-   * gameEndTimestamp (epoch ms) de esa única partida nueva — el caller lo
-   * usa para anclar la correlación de LP a la hora REAL de la partida
-   * (ver src/lib/lp-correlation.ts) en vez de a qué corrida del cron la
-   * detectó primero. match-v5 (esto) y league-v4 (el LP) no siempre
-   * propagan al mismo ritmo — sin esto, cuando match-v5 se atrasa
-   * respecto a league-v4, el LP de la partida ya había quedado guardado
-   * en un snapshot de una corrida anterior, y comparar contra "el
-   * snapshot de la corrida anterior" (nomás) daba 0 de diferencia pese a
-   * ser una partida real. null en los mismos casos que
-   * singleNewMatchIsNonRemakeWin.
+   * gameEndTimestamp (epoch ms) — ancla la correlación de LP a la hora
+   * REAL de la partida (ver src/lib/lp-correlation.ts) en vez de a qué
+   * corrida del cron la detectó primero. match-v5 (esto) y league-v4 (el
+   * LP) no siempre propagan al mismo ritmo.
    */
-  singleNewMatchGameEndTimestamp: number | null;
+  gameEndTimestamp: number;
+  isNonRemakeWin: boolean;
 }
 
-const UNKNOWN_AEGIS_SIGNAL: AegisMatchSignal = {
-  newMatchCount: null,
-  singleNewMatchIsNonRemakeWin: null,
-  singleNewMatchGameEndTimestamp: null,
-};
+type AegisMatchSignal = AegisCandidateMatch[];
+
+const UNKNOWN_AEGIS_SIGNAL: AegisMatchSignal = [];
 
 /**
  * Corre el motor de misiones puro (processNewMatches, ver src/lib/quests.ts)
@@ -359,7 +361,7 @@ async function processParticipantQuests({
     // target indefinidamente, con el inventario visiblemente vacío, hasta
     // la próxima partida (el bug reportado).
     await grantCompletedQuests({ supabase, participant, questRows, referenceRow, matches: [] });
-    return { newMatchCount: 0, singleNewMatchIsNonRemakeWin: null, singleNewMatchGameEndTimestamp: null };
+    return [];
   }
 
   const outcomes: MatchOutcome[] = [];
@@ -402,22 +404,15 @@ async function processParticipantQuests({
     gameEndTimestamps.push(match.info.gameEndTimestamp);
   }
 
-  // Señal para Aegis: solo tiene sentido cuando se detectó EXACTAMENTE 1
-  // partida ranked nueva Y se pudo bajar su detalle (outcomes[0] — el
-  // fetch pudo haber fallado). Con 0 o 2+ partidas nuevas, o sin detalle,
-  // queda en null: el caller (GET) lo trata como "no evaluar Aegis".
-  const signal: AegisMatchSignal = {
-    newMatchCount: newMatchIds.length,
-    singleNewMatchIsNonRemakeWin:
-      newMatchIds.length === 1 && outcomes.length === 1
-        ? outcomes[0].win &&
-          outcomes[0].gameDurationSeconds >= MIN_MATCH_DURATION_SECONDS
-        : null,
-    singleNewMatchGameEndTimestamp:
-      newMatchIds.length === 1 && gameEndTimestamps.length === 1
-        ? gameEndTimestamps[0]
-        : null,
-  };
+  // Señal para Aegis: UNA candidata por cada partida nueva de la que se
+  // pudo bajar el detalle (puede ser 0, 1, o varias — el caller intenta
+  // aislar el LP de cada una por separado, ver el comentario de
+  // AegisCandidateMatch arriba).
+  const signal: AegisMatchSignal = outcomes.map((outcome, i) => ({
+    matchId: outcome.matchId,
+    gameEndTimestamp: gameEndTimestamps[i],
+    isNonRemakeWin: outcome.win && outcome.gameDurationSeconds >= MIN_MATCH_DURATION_SECONDS,
+  }));
 
   if (outcomes.length === 0) return signal;
 
@@ -889,53 +884,67 @@ export async function GET(request: Request) {
           elo_score,
         });
 
-        // Sistema Aegis: LP ganado en la única partida nueva de esta corrida
-        // — anclado a la hora REAL de esa partida (correlateSingleMatchLp,
-        // ver src/lib/lp-correlation.ts), no al snapshot "de la corrida
-        // anterior". match-v5 (de dónde sale newMatchCount) y league-v4 (de
-        // dónde sale el LP) no siempre propagan al mismo ritmo: cuando
-        // match-v5 se atrasa un par de corridas respecto al LP nuevo en
-        // league-v4, comparar contra "la corrida anterior nomás" daba 0 de
-        // diferencia pese a ser una partida real (el bug reportado — un
-        // Aegis real que no se detectaba). Anclar a gameEndTimestamp
-        // encuentra el snapshot de ANTES de la partida sin importar cuántas
-        // corridas pasaron hasta poder aislarla. Best-effort, igual que el
-        // anuncio de chat de abajo — un error acá no debe tumbar el resto de
-        // la corrida de este participante.
-        if (!insertError) {
+        // Sistema Aegis: LP ganado en CADA partida nueva de esta corrida —
+        // anclado a la hora REAL de cada una (correlateLpChanges, ver
+        // src/lib/lp-correlation.ts), no al snapshot "de la corrida
+        // anterior". match-v5 (de dónde salen las candidatas) y league-v4
+        // (de dónde sale el LP) no siempre propagan al mismo ritmo: cuando
+        // match-v5 se atrasa respecto al LP nuevo en league-v4, comparar
+        // contra "la corrida anterior nomás" daba 0 de diferencia pese a
+        // ser una partida real. Antes esto solo evaluaba la corrida cuando
+        // se detectaba EXACTAMENTE 1 partida nueva — con 2+ juntas (cron
+        // atrasado, o el jugador encadenó partidas rápido) Aegis se
+        // salteaba entero para todas, sin poder recuperarlas después (el
+        // bug reportado). Ahora se intenta aislar cada candidata por
+        // separado; correlateLpChanges descarta sola las que de verdad son
+        // ambiguas (dos partidas reales en el mismo hueco entre
+        // snapshots). Best-effort, igual que el anuncio de chat de abajo —
+        // un error acá no debe tumbar el resto de la corrida de este
+        // participante.
+        if (!insertError && aegisSignal.length > 0) {
           try {
-            let lpGainedThisMatch: number | null = null;
-            let historicalAvgLpGained = 0;
+            const snapshotsForCorrelation = [
+              ...(recentHistory ?? []),
+              {
+                tier,
+                division,
+                lp: soloQueue.leaguePoints,
+                created_at: new Date().toISOString(),
+              },
+            ];
 
-            if (aegisSignal.newMatchCount === 1 && aegisSignal.singleNewMatchGameEndTimestamp !== null) {
-              const snapshotsForCorrelation = [
-                ...(recentHistory ?? []),
-                {
-                  tier,
-                  division,
-                  lp: soloQueue.leaguePoints,
-                  created_at: new Date().toISOString(),
-                },
-              ];
-              const correlation = correlateSingleMatchLp({
-                gameEndTimestamp: aegisSignal.singleNewMatchGameEndTimestamp,
-                snapshots: snapshotsForCorrelation,
-              });
-              lpGainedThisMatch = correlation.lpGained;
-              historicalAvgLpGained = computeLpStats(correlation.priorSnapshots).avgLpGained;
+            const lpByMatch = correlateLpChanges(
+              aegisSignal.map((c) => ({ matchId: c.matchId, gameEndTimestamp: c.gameEndTimestamp })),
+              snapshotsForCorrelation,
+            );
+
+            let aegisProcs = 0;
+            for (const candidate of aegisSignal) {
+              const lpGained = lpByMatch.get(candidate.matchId) ?? null;
+              if (lpGained === null) continue; // no se pudo aislar sin ambigüedad
+
+              const historicalAvgLpGained = computeLpStats(
+                correlateSingleMatchLp({
+                  gameEndTimestamp: candidate.gameEndTimestamp,
+                  snapshots: snapshotsForCorrelation,
+                }).priorSnapshots,
+              ).avgLpGained;
+
+              if (
+                isProbableAegisProc({
+                  isNonRemakeWin: candidate.isNonRemakeWin,
+                  lpGained,
+                  historicalAvgLpGained,
+                })
+              ) {
+                aegisProcs += 1;
+              }
             }
 
-            if (
-              isProbableAegisProc({
-                newMatchCount: aegisSignal.newMatchCount,
-                singleNewMatchIsNonRemakeWin: aegisSignal.singleNewMatchIsNonRemakeWin,
-                lpGainedThisMatch,
-                historicalAvgLpGained,
-              })
-            ) {
+            if (aegisProcs > 0) {
               const { error: aegisError } = await supabase
                 .from("participants")
-                .update({ aegis_count: participant.aegis_count + 1 })
+                .update({ aegis_count: participant.aegis_count + aegisProcs })
                 .eq("id", participant.id);
               if (aegisError) throw aegisError;
             }
