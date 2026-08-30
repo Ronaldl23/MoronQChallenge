@@ -24,12 +24,22 @@ const BACKFILL_WINDOW = 15;
 /** Corta el loop de participantes si se acerca al límite de Vercel, en vez de arriesgar que la función se corte a mitad de un participante. Volver a llamar al endpoint es seguro (ver el comentario de GREATEST más abajo) — retoma los que quedaron sin procesar. */
 const TIME_BUDGET_MS = 48_000;
 
+/** Mismo tope que /api/update-rankings (RIOT_FETCH_MAX_ATTEMPTS) — sin esto, un 429 pasajero (bastante probable acá: este endpoint pega ~20 participantes × hasta 16 llamadas cada uno, todo seguido) tumbaba el fetch entero sin reintentar, y el participante quedaba salteado en silencio. */
+const RIOT_FETCH_MAX_ATTEMPTS = 4;
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function riotFetch(url: string, apiKey: string): Promise<Response> {
-  return fetch(url, { headers: { "X-Riot-Token": apiKey }, cache: "no-store" });
+async function riotFetch(url: string, apiKey: string, attempt = 1): Promise<Response> {
+  const res = await fetch(url, { headers: { "X-Riot-Token": apiKey }, cache: "no-store" });
+  if (res.status !== 429 || attempt >= RIOT_FETCH_MAX_ATTEMPTS) return res;
+
+  const retryAfterHeader = Number(res.headers.get("Retry-After"));
+  const retryAfterSeconds = Number.isFinite(retryAfterHeader) && retryAfterHeader > 0 ? retryAfterHeader : 2;
+  await sleep(retryAfterSeconds * 1000 + 250);
+
+  return riotFetch(url, apiKey, attempt + 1);
 }
 
 interface RiotMatchParticipant {
@@ -50,6 +60,8 @@ interface BackfillResult {
   aegis_count_antes: number;
   aegis_count_despues: number;
   candidatas_encontradas: number;
+  /** "ok", o el motivo por el que no se pudo evaluar del todo — nunca se descarta un participante en silencio. */
+  estado: string;
 }
 
 /**
@@ -102,7 +114,16 @@ export async function GET(request: Request) {
     }
 
     const continent = platformToContinent(participant.region_platform);
-    if (!continent) continue;
+    if (!continent) {
+      results.push({
+        nombre_display: participant.nombre_display,
+        aegis_count_antes: participant.aegis_count,
+        aegis_count_despues: participant.aegis_count,
+        candidatas_encontradas: 0,
+        estado: `region_platform inválida: ${participant.region_platform}`,
+      });
+      continue;
+    }
 
     try {
       const idsRes = await riotFetch(
@@ -110,18 +131,31 @@ export async function GET(request: Request) {
         riotApiKey,
       );
       await sleep(RIOT_REQUEST_DELAY_MS);
-      if (!idsRes.ok) continue; // best-effort — se reintenta llamando de nuevo al endpoint
+      if (!idsRes.ok) {
+        results.push({
+          nombre_display: participant.nombre_display,
+          aegis_count_antes: participant.aegis_count,
+          aegis_count_despues: participant.aegis_count,
+          candidatas_encontradas: 0,
+          estado: `Riot devolvió ${idsRes.status} al pedir el historial — volver a llamar al endpoint`,
+        });
+        continue;
+      }
 
       const matchIds = (await idsRes.json()) as string[];
 
       const candidates: Array<{ matchId: string; gameEndTimestamp: number; isNonRemakeWin: boolean }> = [];
+      let matchFetchFailures = 0;
       for (const matchId of matchIds) {
         const matchRes = await riotFetch(
           `https://${continent}.api.riotgames.com/lol/match/v5/matches/${matchId}`,
           riotApiKey,
         );
         await sleep(RIOT_REQUEST_DELAY_MS);
-        if (!matchRes.ok) continue; // best-effort por partida puntual, no corta el resto de este jugador
+        if (!matchRes.ok) {
+          matchFetchFailures += 1;
+          continue; // best-effort por partida puntual, no corta el resto de este jugador
+        }
 
         const match = (await matchRes.json()) as RiotMatchDetail;
         const mp = match.info.participants.find((p) => p.puuid === participant.puuid);
@@ -140,6 +174,10 @@ export async function GET(request: Request) {
           aegis_count_antes: participant.aegis_count,
           aegis_count_despues: participant.aegis_count,
           candidatas_encontradas: 0,
+          estado:
+            matchFetchFailures > 0
+              ? `sin partidas evaluables — ${matchFetchFailures} fallaron al bajarse`
+              : "sin partidas ranked en la ventana",
         });
         continue;
       }
@@ -192,12 +230,18 @@ export async function GET(request: Request) {
         aegis_count_antes: participant.aegis_count,
         aegis_count_despues: newCount,
         candidatas_encontradas: aegisFound,
+        estado: "ok",
       });
     } catch (err) {
-      console.error(
-        `Aegis backfill falló para ${participant.nombre_display}:`,
-        err instanceof Error ? err.message : err,
-      );
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`Aegis backfill falló para ${participant.nombre_display}:`, message);
+      results.push({
+        nombre_display: participant.nombre_display,
+        aegis_count_antes: participant.aegis_count,
+        aegis_count_despues: participant.aegis_count,
+        candidatas_encontradas: 0,
+        estado: `error: ${message}`,
+      });
     }
   }
 
