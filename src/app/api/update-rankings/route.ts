@@ -363,9 +363,6 @@ async function processParticipantQuests({
   }
 
   const outcomes: MatchOutcome[] = [];
-  // Misma partida, mismo fetch — Fase 4 (cumplimiento de castigos) reusa
-  // esto en vez de pedirle a Riot el detalle de las mismas partidas de nuevo.
-  const penaltyMatches: PenaltyMatchOutcome[] = [];
   // Paralelo a `outcomes` (mismo índice) — para la señal de Aegis más abajo.
   const gameEndTimestamps: number[] = [];
   for (const matchId of newMatchIds) {
@@ -403,15 +400,6 @@ async function processParticipantQuests({
       beatTrackedParticipant,
     });
     gameEndTimestamps.push(match.info.gameEndTimestamp);
-    penaltyMatches.push({
-      matchId,
-      playedAt: new Date(match.info.gameEndTimestamp).toISOString(),
-      championPlayed: mp.championName,
-      teamPosition: mp.teamPosition,
-      summoner1Id: mp.summoner1Id,
-      summoner2Id: mp.summoner2Id,
-      gameDurationSeconds: match.info.gameDuration,
-    });
   }
 
   // Señal para Aegis: solo tiene sentido cuando se detectó EXACTAMENTE 1
@@ -433,44 +421,62 @@ async function processParticipantQuests({
 
   if (outcomes.length === 0) return signal;
 
-  await processParticipantPenalties({
-    supabase,
-    participantId: participant.id,
-    currentGamesWithoutCompliance: participant.penalty_games_without_compliance,
-    penaltyMatches,
-  });
-
   await grantCompletedQuests({ supabase, participant, questRows, referenceRow, matches: outcomes });
 
   return signal;
 }
 
 /**
- * Fase 4 (rediseñada — contador compartido, ver src/lib/penalty.ts): revisa
- * TODOS los penalty_progress en estado 'pending' de este participante
- * contra las mismas partidas ranked nuevas que ya bajó
- * processParticipantQuests (ver comentario en el loop de arriba) — cada
- * partida cuenta simultáneamente para todos los castigos pendientes, así
- * que una sola corrida puede completar más de uno a la vez, y el contador
- * de partidas-sin-cumplir es UNO SOLO por participante (no por castigo).
- * También activa la protección de PROTECTION_HOURS contra mangos nuevos
- * (ver src/lib/mango-launch.ts) si el participante tenía sus
+ * Fase 4 (rediseñada — contador compartido, ver src/lib/penalty.ts), y
+ * DESACOPLADA del cursor incremental de misiones (last_processed_match_id):
+ * antes esta función reusaba las mismas partidas "nuevas" que ya había
+ * bajado processParticipantQuests, con su mismo tope de
+ * MAX_NEW_MATCHES_PER_RUN y su mismo `break` ante el primer fetch fallido
+ * — el problema real (bug reportado) es que si UNA sola partida fallaba al
+ * bajarse (ej. un 429 de Riot que agotó los reintentos), el cursor nunca
+ * avanzaba más allá de esa partida puntual, y todo lo que dependiera de
+ * partidas posteriores (justo esto: cumplimiento de castigos) quedaba
+ * trabado corrida tras corrida sin ninguna forma de autocorregirse — había
+ * que ir a la base a mano a destrabarlo.
+ *
+ * Ahora esta función pide SU PROPIA ventana de partidas directo a Riot,
+ * usando el parámetro `startTime` de match-v5 (no un cursor guardado) desde
+ * el `created_at` más viejo entre los castigos pendientes — así cada
+ * corrida vuelve a mirar TODAS las partidas relevantes desde cero, no solo
+ * las "nuevas" de esta corrida. Si UNA partida puntual falla al bajarse, se
+ * saltea esa nomás (no hay ningún cursor que trabar) y las demás se evalúan
+ * igual — la próxima corrida la va a reintentar sola, sin que nadie tenga
+ * que destrabar nada a mano. El costo extra de pedirle a Riot esto de nuevo
+ * en cada corrida es chico: solo corre para participantes que YA tienen
+ * algún castigo pendiente (la mayoría no), acotado por PENALTY_GAME_LIMIT
+ * partidas reales antes de la descalificación automática.
+ *
+ * Cada partida cuenta simultáneamente para todos los castigos pendientes,
+ * así que una sola corrida puede completar más de uno a la vez, y el
+ * contador de partidas-sin-cumplir es UNO SOLO por participante (no por
+ * castigo). También activa la protección de PROTECTION_HOURS contra mangos
+ * nuevos (ver src/lib/mango-launch.ts) si el participante tenía sus
  * MAX_ACTIVE_PENALTIES castigos activos a la vez y esta corrida le cumplió
- * alguno. Llamado desde adentro del mismo try/catch que envuelve
- * processParticipantQuests: un error acá tampoco debe afectar al resto de
- * la actualización.
+ * alguno. Llamada con su propio try/catch desde el loop principal: un error
+ * acá no debe afectar el resto de la actualización de este participante ni
+ * de los demás.
  */
-async function processParticipantPenalties({
+async function checkPenaltyCompliance({
   supabase,
-  participantId,
-  currentGamesWithoutCompliance,
-  penaltyMatches,
+  participant,
+  riotApiKey,
 }: {
   supabase: SupabaseClient<Database>;
-  participantId: string;
-  currentGamesWithoutCompliance: number;
-  penaltyMatches: PenaltyMatchOutcome[];
+  participant: {
+    id: string;
+    puuid: string;
+    region_platform: string;
+    penalty_games_without_compliance: number;
+  };
+  riotApiKey: string;
 }): Promise<void> {
+  const participantId = participant.id;
+
   const { data: pendingRows, error: pendingError } = await supabase
     .from("penalty_progress")
     .select("id, mango_id, created_at")
@@ -478,20 +484,36 @@ async function processParticipantPenalties({
     .eq("status", "pending");
   if (pendingError) throw pendingError;
 
-  const mangoById = new Map<string, { champion_assigned: string | null; status: string }>();
-  if (pendingRows && pendingRows.length > 0) {
-    const { data: mangoRows, error: mangoError } = await supabase
-      .from("mangos")
-      .select("id, champion_assigned, status")
-      .in(
-        "id",
-        pendingRows.map((row) => row.mango_id),
-      );
-    if (mangoError) throw mangoError;
-    for (const m of mangoRows ?? []) mangoById.set(m.id, { champion_assigned: m.champion_assigned, status: m.status });
+  // Regla 5 (src/lib/penalty.ts): sin castigos pendientes no hay contador
+  // corriendo. Reset barato (sin pedirle nada a Riot) si quedó un resto de
+  // un grupo anterior — evita que un valor viejo le robe intentos reales a
+  // la próxima tanda de castigos que le lleguen.
+  async function resetCounterIfStale() {
+    if (participant.penalty_games_without_compliance !== 0) {
+      const { error } = await supabase
+        .from("participants")
+        .update({ penalty_games_without_compliance: 0 })
+        .eq("id", participantId);
+      if (error) throw error;
+    }
   }
 
-  const penalties: PendingPenalty[] = (pendingRows ?? []).flatMap((row) => {
+  if (!pendingRows || pendingRows.length === 0) {
+    await resetCounterIfStale();
+    return;
+  }
+
+  const { data: mangoRows, error: mangoError } = await supabase
+    .from("mangos")
+    .select("id, champion_assigned, status")
+    .in(
+      "id",
+      pendingRows.map((row) => row.mango_id),
+    );
+  if (mangoError) throw mangoError;
+  const mangoById = new Map((mangoRows ?? []).map((m) => [m.id, m]));
+
+  const penalties: PendingPenalty[] = pendingRows.flatMap((row) => {
     const mango = mangoById.get(row.mango_id);
     // El mango todavía no se le reveló al jugador (status='pending_reveal',
     // ver Fase 3.5) — no se le puede exigir cumplir un castigo que todavía
@@ -517,31 +539,62 @@ async function processParticipantPenalties({
     ];
   });
 
-  // Log de diagnóstico — el resultado de processPenaltyMatches (qué partida
-  // cumplió qué castigo) nunca se persiste en la base, así que sin esto no
-  // hay forma de reconstruir después "¿esta partida llegó a evaluarse
-  // contra este castigo?" — solo se loguea cuando hay algo real para
-  // evaluar (penalties y penaltyMatches no vacíos), para no ensuciar los
-  // logs con corridas sin nada pendiente.
-  if (penalties.length > 0 && penaltyMatches.length > 0) {
-    console.log(
-      `penalties: evaluando participantId=${participantId} — pendientes=${JSON.stringify(
-        penalties.map((p) => ({ id: p.id, championAssigned: p.championAssigned, createdAt: p.createdAt })),
-      )} contra partidas=${JSON.stringify(
-        penaltyMatches.map((m) => ({
-          matchId: m.matchId,
-          championPlayed: m.championPlayed,
-          playedAt: m.playedAt,
-          gameDurationSeconds: m.gameDurationSeconds,
-        })),
-      )}`,
+  if (penalties.length === 0) {
+    await resetCounterIfStale();
+    return;
+  }
+
+  const continent = platformToContinent(participant.region_platform);
+  if (!continent) return; // no debería pasar (region_platform inválida) — se reintenta solo la próxima corrida
+
+  const earliestCreatedAt = penalties.reduce(
+    (min, p) => (p.createdAt < min ? p.createdAt : min),
+    penalties[0].createdAt,
+  );
+  const startTimeSeconds = Math.floor(new Date(earliestCreatedAt).getTime() / 1000);
+
+  const idsRes = await riotFetch(
+    `https://${continent}.api.riotgames.com/lol/match/v5/matches/by-puuid/${participant.puuid}/ids?startTime=${startTimeSeconds}&queue=${RANKED_SOLO_QUEUE_ID}&start=0&count=${MATCH_HISTORY_WINDOW}`,
+    riotApiKey,
+  );
+  await sleep(RIOT_REQUEST_DELAY_MS);
+  if (!idsRes.ok) return; // best-effort — se reintenta entera en la próxima corrida
+
+  const matchIds = (await idsRes.json()) as string[]; // más nueva primero
+
+  const penaltyMatches: PenaltyMatchOutcome[] = [];
+  // Cronológico, más vieja primero — mismo orden que espera processPenaltyMatches.
+  for (const matchId of [...matchIds].reverse()) {
+    const matchRes = await riotFetch(
+      `https://${continent}.api.riotgames.com/lol/match/v5/matches/${matchId}`,
+      riotApiKey,
     );
+    await sleep(RIOT_REQUEST_DELAY_MS);
+    // A diferencia del cursor incremental de misiones, acá no hay ningún
+    // cursor que trabar — si UNA partida puntual falla al bajarse, se
+    // saltea esa nomás (se reintenta sola la próxima corrida, junto con
+    // todo el resto de la ventana) en vez de cortar el resto.
+    if (!matchRes.ok) continue;
+
+    const match = (await matchRes.json()) as RiotMatchDetail;
+    const mp = match.info.participants.find((p) => p.puuid === participant.puuid);
+    if (!mp) continue;
+
+    penaltyMatches.push({
+      matchId,
+      playedAt: new Date(match.info.gameEndTimestamp).toISOString(),
+      championPlayed: mp.championName,
+      teamPosition: mp.teamPosition,
+      summoner1Id: mp.summoner1Id,
+      summoner2Id: mp.summoner2Id,
+      gameDurationSeconds: match.info.gameDuration,
+    });
   }
 
   const result = processPenaltyMatches({
     penalties,
     matches: penaltyMatches,
-    gamesWithoutCompliance: currentGamesWithoutCompliance,
+    gamesWithoutCompliance: participant.penalty_games_without_compliance,
   });
 
   await Promise.all(
@@ -558,7 +611,7 @@ async function processParticipantPenalties({
       ),
   );
 
-  if (result.gamesWithoutCompliance !== currentGamesWithoutCompliance) {
+  if (result.gamesWithoutCompliance !== participant.penalty_games_without_compliance) {
     const { error: counterError } = await supabase
       .from("participants")
       .update({ penalty_games_without_compliance: result.gamesWithoutCompliance })
@@ -713,6 +766,19 @@ export async function GET(request: Request) {
       } catch (err) {
         console.error(
           `Motor de misiones falló para ${participant.nombre_display}:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+
+      // Independiente del motor de misiones de arriba a propósito — su
+      // propio try/catch, para que un fallo acá no afecte quests/Aegis ni
+      // viceversa (ver el comentario largo en checkPenaltyCompliance sobre
+      // por qué se desacopló del cursor incremental de misiones).
+      try {
+        await checkPenaltyCompliance({ supabase, participant, riotApiKey });
+      } catch (err) {
+        console.error(
+          `Cumplimiento de castigos falló para ${participant.nombre_display}:`,
           err instanceof Error ? err.message : err,
         );
       }
