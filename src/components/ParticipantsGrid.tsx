@@ -26,11 +26,12 @@ export function ParticipantsGrid({
   density: Density;
 }) {
   const [selected, setSelected] = useState<ShowcaseParticipant | null>(null);
-  // 2x el tamaño real de la miniatura en la tarjeta (density.avatar), no
-  // un tamaño fijo — así el preview escala junto con la densidad de la
-  // grilla (más chico en la vista densa de 30 participantes, más grande en
-  // la de pocos participantes).
-  const previewSize = Math.round(density.avatar * 2);
+  // Tamaño fijo, no atado a density.avatar (antes 2x la miniatura de la
+  // tarjeta — con la vista densa de 30 participantes eso daba un preview
+  // chico, 96px). El preview es un modal aparte, siempre debería verse
+  // grande sin importar cuántos participantes haya en la grilla (pedido
+  // del usuario, con una imagen de referencia de qué tan grande).
+  const previewSize = 220;
 
   useEffect(() => {
     if (!selected) return;
@@ -80,7 +81,7 @@ export function ParticipantsGrid({
           onClick={() => setSelected(null)}
         >
           <div
-            className="relative flex flex-col items-center gap-4 rounded-2xl border border-border-hairline bg-surface p-6"
+            className="relative flex flex-col items-center gap-5 rounded-2xl border border-border-hairline bg-surface p-8"
             onClick={(event) => event.stopPropagation()}
           >
             <button
@@ -98,7 +99,7 @@ export function ParticipantsGrid({
               photoUrl={selected.photo_url}
               size={previewSize}
             />
-            <p className="font-display text-lg font-semibold text-text-primary">
+            <p className="font-display text-2xl font-bold text-text-primary">
               {selected.nombre}
             </p>
           </div>
