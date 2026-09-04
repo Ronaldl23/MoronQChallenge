@@ -69,7 +69,7 @@ export function canLaunchMango(ownActivePenaltyCount: number): boolean {
  * menos de MAX_ACTIVE_PENALTIES pendientes. Se guarda en
  * participants.mango_protection_until.
  */
-export const PROTECTION_HOURS = 5;
+export const PROTECTION_HOURS = 8;
 
 /**
  * "Anti-bullying": por cada puesto del ranking que el objetivo esté por
