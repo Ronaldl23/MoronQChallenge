@@ -6,16 +6,65 @@ import type { QuestType } from "@/types/database";
  * scripts/test-quests.mjs) sin depender de red ni base de datos.
  */
 
-export const QUEST_TARGETS: Record<QuestType, number> = {
-  win_streak: 5,
-  kda_streak: 5,
-  /** No es racha — target=1: se otorga en la partida misma que la cumple. */
-  deathless_win: 1,
-  /** Igual que deathless_win: target=1, se otorga en la partida misma. */
-  beat_participant: 1,
+/**
+ * Categoría de dificultad de misiones según la posición ACTUAL del
+ * participante en el ranking (1 = mejor) — regla confirmada por el
+ * usuario: cuanto mejor rankeado, más exigente. Se recalcula en cada
+ * corrida del cron (ver tierForRank y processParticipantQuests en
+ * /api/update-rankings/route.ts), no queda fijo desde que se creó la fila
+ * de quest_progress — si alguien sube o baja de categoría, sus próximas
+ * partidas se evalúan contra el target/umbral de la categoría nueva.
+ */
+export type MissionTier = "top1_10" | "top11_20" | "top21_30";
+
+export interface TierConfig {
+  /** Victorias ranked seguidas para completar win_streak. */
+  winStreakTarget: number;
+  /** KDA mínimo que tiene que tener una partida para contar para kda_streak (ver KDA_STREAK_GAMES, fijo en 3 para las tres categorías). */
+  kdaThreshold: number;
+}
+
+export const MISSION_TIERS: Record<MissionTier, TierConfig> = {
+  top1_10: { winStreakTarget: 5, kdaThreshold: 5 },
+  top11_20: { winStreakTarget: 4, kdaThreshold: 4 },
+  top21_30: { winStreakTarget: 3, kdaThreshold: 3 },
 };
 
-export const KDA_STREAK_THRESHOLD = 5;
+/**
+ * Partidas necesarias para completar kda_streak — fijo en las tres
+ * categorías (regla confirmada por el usuario: "KDA de X por 3 partidas"
+ * en las tres). Lo único que cambia por categoría es el umbral de KDA que
+ * tiene que cumplir cada una de esas 3 partidas (ver TierConfig.kdaThreshold).
+ */
+export const KDA_STREAK_GAMES = 3;
+
+/**
+ * rank = posición 1-based en el ranking público (1 = mejor), mismo cálculo
+ * que el leaderboard (ver computeRankOrder en src/lib/ranking.ts). null
+ * (todavía sin ninguna partida ranked jugada esta temporada — en
+ * placements) usa la categoría más floja: no hay forma de ubicarlo en el
+ * ranking todavía, y no tiene sentido exigirle de más antes de que
+ * arranque.
+ */
+export function tierForRank(rank: number | null): MissionTier {
+  if (rank === null) return "top21_30";
+  if (rank <= 10) return "top1_10";
+  if (rank <= 20) return "top11_20";
+  return "top21_30";
+}
+
+/** Targets efectivos de las 4 quests para una categoría dada — lo que se persiste en quest_progress.target y lo que usa tryGrant en processNewMatches. */
+export function questTargetsForTier(tier: MissionTier): Record<QuestType, number> {
+  return {
+    win_streak: MISSION_TIERS[tier].winStreakTarget,
+    kda_streak: KDA_STREAK_GAMES,
+    /** No es racha — target=1: se otorga en la partida misma que la cumple. */
+    deathless_win: 1,
+    /** Igual que deathless_win: target=1, se otorga en la partida misma. */
+    beat_participant: 1,
+  };
+}
+
 export const MAX_MANGO_INVENTORY = 3;
 
 /**
@@ -45,7 +94,12 @@ const QUEST_RESETS_ON_FAIL: Record<QuestType, boolean> = {
 };
 
 /** Todas las quests conocidas, en el orden en que se evalúan por partida (no afecta el resultado, solo el orden de los grants cuando varias se completan en la misma partida). */
-export const QUEST_TYPES = Object.keys(QUEST_TARGETS) as QuestType[];
+export const QUEST_TYPES: QuestType[] = [
+  "win_streak",
+  "kda_streak",
+  "deathless_win",
+  "beat_participant",
+];
 
 export interface MatchOutcome {
   matchId: string;
@@ -66,13 +120,16 @@ export interface MatchOutcome {
   beatTrackedParticipant: boolean;
 }
 
-/** Criterio "esta partida cuenta para la racha/objetivo" de cada quest. */
-const QUEST_CRITERIA: Record<QuestType, (match: MatchOutcome) => boolean> = {
-  win_streak: (match) => match.win,
-  kda_streak: (match) => match.kda >= KDA_STREAK_THRESHOLD,
-  deathless_win: (match) => match.win && match.deaths === 0,
-  beat_participant: (match) => match.win && match.beatTrackedParticipant,
-};
+/** Criterio "esta partida cuenta para la racha/objetivo" de cada quest, para una categoría dada — kda_streak es la única cuyo criterio varía según el umbral de la categoría (ver MISSION_TIERS). */
+function questCriteriaForTier(tier: MissionTier): Record<QuestType, (match: MatchOutcome) => boolean> {
+  const kdaThreshold = MISSION_TIERS[tier].kdaThreshold;
+  return {
+    win_streak: (match) => match.win,
+    kda_streak: (match) => match.kda >= kdaThreshold,
+    deathless_win: (match) => match.win && match.deaths === 0,
+    beat_participant: (match) => match.win && match.beatTrackedParticipant,
+  };
+}
 
 export type QuestProgressState = Record<QuestType, number>;
 
@@ -99,13 +156,14 @@ export interface ProcessMatchesResult {
  * insertar una fila en `mangos` por cada evento en `grants`.
  *
  * Reglas (confirmadas por el usuario):
- * - win_streak: partidas ranked solo/duo ganadas seguidas: target consecutivas
- *   sin cortes -> mango. Una derrota en el medio vuelve el contador a 0.
+ * - win_streak: partidas ranked solo/duo ganadas seguidas: winStreakTarget
+ *   de la categoría (ver tier/MISSION_TIERS) consecutivas sin cortes ->
+ *   mango. Una derrota en el medio vuelve el contador a 0.
  * - kda_streak: NO es una racha de verdad (a diferencia de las otras dos) —
- *   basta con acumular target partidas con KDA >= KDA_STREAK_THRESHOLD en
- *   cualquier orden; una partida con KDA bajo en el medio no corta nada, se
- *   ignora y el contador sigue esperando la próxima que sí cumpla (ver
- *   QUEST_RESETS_ON_FAIL).
+ *   basta con acumular KDA_STREAK_GAMES (fijo en 3) partidas con KDA >= el
+ *   umbral de la categoría en cualquier orden; una partida con KDA bajo en
+ *   el medio no corta nada, se ignora y el contador sigue esperando la
+ *   próxima que sí cumpla (ver QUEST_RESETS_ON_FAIL).
  * - deathless_win: UNA sola partida ganada con 0 muertes (target=1) — no es
  *   racha, se otorga en la partida misma que la cumple.
  * - beat_participant: UNA sola partida ganada con al menos un participante
@@ -130,6 +188,7 @@ export function processNewMatches({
   progress,
   matches,
   mangoCount: initialMangoCount,
+  tier,
   maxMangoInventory = MAX_MANGO_INVENTORY,
 }: {
   progress: QuestProgressState;
@@ -137,15 +196,19 @@ export function processNewMatches({
   matches: MatchOutcome[];
   /** Cuántos mangos 'in_inventory' tiene el participante al arrancar esta corrida. */
   mangoCount: number;
+  /** Categoría de dificultad ACTUAL del participante (ver tierForRank) — decide los targets/umbral de esta corrida, ver questTargetsForTier/questCriteriaForTier. */
+  tier: MissionTier;
   maxMangoInventory?: number;
 }): ProcessMatchesResult {
+  const targets = questTargetsForTier(tier);
+  const criteria = questCriteriaForTier(tier);
   const current: QuestProgressState = { ...progress };
   let mangoCount = initialMangoCount;
   const grants: MangoGrantEvent[] = [];
   let lastProcessedMatchId: string | null = null;
 
   function tryGrant(questType: QuestType, matchId: string | null) {
-    if (current[questType] < QUEST_TARGETS[questType]) return;
+    if (current[questType] < targets[questType]) return;
     // Se cumplió la misión: el progreso vuelve a 0 sí o sí. Con cupo libre
     // se otorga el mango; sin cupo, se pierde — no queda "pendiente" para
     // más adelante (ver el comentario de la función de arriba).
@@ -178,8 +241,8 @@ export function processNewMatches({
       // mango de por medio (ver más arriba) — este chequeo es solo para no
       // sumarle de más a una quest que, por datos viejos, todavía esté
       // pegada en el target de antes de este fix.
-      if (current[questType] < QUEST_TARGETS[questType]) {
-        if (QUEST_CRITERIA[questType](match)) {
+      if (current[questType] < targets[questType]) {
+        if (criteria[questType](match)) {
           current[questType] += 1;
         } else if (QUEST_RESETS_ON_FAIL[questType]) {
           current[questType] = 0;

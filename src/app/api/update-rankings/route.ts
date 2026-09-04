@@ -7,9 +7,11 @@ import {
   calculateKda,
   MIN_MATCH_DURATION_SECONDS,
   processNewMatches,
-  QUEST_TARGETS,
+  questTargetsForTier,
+  tierForRank,
   QUEST_TYPES,
   type MatchOutcome,
+  type MissionTier,
 } from "@/lib/quests";
 import { processPenaltyMatches, type PenaltyMatchOutcome, type PendingPenalty } from "@/lib/penalty";
 import { MAX_ACTIVE_PENALTIES, PROTECTION_HOURS, hoursFromNowIso } from "@/lib/mango-launch";
@@ -17,6 +19,7 @@ import { isProbableAegisProc } from "@/lib/aegis";
 import { computeLpStats, TREND_WINDOW_DAYS } from "@/lib/lp-stats";
 import { correlateLpChanges, correlateSingleMatchLp } from "@/lib/lp-correlation";
 import { platformToContinent } from "@/lib/riot";
+import { fetchRankOrder } from "@/lib/ranking";
 import type { Database, QuestProgress, QuestType, RankDivision, RankTier } from "@/types/database";
 
 export const dynamic = "force-dynamic";
@@ -144,6 +147,7 @@ async function getOrCreateQuestProgress(
   supabase: SupabaseClient<Database>,
   participantId: string,
   questType: QuestType,
+  tier: MissionTier,
 ): Promise<QuestProgress> {
   const { data: existing, error: selectError } = await supabase
     .from("quest_progress")
@@ -160,7 +164,7 @@ async function getOrCreateQuestProgress(
     .insert({
       participant_id: participantId,
       quest_type: questType,
-      target: QUEST_TARGETS[questType],
+      target: questTargetsForTier(tier)[questType],
     })
     .select()
     .single();
@@ -256,12 +260,15 @@ async function grantCompletedQuests({
   questRows,
   referenceRow,
   matches,
+  tier,
 }: {
   supabase: SupabaseClient<Database>;
   participant: { id: string };
   questRows: Map<QuestType, QuestProgress>;
   referenceRow: QuestProgress;
   matches: MatchOutcome[];
+  /** Categoría ACTUAL del participante — decide los targets/umbral de esta corrida (ver quests.ts) y se persiste en quest_progress.target en cada corrida, para que la UI de /jugador siempre muestre el target vigente aunque no haya partidas nuevas (p.ej. subió/bajó de categoría desde la corrida anterior). */
+  tier: MissionTier;
 }): Promise<void> {
   const mangoCount = await countMangoInventory(supabase, participant.id);
 
@@ -269,7 +276,8 @@ async function grantCompletedQuests({
     QUEST_TYPES.map((questType) => [questType, questRows.get(questType)!.current_progress]),
   ) as Record<QuestType, number>;
 
-  const result = processNewMatches({ progress, matches, mangoCount });
+  const result = processNewMatches({ progress, matches, mangoCount, tier });
+  const targets = questTargetsForTier(tier);
 
   // Sin partidas nuevas (matches=[]), result.lastProcessedMatchId queda
   // null (nunca se pisa dentro del loop, que no itera nada) — el cursor
@@ -283,6 +291,7 @@ async function grantCompletedQuests({
         .from("quest_progress")
         .update({
           current_progress: result.progress[questType],
+          target: targets[questType],
           last_processed_match_id: lastProcessedMatchId,
           updated_at: updatedAt,
         })
@@ -311,6 +320,7 @@ async function processParticipantQuests({
   participant,
   riotApiKey,
   trackedPuuids,
+  tier,
 }: {
   supabase: SupabaseClient<Database>;
   participant: {
@@ -322,6 +332,8 @@ async function processParticipantQuests({
   riotApiKey: string;
   /** puuids de TODOS los participantes registrados (incluido este mismo) — para la quest beat_participant, ver más abajo. */
   trackedPuuids: Set<string>;
+  /** Categoría de dificultad ACTUAL del participante (ver tierForRank en src/lib/quests.ts), calculada UNA vez por corrida en GET a partir del ranking en vivo — decide targets/umbral de las misiones. */
+  tier: MissionTier;
 }): Promise<AegisMatchSignal> {
   const continent = platformToContinent(participant.region_platform);
   if (!continent) return UNKNOWN_AEGIS_SIGNAL;
@@ -330,7 +342,7 @@ async function processParticipantQuests({
     await Promise.all(
       QUEST_TYPES.map(
         async (questType) =>
-          [questType, await getOrCreateQuestProgress(supabase, participant.id, questType)] as const,
+          [questType, await getOrCreateQuestProgress(supabase, participant.id, questType, tier)] as const,
       ),
     ),
   );
@@ -360,7 +372,7 @@ async function processParticipantQuests({
     // se disparaba antes de este fix — la misión quedaba pegada en el
     // target indefinidamente, con el inventario visiblemente vacío, hasta
     // la próxima partida (el bug reportado).
-    await grantCompletedQuests({ supabase, participant, questRows, referenceRow, matches: [] });
+    await grantCompletedQuests({ supabase, participant, questRows, referenceRow, matches: [], tier });
     return [];
   }
 
@@ -416,7 +428,7 @@ async function processParticipantQuests({
 
   if (outcomes.length === 0) return signal;
 
-  await grantCompletedQuests({ supabase, participant, questRows, referenceRow, matches: outcomes });
+  await grantCompletedQuests({ supabase, participant, questRows, referenceRow, matches: outcomes, tier });
 
   return signal;
 }
@@ -751,6 +763,12 @@ export async function GET(request: Request) {
       status: string;
     }> = [];
 
+    // Categorías de misiones (ver MissionTier en src/lib/quests.ts): se
+    // calcula UNA vez por corrida, no por participante — mismo ranking en
+    // vivo que ve el leaderboard público (computeRankOrder), para que "Top
+    // 1-10" acá signifique lo mismo que "Top 1-10" en la tabla.
+    const rankOrder = await fetchRankOrder(supabase);
+
     for (const participant of participants ?? []) {
       const platform = participant.region_platform.toLowerCase();
 
@@ -814,11 +832,13 @@ export async function GET(request: Request) {
       // espacian con sleep(RIOT_REQUEST_DELAY_MS) internamente.
       let aegisSignal: AegisMatchSignal = UNKNOWN_AEGIS_SIGNAL;
       try {
+        const tier = tierForRank(rankOrder.get(participant.id) ?? null);
         aegisSignal = await processParticipantQuests({
           supabase,
           participant,
           riotApiKey,
           trackedPuuids,
+          tier,
         });
       } catch (err) {
         console.error(

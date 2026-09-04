@@ -8,7 +8,7 @@ import {
   discardUnlocksAt,
   resolveAssignedPunishment,
 } from "@/lib/mango-launch";
-import { QUEST_TARGETS } from "@/lib/quests";
+import { questTargetsForTier } from "@/lib/quests";
 import { PENALTY_GAME_LIMIT } from "@/lib/penalty";
 import { isOnline } from "@/lib/presence";
 import { fetchRankOrder } from "@/lib/ranking";
@@ -139,21 +139,28 @@ export default async function JugadorPage() {
   const questByType = new Map(
     (questsResult.data ?? []).map((q) => [q.quest_type, q] as const),
   );
+  // Fallback SOLO para el caso raro de una fila de quest_progress que
+  // todavía no existe (el cron de /api/update-rankings, que crea las 4
+  // filas y les mantiene el target al día con la categoría actual —ver
+  // MissionTier en quests.ts—, todavía no corrió ni una vez para este
+  // participante) — la categoría más floja (top21_30) como default
+  // razonable mientras tanto.
+  const defaultTargets = questTargetsForTier("top21_30");
   const winStreak = {
     current: questByType.get("win_streak")?.current_progress ?? 0,
-    target: questByType.get("win_streak")?.target ?? QUEST_TARGETS.win_streak,
+    target: questByType.get("win_streak")?.target ?? defaultTargets.win_streak,
   };
   const kdaStreak = {
     current: questByType.get("kda_streak")?.current_progress ?? 0,
-    target: questByType.get("kda_streak")?.target ?? QUEST_TARGETS.kda_streak,
+    target: questByType.get("kda_streak")?.target ?? defaultTargets.kda_streak,
   };
   const deathlessWin = {
     current: questByType.get("deathless_win")?.current_progress ?? 0,
-    target: questByType.get("deathless_win")?.target ?? QUEST_TARGETS.deathless_win,
+    target: questByType.get("deathless_win")?.target ?? defaultTargets.deathless_win,
   };
   const beatParticipant = {
     current: questByType.get("beat_participant")?.current_progress ?? 0,
-    target: questByType.get("beat_participant")?.target ?? QUEST_TARGETS.beat_participant,
+    target: questByType.get("beat_participant")?.target ?? defaultTargets.beat_participant,
   };
 
   const others = othersResult.data ?? [];
