@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { MISSION_TIERS, type MissionTier } from "@/lib/quests";
 import { LaunchModal, type LaunchTarget } from "./LaunchModal";
 import { DiscardModal } from "./DiscardModal";
 
@@ -38,24 +39,30 @@ const MAX_SLOTS = 3;
 
 export function InventoryPanel({
   mangos,
+  tier,
   winStreak,
   kdaStreak,
   deathlessWin,
+  highKills,
   beatParticipant,
   otherParticipants,
   launchBlocked,
   mangoStats,
 }: {
   mangos: InventoryMango[];
+  /** Categoría de misiones ACTUAL (ver MissionTier en src/lib/quests.ts) — solo para armar las etiquetas de cada misión (umbral de KDA/kills/muertes), los números current/target ya vienen resueltos del server. */
+  tier: MissionTier;
   winStreak: QuestProgressView;
   kdaStreak: QuestProgressView;
   deathlessWin: QuestProgressView;
+  highKills: QuestProgressView;
   beatParticipant: QuestProgressView;
   otherParticipants: LaunchTarget[];
   /** true si ya tiene MÁS de MAX_ACTIVE_PENALTIES castigos activos propios (ver canLaunchMango en src/lib/mango-launch.ts) — puede pasar con un rebote propio estando ya en el tope, la única excepción aceptada. El chequeo real (que esto solo refleja) vive en /api/jugador/mangos/launch. */
   launchBlocked: boolean;
   mangoStats: MangoStatsView;
 }) {
+  const tierConfig = MISSION_TIERS[tier];
   const router = useRouter();
   const [selectedMangoId, setSelectedMangoId] = useState<string | null>(null);
   const [discardMangoId, setDiscardMangoId] = useState<string | null>(null);
@@ -133,16 +140,29 @@ export function InventoryPanel({
       <section className="rounded-2xl border border-border-hairline bg-surface p-6">
         <h2 className="font-display text-lg font-semibold text-gold">Misiones</h2>
         <div className="mt-4 flex flex-col gap-4">
-          <QuestBar label="Racha de victorias" current={winStreak.current} target={winStreak.target} />
           <QuestBar
-            label="5 partidas con KDA 5+"
+            label={`${tierConfig.winStreakTarget} Wins seguidas`}
+            current={winStreak.current}
+            target={winStreak.target}
+          />
+          <QuestBar
+            label={`${tierConfig.kdaGames} Partidas con KDA ${tierConfig.kdaThreshold}+`}
             current={kdaStreak.current}
             target={kdaStreak.target}
           />
           <QuestBar
-            label="Victoria sin morir"
+            label={
+              tierConfig.lowDeathsGames === 1
+                ? `${tierConfig.lowDeathsRequireWin ? "Victoria" : "Partida"} sin morir`
+                : `${tierConfig.lowDeathsGames} Partidas con menos de ${tierConfig.lowDeathsMaxDeaths} muertes`
+            }
             current={deathlessWin.current}
             target={deathlessWin.target}
+          />
+          <QuestBar
+            label={`${tierConfig.killsRequireWin ? "Victoria" : "Partida"} con ${tierConfig.killsThreshold}+ kills`}
+            current={highKills.current}
+            target={highKills.target}
           />
           <QuestBar
             label="Ganar contra otro participante del torneo"

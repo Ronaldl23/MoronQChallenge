@@ -15,28 +15,68 @@ import type { QuestType } from "@/types/database";
  * de quest_progress — si alguien sube o baja de categoría, sus próximas
  * partidas se evalúan contra el target/umbral de la categoría nueva.
  */
-export type MissionTier = "top1_10" | "top11_20" | "top21_30";
+export type MissionTier = "top1_3" | "top4_10" | "top11_20" | "top21_plus";
 
 export interface TierConfig {
   /** Victorias ranked seguidas para completar win_streak. */
   winStreakTarget: number;
-  /** KDA mínimo que tiene que tener una partida para contar para kda_streak (ver KDA_STREAK_GAMES, fijo en 3 para las tres categorías). */
+  /** Partidas (no necesariamente seguidas) que hace falta acumular con KDA >= kdaThreshold para completar kda_streak. */
+  kdaGames: number;
   kdaThreshold: number;
+  /** Kills mínimos en una sola partida para completar high_kills. */
+  killsThreshold: number;
+  /** Si high_kills exige además ganar esa partida (top1_3/top4_10 sí para el "Win con kills", el resto no). */
+  killsRequireWin: boolean;
+  /** Partidas (no necesariamente seguidas) con menos de lowDeathsMaxDeaths muertes para completar deathless_win — 1 partida con lowDeathsMaxDeaths=1 (o sea, 0 muertes exactas) en top1_3/top4_10/top11_20; 3 partidas con menos de 3 muertes en top21_plus. */
+  lowDeathsGames: number;
+  /** Tope EXCLUSIVO de muertes — deaths < lowDeathsMaxDeaths. 1 = exactamente 0 muertes. */
+  lowDeathsMaxDeaths: number;
+  /** Si deathless_win exige además ganar esa partida (solo top1_3). */
+  lowDeathsRequireWin: boolean;
 }
 
 export const MISSION_TIERS: Record<MissionTier, TierConfig> = {
-  top1_10: { winStreakTarget: 5, kdaThreshold: 5 },
-  top11_20: { winStreakTarget: 4, kdaThreshold: 4 },
-  top21_30: { winStreakTarget: 3, kdaThreshold: 3 },
+  top1_3: {
+    winStreakTarget: 5,
+    kdaGames: 5,
+    kdaThreshold: 6,
+    killsThreshold: 20,
+    killsRequireWin: true,
+    lowDeathsGames: 1,
+    lowDeathsMaxDeaths: 1,
+    lowDeathsRequireWin: true,
+  },
+  top4_10: {
+    winStreakTarget: 5,
+    kdaGames: 5,
+    kdaThreshold: 5,
+    killsThreshold: 20,
+    killsRequireWin: false,
+    lowDeathsGames: 1,
+    lowDeathsMaxDeaths: 1,
+    lowDeathsRequireWin: false,
+  },
+  top11_20: {
+    winStreakTarget: 4,
+    kdaGames: 4,
+    kdaThreshold: 4,
+    killsThreshold: 15,
+    killsRequireWin: false,
+    lowDeathsGames: 1,
+    lowDeathsMaxDeaths: 1,
+    lowDeathsRequireWin: false,
+  },
+  top21_plus: {
+    winStreakTarget: 3,
+    kdaGames: 3,
+    kdaThreshold: 3,
+    killsThreshold: 10,
+    killsRequireWin: false,
+    lowDeathsGames: 3,
+    lowDeathsMaxDeaths: 3,
+    lowDeathsRequireWin: false,
+  },
 };
-
-/**
- * Partidas necesarias para completar kda_streak — fijo en las tres
- * categorías (regla confirmada por el usuario: "KDA de X por 3 partidas"
- * en las tres). Lo único que cambia por categoría es el umbral de KDA que
- * tiene que cumplir cada una de esas 3 partidas (ver TierConfig.kdaThreshold).
- */
-export const KDA_STREAK_GAMES = 3;
 
 /**
  * rank = posición 1-based en el ranking público (1 = mejor), mismo cálculo
@@ -47,20 +87,23 @@ export const KDA_STREAK_GAMES = 3;
  * arranque.
  */
 export function tierForRank(rank: number | null): MissionTier {
-  if (rank === null) return "top21_30";
-  if (rank <= 10) return "top1_10";
+  if (rank === null) return "top21_plus";
+  if (rank <= 3) return "top1_3";
+  if (rank <= 10) return "top4_10";
   if (rank <= 20) return "top11_20";
-  return "top21_30";
+  return "top21_plus";
 }
 
-/** Targets efectivos de las 4 quests para una categoría dada — lo que se persiste en quest_progress.target y lo que usa tryGrant en processNewMatches. */
+/** Targets efectivos de las 5 quests para una categoría dada — lo que se persiste en quest_progress.target y lo que usa tryGrant en processNewMatches. */
 export function questTargetsForTier(tier: MissionTier): Record<QuestType, number> {
+  const cfg = MISSION_TIERS[tier];
   return {
-    win_streak: MISSION_TIERS[tier].winStreakTarget,
-    kda_streak: KDA_STREAK_GAMES,
+    win_streak: cfg.winStreakTarget,
+    kda_streak: cfg.kdaGames,
+    deathless_win: cfg.lowDeathsGames,
     /** No es racha — target=1: se otorga en la partida misma que la cumple. */
-    deathless_win: 1,
-    /** Igual que deathless_win: target=1, se otorga en la partida misma. */
+    high_kills: 1,
+    /** Igual que high_kills: target=1, se otorga en la partida misma. Sin cambios por categoría (regla confirmada por el usuario). */
     beat_participant: 1,
   };
 }
@@ -83,14 +126,22 @@ export const MIN_MATCH_DURATION_SECONDS = 240;
  * Si una quest resetea a 0 al toparse con una partida que NO cumple su
  * criterio (una racha de verdad, corte incluido) o si simplemente ignora
  * esa partida y sigue esperando la próxima que sí cumpla, sin importar el
- * orden ni lo que pasó en el medio. kda_streak es la única así — el resto
- * son rachas consecutivas de verdad.
+ * orden ni lo que pasó en el medio. win_streak es la única racha de verdad
+ * — el resto (kda_streak, deathless_win, high_kills, beat_participant) son
+ * acumulación: no hace falta que las partidas que cumplen sean
+ * consecutivas (regla confirmada por el usuario), así que una que no
+ * cumple simplemente se ignora en vez de cortar nada. Para las quests con
+ * target=1 (high_kills, beat_participant) este valor no cambia nada en la
+ * práctica: current siempre está en 0 o recién se otorgó, nunca hay nada
+ * "a mitad de camino" que cortar — queda en false por consistencia con el
+ * resto de las quests que no son win_streak.
  */
 const QUEST_RESETS_ON_FAIL: Record<QuestType, boolean> = {
   win_streak: true,
   kda_streak: false,
-  deathless_win: true,
-  beat_participant: true,
+  deathless_win: false,
+  high_kills: false,
+  beat_participant: false,
 };
 
 /** Todas las quests conocidas, en el orden en que se evalúan por partida (no afecta el resultado, solo el orden de los grants cuando varias se completan en la misma partida). */
@@ -98,6 +149,7 @@ export const QUEST_TYPES: QuestType[] = [
   "win_streak",
   "kda_streak",
   "deathless_win",
+  "high_kills",
   "beat_participant",
 ];
 
@@ -106,7 +158,9 @@ export interface MatchOutcome {
   win: boolean;
   /** (kills + assists) / max(deaths, 1) — ya calculado por el caller. */
   kda: number;
-  /** Muertes crudas — deathless_win necesita el 0 exacto, no alcanza con "KDA alto" (calculateKda ya clampea deaths a 1 como mínimo, perdiendo la distinción 0 vs 1). */
+  /** Kills crudos — high_kills necesita el número real de asesinatos, no lo captura el KDA (un KDA alto puede venir de assists, no de kills). */
+  kills: number;
+  /** Muertes crudas — deathless_win necesita la cifra real (0, o menos de lowDeathsMaxDeaths), no alcanza con "KDA alto" (calculateKda ya clampea deaths a 1 como mínimo, perdiendo la distinción 0 vs 1). */
   deaths: number;
   /** gameDuration crudo de match-v5, en segundos. Menos de MIN_MATCH_DURATION_SECONDS = remake, se ignora por completo (ver processNewMatches). */
   gameDurationSeconds: number;
@@ -120,13 +174,15 @@ export interface MatchOutcome {
   beatTrackedParticipant: boolean;
 }
 
-/** Criterio "esta partida cuenta para la racha/objetivo" de cada quest, para una categoría dada — kda_streak es la única cuyo criterio varía según el umbral de la categoría (ver MISSION_TIERS). */
+/** Criterio "esta partida cuenta para la racha/objetivo" de cada quest, para una categoría dada — kda_streak, deathless_win y high_kills varían según la categoría (ver MISSION_TIERS). */
 function questCriteriaForTier(tier: MissionTier): Record<QuestType, (match: MatchOutcome) => boolean> {
-  const kdaThreshold = MISSION_TIERS[tier].kdaThreshold;
+  const cfg = MISSION_TIERS[tier];
   return {
     win_streak: (match) => match.win,
-    kda_streak: (match) => match.kda >= kdaThreshold,
-    deathless_win: (match) => match.win && match.deaths === 0,
+    kda_streak: (match) => match.kda >= cfg.kdaThreshold,
+    deathless_win: (match) =>
+      (!cfg.lowDeathsRequireWin || match.win) && match.deaths < cfg.lowDeathsMaxDeaths,
+    high_kills: (match) => (!cfg.killsRequireWin || match.win) && match.kills >= cfg.killsThreshold,
     beat_participant: (match) => match.win && match.beatTrackedParticipant,
   };
 }
@@ -155,26 +211,31 @@ export interface ProcessMatchesResult {
  * persistir `progress`/`lastProcessedMatchId` en quest_progress y de
  * insertar una fila en `mangos` por cada evento en `grants`.
  *
- * Reglas (confirmadas por el usuario):
+ * Reglas (confirmadas por el usuario — ver MISSION_TIERS para los números
+ * exactos de cada categoría):
  * - win_streak: partidas ranked solo/duo ganadas seguidas: winStreakTarget
- *   de la categoría (ver tier/MISSION_TIERS) consecutivas sin cortes ->
- *   mango. Una derrota en el medio vuelve el contador a 0.
- * - kda_streak: NO es una racha de verdad (a diferencia de las otras dos) —
- *   basta con acumular KDA_STREAK_GAMES (fijo en 3) partidas con KDA >= el
- *   umbral de la categoría en cualquier orden; una partida con KDA bajo en
- *   el medio no corta nada, se ignora y el contador sigue esperando la
- *   próxima que sí cumpla (ver QUEST_RESETS_ON_FAIL).
- * - deathless_win: UNA sola partida ganada con 0 muertes (target=1) — no es
- *   racha, se otorga en la partida misma que la cumple.
+ *   de la categoría consecutivas sin cortes -> mango. Una derrota en el
+ *   medio vuelve el contador a 0. Es la ÚNICA racha de verdad.
+ * - kda_streak: acumular kdaGames partidas (no necesariamente seguidas) con
+ *   KDA >= kdaThreshold de la categoría; una partida por debajo no corta
+ *   nada, se ignora y el contador sigue esperando la próxima que sí cumpla.
+ * - deathless_win: acumular lowDeathsGames partidas (no necesariamente
+ *   seguidas) con menos de lowDeathsMaxDeaths muertes — 1 partida con 0
+ *   muertes exactas en top1_3/top4_10/top11_20 (target=1, se otorga en la
+ *   partida misma), 3 partidas con menos de 3 muertes en top21_plus. Exige
+ *   ganar esa partida SOLO en top1_3 (lowDeathsRequireWin).
+ * - high_kills: UNA sola partida (target=1) con >= killsThreshold kills de
+ *   la categoría. Exige ganar esa partida en top1_3/top4_10
+ *   (killsRequireWin), el resto no.
  * - beat_participant: UNA sola partida ganada con al menos un participante
- *   REGISTRADO del torneo del lado rival (target=1, igual que
- *   deathless_win) — se otorga cada vez que se cumple, no una sola vez en
- *   toda la temporada.
+ *   REGISTRADO del torneo del lado rival (target=1) — se otorga cada vez
+ *   que se cumple, no una sola vez en toda la temporada. Sin cambios por
+ *   categoría.
  * - Remakes (gameDurationSeconds < MIN_MATCH_DURATION_SECONDS) se ignoran
- *   por completo para las TRES quests — ni suman progreso ni cortan una
- *   racha existente (para win_streak/deathless_win, que sí resetean con una
- *   partida que no cumple: un remake NO es "una partida que no cumple", es
- *   como si no se hubiera jugado).
+ *   por completo para las CINCO quests — ni suman progreso ni cortan una
+ *   racha existente (win_streak es la única que resetea con una partida
+ *   que no cumple: un remake NO es "una partida que no cumple", es como si
+ *   no se hubiera jugado).
  * - Al completar una quest (progress === target), el progreso de ESA quest
  *   vuelve a 0 SIEMPRE, haya o no cupo. Cupo máximo de MAX_MANGO_INVENTORY
  *   mangos 'in_inventory' simultáneos: si hay lugar, se otorga el Mango; si

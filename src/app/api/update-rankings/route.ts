@@ -409,6 +409,7 @@ async function processParticipantQuests({
       matchId,
       win: mp.win,
       kda: calculateKda({ kills: mp.kills, deaths: mp.deaths, assists: mp.assists }),
+      kills: mp.kills,
       deaths: mp.deaths,
       gameDurationSeconds: match.info.gameDuration,
       beatTrackedParticipant,

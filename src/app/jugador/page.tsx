@@ -8,7 +8,7 @@ import {
   discardUnlocksAt,
   resolveAssignedPunishment,
 } from "@/lib/mango-launch";
-import { questTargetsForTier } from "@/lib/quests";
+import { questTargetsForTier, tierForRank } from "@/lib/quests";
 import { PENALTY_GAME_LIMIT } from "@/lib/penalty";
 import { isOnline } from "@/lib/presence";
 import { fetchRankOrder } from "@/lib/ranking";
@@ -140,12 +140,12 @@ export default async function JugadorPage() {
     (questsResult.data ?? []).map((q) => [q.quest_type, q] as const),
   );
   // Fallback SOLO para el caso raro de una fila de quest_progress que
-  // todavía no existe (el cron de /api/update-rankings, que crea las 4
+  // todavía no existe (el cron de /api/update-rankings, que crea las 5
   // filas y les mantiene el target al día con la categoría actual —ver
   // MissionTier en quests.ts—, todavía no corrió ni una vez para este
-  // participante) — la categoría más floja (top21_30) como default
+  // participante) — la categoría más floja (top21_plus) como default
   // razonable mientras tanto.
-  const defaultTargets = questTargetsForTier("top21_30");
+  const defaultTargets = questTargetsForTier("top21_plus");
   const winStreak = {
     current: questByType.get("win_streak")?.current_progress ?? 0,
     target: questByType.get("win_streak")?.target ?? defaultTargets.win_streak,
@@ -157,6 +157,10 @@ export default async function JugadorPage() {
   const deathlessWin = {
     current: questByType.get("deathless_win")?.current_progress ?? 0,
     target: questByType.get("deathless_win")?.target ?? defaultTargets.deathless_win,
+  };
+  const highKills = {
+    current: questByType.get("high_kills")?.current_progress ?? 0,
+    target: questByType.get("high_kills")?.target ?? defaultTargets.high_kills,
   };
   const beatParticipant = {
     current: questByType.get("beat_participant")?.current_progress ?? 0,
@@ -182,6 +186,13 @@ export default async function JugadorPage() {
   // /api/jugador/mangos/launch para el bono anti-bullying, y ya pagina bien
   // más allá del límite de 1000 filas de Supabase, ver el comentario ahí).
   const rankOrder = await fetchRankOrder(supabase);
+  // Categoría de misiones ACTUAL de este jugador (ver MissionTier en
+  // quests.ts) — se le pasa al InventoryPanel solo para armar las
+  // etiquetas de cada misión (umbral de KDA, kills, muertes de su
+  // categoría); los números current/target en sí ya vienen resueltos
+  // arriba desde quest_progress, que el cron mantiene al día con esta
+  // misma categoría en cada corrida.
+  const tier = tierForRank(rankOrder.get(participantId) ?? null);
 
   const activePenaltyCountByParticipant = new Map<string, number>();
   for (const row of activePenalties ?? []) {
@@ -396,9 +407,11 @@ export default async function JugadorPage() {
       ) : (
         <InventoryPanel
           mangos={mangos}
+          tier={tier}
           winStreak={winStreak}
           kdaStreak={kdaStreak}
           deathlessWin={deathlessWin}
+          highKills={highKills}
           beatParticipant={beatParticipant}
           otherParticipants={otherParticipants}
           launchBlocked={launchBlocked}
