@@ -165,6 +165,21 @@ export async function POST(request: Request) {
     );
   }
 
+  // Objetivo todavía en placements (sin ninguna partida ranked jugada esta
+  // temporada, ver fetchRankOrder) — no se le puede lanzar un mango
+  // todavía: no hay forma de ubicarlo en el ranking ni de aplicarle el bono
+  // anti-bullying más abajo. Chequeo server-side real, no alcanza con
+  // deshabilitarlo en el modal (ver LaunchModal.tsx) — mismo criterio que
+  // el resto de las validaciones de esta ruta. Se reusa el mismo
+  // rankOrder para el bono anti-bullying más abajo, sin pedirlo dos veces.
+  const rankOrder = await fetchRankOrder(supabase);
+  if (!rankOrder.has(target_participant_id)) {
+    return NextResponse.json(
+      { error: `${target.nombre_display} todavía está en placements — no puede recibir mangos todavía` },
+      { status: 409 },
+    );
+  }
+
   let champions;
   let spells;
   try {
@@ -184,9 +199,9 @@ export async function POST(request: Request) {
 
   // Anti-bullying: +BULLYING_BOUNCE_PERCENT_PER_RANK de rebote por cada
   // puesto del ranking que el objetivo esté por debajo de quien lanza (ver
-  // computeBullyingBonusPercent) — 0 si a cualquiera de los dos todavía no
-  // se le puede calcular el rank (sin partidas ranked, ver fetchRankOrder).
-  const rankOrder = await fetchRankOrder(supabase);
+  // computeBullyingBonusPercent) — 0 si quien LANZA todavía no tiene rank
+  // (el objetivo ya se validó que sí lo tiene, más arriba). rankOrder ya se
+  // pidió arriba para ese chequeo, se reusa acá sin pedirlo de nuevo.
   const bullyingBonusPercent = computeBullyingBonusPercent(
     rankOrder.get(participantId) ?? null,
     rankOrder.get(target_participant_id) ?? null,

@@ -11,6 +11,7 @@ import {
 import { QUEST_TARGETS } from "@/lib/quests";
 import { PENALTY_GAME_LIMIT } from "@/lib/penalty";
 import { isOnline } from "@/lib/presence";
+import { fetchRankOrder } from "@/lib/ranking";
 import { Header } from "@/components/Header";
 import { PunishmentIcon } from "@/components/PunishmentIcon";
 import { FixedLogo } from "@/components/FixedLogo";
@@ -165,6 +166,16 @@ export default async function JugadorPage() {
     .select("participant_id")
     .eq("status", "pending");
 
+  // Quién ya tiene rango asignado — un participante todavía en placements
+  // (sin ninguna partida ranked jugada esta temporada) no puede recibir
+  // mangos todavía, regla confirmada por el usuario tras el reinicio del
+  // torneo: sin rango no hay forma de ubicarlo en el ranking ni de
+  // aplicarle el bono anti-bullying (ver computeBullyingBonusPercent en
+  // mango-launch.ts). Reusa fetchRankOrder (mismo criterio que ya usa
+  // /api/jugador/mangos/launch para el bono anti-bullying, y ya pagina bien
+  // más allá del límite de 1000 filas de Supabase, ver el comentario ahí).
+  const rankOrder = await fetchRankOrder(supabase);
+
   const activePenaltyCountByParticipant = new Map<string, number>();
   for (const row of activePenalties ?? []) {
     activePenaltyCountByParticipant.set(
@@ -233,6 +244,7 @@ export default async function JugadorPage() {
   const otherParticipants: LaunchTarget[] = others.map((p) => ({
     id: p.id,
     nombre_display: p.nombre_display,
+    hasRank: rankOrder.has(p.id),
     activePenaltyCount: activePenaltyCountByParticipant.get(p.id) ?? 0,
     maxActivePenalties: MAX_ACTIVE_PENALTIES,
     protectedUntil: p.mango_protection_until,

@@ -11,6 +11,8 @@ type Step =
 export interface LaunchTarget {
   id: string;
   nombre_display: string;
+  /** false mientras esté en placements (sin ninguna partida ranked jugada esta temporada, ver fetchRankOrder en src/lib/ranking.ts) — no se le puede lanzar un mango todavía. */
+  hasRank: boolean;
   /** Castigos activos ahora mismo (penalty_progress en 'pending') — ver MAX_ACTIVE_PENALTIES en src/lib/mango-launch.ts. */
   activePenaltyCount: number;
   maxActivePenalties: number;
@@ -94,7 +96,8 @@ export function LaunchModal({
               {otherParticipants.map((p) => {
                 const protectedNow = isProtected(p);
                 const atLimit = p.activePenaltyCount >= p.maxActivePenalties;
-                const disabled = protectedNow || atLimit;
+                const inPlacements = !p.hasRank;
+                const disabled = protectedNow || atLimit || inPlacements;
                 return (
                   <button
                     key={p.id}
@@ -123,6 +126,8 @@ export function LaunchModal({
                       </span>
                     ) : atLimit ? (
                       <span className="text-xs text-loss">máximo de castigos disponibles</span>
+                    ) : inPlacements ? (
+                      <span className="text-xs text-loss">todavía en placements</span>
                     ) : (
                       <span className="text-xs text-text-secondary">
                         {p.activePenaltyCount}/{p.maxActivePenalties} castigos
