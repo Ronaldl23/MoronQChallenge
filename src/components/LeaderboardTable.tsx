@@ -149,8 +149,7 @@ export function LeaderboardTable({
             <th className="px-4 py-2 text-center font-medium sm:w-16">Mangos</th>
             <th className="px-4 py-2 text-center font-medium sm:w-16">Castigos</th>
             <th className="px-4 py-2 text-center font-medium sm:w-16">Aegis</th>
-            {/* pr-16 en vez de px-4: nudge a la izquierda respecto al contenido de abajo (▲/▼ + botón OP.GG), que visualmente "pesa" más hacia la derecha que el label solo. */}
-            <th className="py-2 pr-16 pl-4 text-right font-medium">
+            <th className="px-4 py-2 text-right font-medium">
               <button
                 type="button"
                 onClick={handleLpHeaderClick}
@@ -165,6 +164,8 @@ export function LeaderboardTable({
                 />
               </button>
             </th>
+            {/* Antes el botón de OP.GG vivía sin encabezado propio, colgado del mismo <th> que ±LP (con un pr-16 de más para separarlo visualmente) — pasa a su propia columna, con el mismo estilo de label que el resto de los encabezados. */}
+            <th className="px-4 py-2 text-right font-medium">Stats</th>
           </tr>
         </thead>
         <tbody>
@@ -316,26 +317,26 @@ export function LeaderboardTable({
                     <AegisIndicator count={entry.participant.aegis_count} />
                   </td>
                   <td className="align-top px-4 py-2 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      {/* ▲▼LP se oculta en mobile: es un detalle secundario del V/D que ya se ve al lado; el botón de OP.GG (estado en vivo) se mantiene siempre visible. */}
-                      <div
-                        className="hidden flex-col items-end gap-0.5 font-display text-xs font-semibold sm:flex"
-                        title="Promedio de LP por partida en los últimos 7 días: ganado por victoria (▲) y perdido por derrota (▼)"
-                      >
-                        <span className="text-win">▲ {entry.avgLpGained}</span>
-                        <span className="text-loss">▼ {entry.avgLpLost}</span>
-                      </div>
-                      <OpggButton
-                        opggUrl={entry.participant.opgg_url}
-                        inGame={entry.participant.in_game}
-                      />
+                    {/* ▲▼LP se oculta en mobile: es un detalle secundario del V/D que ya se ve al lado. */}
+                    <div
+                      className="hidden flex-col items-end gap-0.5 font-display text-xs font-semibold sm:flex"
+                      title="Promedio de LP por partida en los últimos 7 días: ganado por victoria (▲) y perdido por derrota (▼)"
+                    >
+                      <span className="text-win">▲ {entry.avgLpGained}</span>
+                      <span className="text-loss">▼ {entry.avgLpLost}</span>
                     </div>
+                  </td>
+                  <td className="align-top px-4 py-2 text-right">
+                    <OpggButton
+                      opggUrl={entry.participant.opgg_url}
+                      inGame={entry.participant.in_game}
+                    />
                   </td>
                 </motion.tr>
                 <AnimatePresence>
                   {isExpanded && (
                     <tr>
-                      <td colSpan={9} className="p-0">
+                      <td colSpan={10} className="p-0">
                         <motion.div
                           initial={{ height: 0, opacity: 0 }}
                           animate={{ height: "auto", opacity: 1 }}
@@ -429,14 +430,14 @@ export function LeaderboardTable({
               <td className="align-top px-4 py-2 text-center">
                 <AegisIndicator count={entry.participant.aegis_count} />
               </td>
-              <td className="align-top py-2 pr-16 pl-4 text-right">
-                <div className="flex items-center justify-end gap-2">
-                  <span className="hidden text-text-muted sm:inline">—</span>
-                  <OpggButton
-                    opggUrl={entry.participant.opgg_url}
-                    inGame={entry.participant.in_game}
-                  />
-                </div>
+              <td className="align-top px-4 py-2 text-right">
+                <span className="hidden text-text-muted sm:inline">—</span>
+              </td>
+              <td className="align-top px-4 py-2 text-right">
+                <OpggButton
+                  opggUrl={entry.participant.opgg_url}
+                  inGame={entry.participant.in_game}
+                />
               </td>
             </tr>
           ))}
