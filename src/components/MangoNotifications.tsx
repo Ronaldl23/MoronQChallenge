@@ -335,9 +335,11 @@ function MangoToast({
       <PunishmentIcon
         iconUrl={
           notification.championIconUrl ??
-          (notification.kind === "received" && notification.isMoldyTrash
-            ? "/MangoPodridoFurioso.png"
-            : "/MangoAngry.png")
+          (notification.kind === "received" && notification.isNoncompliancePenalty
+            ? "/Peligro.png"
+            : notification.kind === "received" && notification.isMoldyTrash
+              ? "/MangoPodridoFurioso.png"
+              : "/MangoAngry.png")
         }
         noFlash={notification.noFlash}
         size={48}
@@ -352,7 +354,22 @@ function MangoToast({
             </p>
           </>
         )}
-        {notification.kind === "received" && notification.isMoldyTrash && (
+        {notification.kind === "received" && notification.isNoncompliancePenalty && (
+          <>
+            <p className="font-display text-sm font-bold text-loss">¡No cumpliste tu castigo a tiempo!</p>
+            <p className="truncate text-sm text-text-primary">
+              Recibiste un castigo nuevo, girando la ruleta
+              {notification.championName ? (
+                <>
+                  : <strong>{notification.championName}</strong>
+                </>
+              ) : (
+                "..."
+              )}
+            </p>
+          </>
+        )}
+        {notification.kind === "received" && !notification.isNoncompliancePenalty && notification.isMoldyTrash && (
           <>
             <p className="font-display text-sm font-bold text-loss">¡Tu mango se infectó de hongos!</p>
             <p className="truncate text-sm text-text-primary">
@@ -386,7 +403,10 @@ function MangoToast({
             </p>
           </>
         )}
-        {notification.kind === "received" && !notification.isMoldyTrash && !notification.isBounceBack && (
+        {notification.kind === "received" &&
+          !notification.isNoncompliancePenalty &&
+          !notification.isMoldyTrash &&
+          !notification.isBounceBack && (
           <>
             <p className="font-display text-sm font-bold text-loss">¡Te llegó un Mango!</p>
             <p className="truncate text-sm text-text-primary">

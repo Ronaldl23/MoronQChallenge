@@ -7,6 +7,7 @@ import { getDataDragonVersion } from "@/lib/ddragon";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { MangoNotifications } from "@/components/MangoNotifications";
 import { ChatWidget } from "@/components/ChatWidget";
+import { GlobalPenaltyAlert } from "@/components/GlobalPenaltyAlert";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -100,6 +101,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="site-bg flex min-h-full flex-col text-text-primary">
         {participantId && <MangoNotifications champions={champions} spells={spells} />}
+        {participantId && <GlobalPenaltyAlert />}
         {chatMe && ddragonVersion && (
           <ChatWidget me={chatMe} ddragonVersion={ddragonVersion} />
         )}

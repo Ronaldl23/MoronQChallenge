@@ -37,10 +37,18 @@ function SystemChatMessageRow({ msg }: { msg: ChatMessage }) {
   return (
     <div className="flex items-center justify-center gap-2 py-1">
       <span className="flex h-6 w-6 shrink-0 items-center justify-center">
-        {msg.type === "mango_event" || msg.type === "mango_moldy_event" ? (
+        {msg.type === "mango_event" ||
+        msg.type === "mango_moldy_event" ||
+        msg.type === "mango_noncompliance_event" ? (
           // eslint-disable-next-line @next/next/no-img-element -- ícono de evento fijo, no una foto de perfil dinámica
           <img
-            src={msg.type === "mango_moldy_event" ? "/MangoPodridoFurioso.png" : "/MangoAngry.png"}
+            src={
+              msg.type === "mango_moldy_event"
+                ? "/MangoPodridoFurioso.png"
+                : msg.type === "mango_noncompliance_event"
+                  ? "/Peligro.png"
+                  : "/MangoAngry.png"
+            }
             alt=""
             className="h-6 w-6 object-contain"
           />

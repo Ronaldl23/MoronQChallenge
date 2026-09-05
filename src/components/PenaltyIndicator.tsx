@@ -15,9 +15,11 @@ export function PenaltyIndicator({ penalties }: { penalties: PendingPenaltySumma
 
   const title = penalties
     .map((p) =>
-      p.isMoldyTrash
-        ? `Mango con hongos: ${p.championName}`
-        : `${p.senderName} le envió: ${p.championName}`,
+      p.isNoncompliancePenalty
+        ? `Castigo por incumplimiento: ${p.championName}`
+        : p.isMoldyTrash
+          ? `Mango con hongos: ${p.championName}`
+          : `${p.senderName} le envió: ${p.championName}`,
     )
     .join("\n");
 

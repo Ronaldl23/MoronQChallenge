@@ -19,7 +19,7 @@ async function insertSystemChatMessage(
   input: {
     participantId: string;
     message: string;
-    type: "mango_event" | "rank_event" | "mango_moldy_event";
+    type: "mango_event" | "rank_event" | "mango_moldy_event" | "mango_noncompliance_event";
     rankDirection?: RankEventDirection;
   },
 ) {
@@ -99,6 +99,33 @@ export function postMoldyMangoChatMessage(
     participantId,
     type: "mango_moldy_event",
     message: `El mango de ${participantName} ha agarrado hongo y se ha infectado, le tocó: ${prizeLabel}`,
+  });
+}
+
+/**
+ * Se publica al revelar el castigo autoinfligido que se otorga por NO
+ * cumplir un castigo pendiente a tiempo (ver nonComplianceGrants en
+ * src/lib/penalty.ts) — autoinfligido, sin remitente real, así que usa su
+ * propio texto en vez de postMangoEventChatMessage, mismo criterio que
+ * postMoldyMangoChatMessage. El ícono de este tipo de mensaje (Peligro en
+ * vez del mango genérico) lo resuelve ChatWidget.
+ */
+export function postNonComplianceChatMessage(
+  supabase: SupabaseClient<Database>,
+  {
+    participantId,
+    participantName,
+    prizeLabel,
+  }: {
+    participantId: string;
+    participantName: string;
+    prizeLabel: string;
+  },
+) {
+  return insertSystemChatMessage(supabase, {
+    participantId,
+    type: "mango_noncompliance_event",
+    message: `${participantName} no ha cumplido su castigo en el plazo acordado, ha recibido otro castigo y le ha tocado: ${prizeLabel}`,
   });
 }
 

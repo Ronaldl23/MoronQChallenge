@@ -9,9 +9,11 @@ type LoadState = { type: "loading" } | { type: "error"; message: string } | { ty
 /**
  * Dos vías de descalificación, mostradas juntas por jugador (ver
  * /api/admin/penalties):
- * - Automática (src/lib/penalty.ts): un jugador se pasa a 'disqualified'
- *   solo, sin que ningún admin tenga que confirmarlo — se listan los
- *   castigos sin cumplir.
+ * - Automática (legacy, src/lib/penalty.ts): filas 'disqualified' de ANTES
+ *   de que se eliminara la descalificación automática por no cumplir un
+ *   castigo a tiempo — ahora eso otorga un castigo más en su lugar (ver
+ *   nonComplianceGrants), así que esta lista solo puede tener filas viejas
+ *   sin resolver, nunca una nueva.
  * - Manual (/api/admin/participants/disqualify, formulario en
  *   DisqualifyParticipantForm): un admin lo descalifica directo por otro
  *   motivo (trampa, conducta, etc.) — se muestra el motivo en vez de un

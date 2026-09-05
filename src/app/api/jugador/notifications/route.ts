@@ -45,6 +45,14 @@ export interface MangoNotification {
    * vez del genérico "X te envió un Mango".
    */
   isMoldyTrash?: boolean;
+  /**
+   * Solo 'received': true si este mango es el castigo autoinfligido que se
+   * otorga por NO cumplir un castigo pendiente a tiempo (ver
+   * nonComplianceGrants en src/lib/penalty.ts) — sin remitente real, como
+   * isMoldyTrash. `otherPartyName` no aplica en este caso; el cliente
+   * cambia el texto/ícono del toast (Peligro en vez del mango genérico).
+   */
+  isNoncompliancePenalty?: boolean;
 }
 
 export interface NotificationsResponse {
@@ -119,12 +127,14 @@ export async function GET() {
       .in("status", ["disqualified", "flagged_for_review"])
       .eq("flagged_seen", false)
       .order("created_at", { ascending: true }),
-    // is_moldy_trash=false: un mango con hongo también queda con
-    // sent_by_participant_id = uno mismo (para las estadísticas, ver
-    // /api/jugador/mangos/discard) — sin este filtro, revelarlo generaría
-    // ADEMÁS una notificación fantasma de "tu mango llegó a destino" con
-    // uno mismo como destinatario, que no tiene sentido acá (ya se avisa
-    // como "received" con isMoldyTrash, ver más abajo).
+    // is_moldy_trash=false e is_noncompliance_penalty=false: los dos quedan
+    // con sent_by_participant_id = uno mismo (moldy para las estadísticas,
+    // ver /api/jugador/mangos/discard; noncompliance porque no hay ningún
+    // remitente real, ver nonComplianceGrants en src/lib/penalty.ts) — sin
+    // este filtro, revelarlos generaría ADEMÁS una notificación fantasma de
+    // "tu mango llegó a destino" con uno mismo como destinatario, que no
+    // tiene sentido acá (ya se avisan como "received" con
+    // isMoldyTrash/isNoncompliancePenalty, ver más abajo).
     supabase
       .from("mangos")
       .select("id, champion_assigned")
@@ -132,6 +142,7 @@ export async function GET() {
       .eq("status", "sent")
       .eq("launcher_notified", false)
       .eq("is_moldy_trash", false)
+      .eq("is_noncompliance_penalty", false)
       .order("created_at", { ascending: true }),
     supabase
       .from("penalty_progress")
@@ -191,7 +202,9 @@ export async function GET() {
   const { data: mangos } = penaltyRows.length
     ? await supabase
         .from("mangos")
-        .select("id, champion_assigned, sent_by_participant_id, status, is_bounce_back, is_moldy_trash")
+        .select(
+          "id, champion_assigned, sent_by_participant_id, status, is_bounce_back, is_moldy_trash, is_noncompliance_penalty",
+        )
         .in(
           "id",
           penaltyRows.map((p) => p.mango_id),
@@ -265,6 +278,7 @@ export async function GET() {
           championIconUrl: null,
           isBounceBack: mango?.is_bounce_back ?? false,
           isMoldyTrash: mango?.is_moldy_trash ?? false,
+          isNoncompliancePenalty: mango?.is_noncompliance_penalty ?? false,
         };
       }
       const resolved = resolveAssignedPunishment(mango.champion_assigned, championById, spellById);
@@ -278,6 +292,7 @@ export async function GET() {
         noFlash: resolved.noFlash,
         isBounceBack: mango.is_bounce_back,
         isMoldyTrash: mango.is_moldy_trash,
+        isNoncompliancePenalty: mango.is_noncompliance_penalty,
       };
     }),
     ...flagged.map((p): MangoNotification => {

@@ -85,6 +85,26 @@
   }
 }
 
+/* Botón global de GlobalPenaltyAlert (ver src/components/GlobalPenaltyAlert.tsx)
+   — transición lenta y en loop de un rojo apagado/opaco a un rojo brillante,
+   pedido explícito del usuario ("como una transición de opaco a color
+   brillante rojo"). El fondo (no el ícono) es lo que respira. */
+@keyframes penalty-alert-pulse {
+  0%,
+  100% {
+    background-color: #7a1f2f;
+    box-shadow: 0 0 12px -2px rgba(239, 77, 110, 0.35);
+  }
+  50% {
+    background-color: var(--loss);
+    box-shadow: 0 0 28px 2px rgba(239, 77, 110, 0.85);
+  }
+}
+
+.penalty-alert-pulse {
+  animation: penalty-alert-pulse 2.8s ease-in-out infinite;
+}
+
 /* Pop sutil del ítem ganador al asentarse — un solo ciclo, no en loop. */
 @keyframes roulette-win-pop {
   0% {

@@ -101,7 +101,7 @@ function statusOf(result, id) {
   assertEqual(result.gamesWithoutCompliance, 0, "1 castigo, cumple en m1: contador queda en 0");
 }
 
-// --- 2. Un solo castigo: 3 partidas sin cumplir -> disqualified (automático), contador vuelve a 0 (regla 5: sin pendientes, sin contador) ---
+// --- 2. Un solo castigo: 3 partidas sin cumplir -> YA NO se descalifica, sigue 'pending' y se otorga 1 castigo nuevo (nonComplianceGrants), contador vuelve a 0 ---
 {
   const result = run(
     [penalty("p1", "Teemo")],
@@ -111,11 +111,12 @@ function statusOf(result, id) {
       match("m3", { playedAt: at(3), championPlayed: "Jinx" }),
     ],
   );
-  assertEqual(statusOf(result, "p1"), "disqualified", "1 castigo, 3 partidas sin cumplir: disqualified");
+  assertEqual(statusOf(result, "p1"), "pending", "1 castigo, 3 partidas sin cumplir: sigue pending (ya no hay descalificación)");
+  assertEqual(result.nonComplianceGrants, 1, "1 castigo, 3 partidas sin cumplir: se otorga 1 castigo nuevo");
   assertEqual(
     result.gamesWithoutCompliance,
     0,
-    "1 castigo disqualified: el contador vuelve a 0 (ya no queda ningún pendiente corriendo)",
+    "1 castigo sin cumplir a tiempo: el contador vuelve a 0 (ventana fresca)",
   );
 }
 
@@ -138,7 +139,7 @@ function statusOf(result, id) {
   );
 }
 
-// --- 4. 3 castigos pendientes, NINGUNO se cumple en 3 partidas -> los 3 pasan a disqualified JUNTOS ---
+// --- 4. 3 castigos pendientes, NINGUNO se cumple en 3 partidas -> los 3 quedan 'pending' (ya no se descalifican), se otorga 1 castigo nuevo para todo el grupo (no uno por cada pendiente) ---
 {
   const penalties = [penalty("a", "Teemo"), penalty("b", "Zed"), penalty("c", "Jinx")];
   const matches = [
@@ -147,10 +148,11 @@ function statusOf(result, id) {
     match("m3", { playedAt: at(3), championPlayed: "Vayne" }),
   ];
   const result = run(penalties, matches);
-  assertEqual(statusOf(result, "a"), "disqualified", "3 castigos, nada cumplido en 3 partidas: 'a' disqualified");
-  assertEqual(statusOf(result, "b"), "disqualified", "3 castigos, nada cumplido en 3 partidas: 'b' disqualified");
-  assertEqual(statusOf(result, "c"), "disqualified", "3 castigos, nada cumplido en 3 partidas: 'c' disqualified");
-  assertEqual(result.gamesWithoutCompliance, 0, "los 3 disqualified juntos: el contador vuelve a 0");
+  assertEqual(statusOf(result, "a"), "pending", "3 castigos, nada cumplido en 3 partidas: 'a' sigue pending");
+  assertEqual(statusOf(result, "b"), "pending", "3 castigos, nada cumplido en 3 partidas: 'b' sigue pending");
+  assertEqual(statusOf(result, "c"), "pending", "3 castigos, nada cumplido en 3 partidas: 'c' sigue pending");
+  assertEqual(result.nonComplianceGrants, 1, "3 castigos sin cumplir: 1 solo castigo nuevo por la ventana agotada, no uno por pendiente");
+  assertEqual(result.gamesWithoutCompliance, 0, "ventana agotada: el contador vuelve a 0 (fresco para lo que quede pendiente)");
 }
 
 // --- 5. Dos castigos pendientes con la MISMA asignación (dos Support): una partida cumple UNO SOLO (el más viejo), no los dos ---
@@ -223,15 +225,16 @@ function statusOf(result, id) {
   assertEqual(result.gamesWithoutCompliance, 2, "el contador compartido queda en 2, con margen todavía");
 }
 
-// --- 7. Retoma un contador que ya venía con progreso (2) de una corrida anterior -> 1 partida más sin cumplir alcanza el límite ---
+// --- 7. Retoma un contador que ya venía con progreso (2) de una corrida anterior -> 1 partida más sin cumplir alcanza el límite y otorga un castigo nuevo ---
 {
   const result = run(
     [penalty("a", "Teemo")],
     [match("m1", { playedAt: at(1), championPlayed: "Ahri" })],
     2, // contador ya en 2 al arrancar esta corrida
   );
-  assertEqual(statusOf(result, "a"), "disqualified", "arranca en 2/3: 1 partida más sin cumplir alcanza el límite");
-  assertEqual(result.gamesWithoutCompliance, 0, "disqualified: el contador vuelve a 0");
+  assertEqual(statusOf(result, "a"), "pending", "arranca en 2/3: 1 partida más sin cumplir alcanza el límite, pero sigue pending");
+  assertEqual(result.nonComplianceGrants, 1, "arranca en 2/3: se otorga 1 castigo nuevo al agotar la ventana");
+  assertEqual(result.gamesWithoutCompliance, 0, "ventana agotada: el contador vuelve a 0");
 }
 
 // --- 8. Sin castigos pendientes: no-op total, sin contador corriendo (regla 5) — incluso si venía un contador viejo pegado ---
@@ -239,20 +242,44 @@ function statusOf(result, id) {
   const result = run([], [match("m1", { playedAt: at(1), championPlayed: "Teemo" })], 2);
   assertEqual(result.updates, [], "sin castigos pendientes: no hay nada que actualizar");
   assertEqual(result.gamesWithoutCompliance, 0, "sin castigos pendientes: el contador queda/vuelve a 0, no corre");
+  assertEqual(result.nonComplianceGrants, 0, "sin castigos pendientes: no se otorga ningún castigo nuevo");
 }
 
-// --- 9. Una vez descalificado el grupo, partidas posteriores en la misma corrida no lo tocan más ---
+// --- 9. Ya no hay estado terminal: agotada la ventana en m3 (1er castigo nuevo), "a" sigue pending y una partida posterior en la MISMA corrida todavía puede cumplirlo ---
 {
   const penalties = [penalty("a", "Teemo")];
   const matches = [
     match("m1", { playedAt: at(1), championPlayed: "Ahri" }),
     match("m2", { playedAt: at(2), championPlayed: "Lux" }),
-    match("m3", { playedAt: at(3), championPlayed: "Vayne" }), // flaggea acá
-    match("m4", { playedAt: at(4), championPlayed: "Teemo" }), // llega tarde, ya no cuenta
+    match("m3", { playedAt: at(3), championPlayed: "Vayne" }), // agota la ventana -> +1 castigo nuevo, contador vuelve a 0
+    match("m4", { playedAt: at(4), championPlayed: "Teemo" }), // ventana fresca: SÍ lo cumple
   ];
   const result = run(penalties, matches);
-  assertEqual(statusOf(result, "a"), "disqualified", "disqualified en m3: m4 (aunque cumpla) no lo revierte");
-  assertEqual(result.gamesWithoutCompliance, 0, "sigue en 0 tras flaggear, m4 no lo mueve");
+  assertEqual(statusOf(result, "a"), "completed", "ventana agotada en m3 no es terminal: m4 todavía puede cumplir 'a'");
+  assertEqual(
+    result.updates.find((u) => u.id === "a").completedOnMatchId,
+    "m4",
+    "'a' se cumple con m4, no antes",
+  );
+  assertEqual(result.nonComplianceGrants, 1, "1 castigo nuevo otorgado en m3, antes de que m4 cumpliera 'a'");
+  assertEqual(result.gamesWithoutCompliance, 0, "cumplido en m4: el contador vuelve a 0 de nuevo");
+}
+
+// --- 9b. Sin techo: dos ventanas agotadas en la MISMA corrida (6 partidas sin cumplir nada) -> 2 castigos nuevos ---
+{
+  const penalties = [penalty("a", "Teemo")];
+  const matches = [
+    match("m1", { playedAt: at(1), championPlayed: "Ahri" }),
+    match("m2", { playedAt: at(2), championPlayed: "Lux" }),
+    match("m3", { playedAt: at(3), championPlayed: "Vayne" }), // ventana 1 agotada -> +1
+    match("m4", { playedAt: at(4), championPlayed: "Ahri" }),
+    match("m5", { playedAt: at(5), championPlayed: "Lux" }),
+    match("m6", { playedAt: at(6), championPlayed: "Vayne" }), // ventana 2 agotada -> +1 más
+  ];
+  const result = run(penalties, matches);
+  assertEqual(statusOf(result, "a"), "pending", "sin techo: 'a' sigue pending tras 2 ventanas agotadas seguidas");
+  assertEqual(result.nonComplianceGrants, 2, "sin techo: 2 castigos nuevos en la misma corrida, uno por cada ventana agotada");
+  assertEqual(result.gamesWithoutCompliance, 0, "tras la 2da ventana agotada, el contador vuelve a 0");
 }
 
 // --- 10. Castigo "Support": cumple con CUALQUIER campeón en UTILITY, no uno específico ---

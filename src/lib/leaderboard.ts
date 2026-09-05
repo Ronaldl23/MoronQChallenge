@@ -39,6 +39,8 @@ export interface PendingPenaltySummary {
   senderName: string;
   /** true si salió de tirar a la basura un mango podrido con hongo (ver /api/jugador/mangos/discard) — autoinfligido, senderName no aplica acá (queda en uno mismo, solo para las estadísticas del inventario). */
   isMoldyTrash: boolean;
+  /** true si es el castigo autoinfligido otorgado por no cumplir otro castigo a tiempo (ver nonComplianceGrants en src/lib/penalty.ts) — igual que isMoldyTrash, senderName no aplica acá. */
+  isNoncompliancePenalty: boolean;
 }
 
 export interface LeaderboardEntry {
@@ -262,7 +264,7 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
   if (activePenaltyRows.length > 0) {
     const { data: mangoDetails } = await supabase
       .from("mangos")
-      .select("id, status, champion_assigned, sent_by_participant_id, is_moldy_trash")
+      .select("id, status, champion_assigned, sent_by_participant_id, is_moldy_trash, is_noncompliance_penalty")
       .in(
         "id",
         activePenaltyRows.map((r) => r.mango_id),
@@ -308,6 +310,7 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
         championIconUrl: resolved.iconUrl,
         senderName,
         isMoldyTrash: mango?.is_moldy_trash ?? false,
+        isNoncompliancePenalty: mango?.is_noncompliance_penalty ?? false,
       });
       pendingByParticipant.set(row.participant_id, list);
     }

@@ -14,13 +14,30 @@ import {
   type MissionTier,
 } from "@/lib/quests";
 import { processPenaltyMatches, type PenaltyMatchOutcome, type PendingPenalty } from "@/lib/penalty";
-import { MAX_ACTIVE_PENALTIES, PROTECTION_HOURS, hoursFromNowIso } from "@/lib/mango-launch";
+import {
+  MAX_ACTIVE_PENALTIES,
+  PROTECTION_HOURS,
+  hoursFromNowIso,
+  rollPenaltyOutcome,
+  SUPPORT_ASSIGNMENT,
+  NO_FLASH_ASSIGNMENT,
+  type PunishmentOutcome,
+} from "@/lib/mango-launch";
 import { isProbableAegisProc } from "@/lib/aegis";
 import { computeLpStats, TREND_WINDOW_DAYS } from "@/lib/lp-stats";
 import { correlateLpChanges, correlateSingleMatchLp } from "@/lib/lp-correlation";
 import { platformToContinent } from "@/lib/riot";
 import { fetchRankOrder } from "@/lib/ranking";
+import { getChampionList } from "@/lib/champions";
+import { getSummonerSpellList } from "@/lib/summoner-spells";
 import type { Database, QuestProgress, QuestType, RankDivision, RankTier } from "@/types/database";
+
+/** Mismo helper que /api/jugador/mangos/launch y /discard — qué guardar en champion_assigned para cada tipo de resultado. */
+function toStoredAssignment(outcome: PunishmentOutcome): string {
+  if (outcome.kind === "support") return SUPPORT_ASSIGNMENT;
+  if (outcome.kind === "spell") return outcome.noFlash ? NO_FLASH_ASSIGNMENT : outcome.spell.id;
+  return outcome.champion.id;
+}
 
 export const dynamic = "force-dynamic";
 // Con reintentos por 429 el tiempo total ya no es 100% predecible; damos
@@ -483,6 +500,7 @@ async function checkPenaltyCompliance({
     id: string;
     puuid: string;
     region_platform: string;
+    nombre_display: string;
     penalty_games_without_compliance: number;
     /** Cursor propio por match id (ver 0024_penalty_cursor_by_match_id.sql) — última partida ya evaluada contra el grupo de castigos pendientes ACTUAL. Evita recontar la misma partida en corridas sucesivas (el bug real detrás de una descalificación con muchas menos de PENALTY_GAME_LIMIT partidas jugadas). */
     penalty_last_processed_match_id: string | null;
@@ -669,11 +687,11 @@ async function checkPenaltyCompliance({
       ),
   );
 
-  // Si el grupo se resolvió del todo esta corrida (todos completed o
-  // disqualified), penalty_last_processed_match_id queda sin sentido para
-  // lo que siga — se resetea a null en vez de guardar `advancedTo`, así el
-  // próximo grupo (si hay uno) arranca fresco, sin heredar el progreso de
-  // evaluación de este.
+  // Si el grupo se resolvió del todo esta corrida (todos completed — ya no
+  // existe la salida "disqualified", ver nonComplianceGrants),
+  // penalty_last_processed_match_id queda sin sentido para lo que siga — se
+  // resetea a null en vez de guardar `advancedTo`, así el próximo grupo (si
+  // hay uno) arranca fresco, sin heredar el progreso de evaluación de este.
   const groupFullyResolved = result.updates.every((update) => update.status !== "pending");
 
   const patch: { penalty_games_without_compliance?: number; penalty_last_processed_match_id: string | null } = {
@@ -686,19 +704,63 @@ async function checkPenaltyCompliance({
   if (persistError) throw persistError;
 
   await writeDebug(
-    `ok: ${penaltyMatches.length} partida(s) evaluada(s), ${result.updates.filter((u) => u.status === "completed").length} completada(s), ${result.updates.filter((u) => u.status === "disqualified").length} descalificada(s), contador ${result.gamesWithoutCompliance}, cursor ${patch.penalty_last_processed_match_id ?? "null"}`,
+    `ok: ${penaltyMatches.length} partida(s) evaluada(s), ${result.updates.filter((u) => u.status === "completed").length} completada(s), ${result.nonComplianceGrants} castigo(s) nuevo(s) por incumplimiento, contador ${result.gamesWithoutCompliance}, cursor ${patch.penalty_last_processed_match_id ?? "null"}`,
   );
 
+  // Ya no hay descalificación automática (ver nonComplianceGrants en
+  // src/lib/penalty.ts): agotar la ventana sin cumplir NINGÚN castigo
+  // pendiente otorga uno más por cada vez que pasó esta corrida — sin
+  // techo. Autoinfligido (sent_by = el propio participante), 'pending_reveal'
+  // igual que cualquier mango recién asignado (su propia sesión dispara la
+  // ruleta) y SIN balde de rebote (rollPenaltyOutcome no lo tiene, a
+  // diferencia de rollMangoOutcome) — regla explícita del usuario. Best
+  // effort: un fallo acá no debe tumbar el resto de esta corrida, ya se
+  // persistió todo lo demás arriba.
+  if (result.nonComplianceGrants > 0) {
+    try {
+      const [champions, spells] = await Promise.all([getChampionList(), getSummonerSpellList()]);
+      for (let i = 0; i < result.nonComplianceGrants; i++) {
+        const outcome = rollPenaltyOutcome(champions, spells);
+        const { data: newMango, error: mangoInsertError } = await supabase
+          .from("mangos")
+          .insert({
+            owner_participant_id: participantId,
+            sent_by_participant_id: participantId,
+            status: "pending_reveal",
+            champion_assigned: toStoredAssignment(outcome),
+            is_noncompliance_penalty: true,
+          })
+          .select("id")
+          .single();
+        if (mangoInsertError) throw mangoInsertError;
+
+        const { error: penaltyInsertError } = await supabase.from("penalty_progress").insert({
+          participant_id: participantId,
+          mango_id: newMango.id,
+        });
+        if (penaltyInsertError) throw penaltyInsertError;
+      }
+    } catch (err) {
+      console.error(
+        `Castigo por incumplimiento falló para ${participant.nombre_display}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
   // Protección de PROTECTION_HOURS contra mangos nuevos (ver
-  // src/lib/mango-launch.ts) — SOLO si tenía sus MAX_ACTIVE_PENALTIES
-  // castigos activos a la vez (o sea, ya no podía recibir uno más) Y esta
-  // corrida cumplió AL MENOS uno. `penalties` de arriba es el estado antes
-  // de procesar las partidas de esta corrida, así que penalties.length es
-  // exactamente cuántos tenía activos al arrancar. Cumplir un castigo
+  // src/lib/mango-launch.ts) — SOLO si ya no podía recibir uno más (target
+  // check en /api/jugador/mangos/launch bloquea desde MAX_ACTIVE_PENALTIES
+  // pendientes en adelante, con >=) Y esta corrida cumplió AL MENOS uno.
+  // `penalties` de arriba es el estado antes de procesar las partidas de
+  // esta corrida. >= y no === a propósito: sin techo (ver
+  // nonComplianceGrants) un jugador puede llegar a tener 4, 5... pendientes
+  // por no cumplir a tiempo, y sigue tan "lleno" como uno con exactamente 3
+  // — cumplir uno de esos también debe dar protección. Cumplir un castigo
   // teniendo 1 o 2 activos (nunca llegó a estar "lleno") no da protección
   // — regla explícita del usuario.
   if (
-    penalties.length === MAX_ACTIVE_PENALTIES &&
+    penalties.length >= MAX_ACTIVE_PENALTIES &&
     result.updates.some((update) => update.status === "completed")
   ) {
     const { error: protectionError } = await supabase

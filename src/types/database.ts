@@ -127,6 +127,8 @@ export type Mango = {
   is_bounce_back: boolean;
   /** true solo si se tiró a la basura (ver 'discarded' en MangoStatus) y le tocó hongo — el castigo autoinfligido queda 'pending_reveal' igual que cualquier otro, esto solo distingue el mensaje de chat/toast (ver 0022_moldy_mango_discard.sql). */
   is_moldy_trash: boolean;
+  /** true solo en la fila creada por no cumplir un castigo a tiempo (ver nonComplianceGrants en src/lib/penalty.ts) — autoinfligida, sin balde de rebote, distingue el mensaje de chat/toast/ícono global de las demás (ver 0028_noncompliance_penalty.sql). */
+  is_noncompliance_penalty: boolean;
   /**
    * Cuándo entró ESTE mango al inventario (se resetea a NOW en cada mango
    * nuevo otorgado por misión, nunca se toca en un lanzamiento/rebote —
@@ -157,12 +159,14 @@ export type QuestProgress = {
 };
 
 /**
- * 'flagged_for_review' y 'pardoned' ya no los escribe nada — quedan en el
- * tipo (y en el CHECK de la tabla) solo por compatibilidad con filas
- * escritas antes de que la descalificación pasara a ser automática (ver
- * src/lib/penalty.ts): un castigo sin cumplir a tiempo pasa directo a
- * 'disqualified', y perdonar al jugador lo devuelve directo a 'pending'
- * (nunca a 'pardoned').
+ * 'flagged_for_review', 'disqualified' y 'pardoned' ya no los escribe nada
+ * nuevo — quedan en el tipo (y en el CHECK de la tabla) solo por
+ * compatibilidad con filas escritas antes de este cambio (ver
+ * src/lib/penalty.ts): ya no hay descalificación automática por no cumplir
+ * un castigo a tiempo — en su lugar se otorga uno más (ver
+ * nonComplianceGrants) y el/los que ya estaban pendientes quedan
+ * 'pending'. Un admin sigue pudiendo perdonar filas 'disqualified' viejas
+ * desde /admin (las devuelve a 'pending').
  */
 export type PenaltyStatus =
   | "pending"
@@ -219,8 +223,16 @@ export type ShowcaseParticipant = {
  * 0015_chat_system_events.sql. 'mango_moldy_event' (0022_moldy_mango_discard.sql):
  * mismo tratamiento visual que 'mango_event' pero con el ícono
  * MangoPodridoFurioso — un mango tirado a la basura que resultó con hongos.
+ * 'mango_noncompliance_event' (0028_noncompliance_penalty.sql): mismo
+ * tratamiento pero con el ícono Peligro — no cumplió un castigo a tiempo y
+ * recibió otro.
  */
-export type ChatMessageType = "user" | "mango_event" | "rank_event" | "mango_moldy_event";
+export type ChatMessageType =
+  | "user"
+  | "mango_event"
+  | "rank_event"
+  | "mango_moldy_event"
+  | "mango_noncompliance_event";
 
 /** Solo aplica a type = 'rank_event' — qué flecha (verde/roja) mostrar. */
 export type RankEventDirection = "up" | "down";
@@ -347,6 +359,7 @@ export type Database = {
           | "champion_assigned"
           | "is_bounce_back"
           | "is_moldy_trash"
+          | "is_noncompliance_penalty"
           | "launcher_notified"
           | "inventory_since"
         > & {
@@ -357,6 +370,7 @@ export type Database = {
           champion_assigned?: string | null;
           is_bounce_back?: boolean;
           is_moldy_trash?: boolean;
+          is_noncompliance_penalty?: boolean;
           launcher_notified?: boolean;
           inventory_since?: string;
         };

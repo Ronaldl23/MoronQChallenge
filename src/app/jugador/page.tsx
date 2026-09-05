@@ -2,14 +2,10 @@ import { getAuthenticatedParticipantId } from "@/lib/player-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getChampionList, type Champion } from "@/lib/champions";
 import { getSummonerSpellList, type SummonerSpell } from "@/lib/summoner-spells";
-import {
-  MAX_ACTIVE_PENALTIES,
-  mangoExpiresAt,
-  discardUnlocksAt,
-  resolveAssignedPunishment,
-} from "@/lib/mango-launch";
+import { MAX_ACTIVE_PENALTIES, mangoExpiresAt, discardUnlocksAt } from "@/lib/mango-launch";
 import { questTargetsForTier, tierForRank } from "@/lib/quests";
 import { PENALTY_GAME_LIMIT } from "@/lib/penalty";
+import { fetchPendingPunishments } from "@/lib/pending-penalties";
 import { isOnline } from "@/lib/presence";
 import { fetchRankOrder } from "@/lib/ranking";
 import { Header } from "@/components/Header";
@@ -289,9 +285,6 @@ export default async function JugadorPage() {
   } catch {
     // Se maneja en MangoRevealModal: sin campeones/hechizos no se puede tirar la ruleta.
   }
-  const championById = new Map(champions.map((c) => [c.id, c]));
-  const spellById = new Map(spells.map((s) => [s.id, s]));
-
   const pendingPenalties = pendingPenaltiesResult.data ?? [];
   // Vacío legal cerrado (ver el chequeo real en /api/jugador/mangos/launch,
   // esto es solo la UI): un jugador puede seguir lanzando estando en el
@@ -301,54 +294,12 @@ export default async function JugadorPage() {
   // menos.
   const launchBlocked = pendingPenalties.length > MAX_ACTIVE_PENALTIES || inPlacements;
 
-  let pendingPunishments: {
-    name: string;
-    iconUrl: string | null;
-    noFlash?: boolean;
-    senderName: string;
-    /** true si este castigo es el rebote (10%) de un lanzamiento propio — senderName acá es el objetivo original, no alguien que te lo mandó. */
-    isBounceBack: boolean;
-    /** true si este castigo salió de tirar a la basura un mango podrido que te tocó hongo (ver /api/jugador/mangos/discard) — autoinfligido, senderName no aplica (sent_by_participant_id queda en uno mismo, solo para las estadísticas). */
-    isMoldyTrash: boolean;
-  }[] = [];
-  if (pendingPenalties.length > 0) {
-    const { data: pendingMangos } = await supabase
-      .from("mangos")
-      .select("id, status, champion_assigned, sent_by_participant_id, is_bounce_back, is_moldy_trash")
-      .in(
-        "id",
-        pendingPenalties.map((p) => p.mango_id),
-      );
-    const mangoById = new Map((pendingMangos ?? []).map((m) => [m.id, m]));
-
-    const senderIds = [
-      ...new Set((pendingMangos ?? []).map((m) => m.sent_by_participant_id).filter((id) => id !== null)),
-    ];
-    const { data: senders } = senderIds.length
-      ? await supabase.from("participants").select("id, nombre_display").in("id", senderIds)
-      : { data: [] };
-    const senderNameById = new Map((senders ?? []).map((s) => [s.id, s.nombre_display]));
-
-    // Filtra los que todavía están 'pending_reveal': mostrar el castigo acá
-    // sería un spoiler y saltearía por completo la ruleta de revelación —
-    // este banner es solo para castigos YA revelados (status='sent') que
-    // siguen pendientes de cumplir.
-    pendingPunishments = pendingPenalties
-      .filter((p) => mangoById.get(p.mango_id)?.status !== "pending_reveal")
-      .map((p) => {
-        const mango = mangoById.get(p.mango_id);
-        const resolved = resolveAssignedPunishment(mango?.champion_assigned ?? null, championById, spellById);
-        const senderName =
-          (mango?.sent_by_participant_id && senderNameById.get(mango.sent_by_participant_id)) ||
-          "Alguien";
-        return {
-          ...resolved,
-          senderName,
-          isBounceBack: mango?.is_bounce_back ?? false,
-          isMoldyTrash: mango?.is_moldy_trash ?? false,
-        };
-      });
-  }
+  // Filtra los que todavía están 'pending_reveal': mostrar el castigo acá
+  // sería un spoiler y saltearía por completo la ruleta de revelación —
+  // este banner es solo para castigos YA revelados (status='sent') que
+  // siguen pendientes de cumplir. Mismo helper que usa GlobalPenaltyAlert
+  // (ver src/lib/pending-penalties.ts) para no duplicar esta consulta+mapeo.
+  const pendingPunishments = await fetchPendingPunishments(supabase, pendingPenalties, champions, spells);
 
   return (
     <PageShell subtitle="Sesión iniciada.">
@@ -383,7 +334,9 @@ export default async function JugadorPage() {
                   imgClassName="h-8 w-8 shrink-0 rounded-full object-cover"
                 />
                 <span>
-                  {punishment.isMoldyTrash ? (
+                  {punishment.isNoncompliancePenalty ? (
+                    <span className="text-text-secondary">No cumpliste un castigo a tiempo:</span>
+                  ) : punishment.isMoldyTrash ? (
                     <span className="text-text-secondary">Tu mango tirado a la basura tenía hongos:</span>
                   ) : punishment.isBounceBack ? (
                     <span className="text-text-secondary">

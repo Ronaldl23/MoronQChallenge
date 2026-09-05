@@ -4,7 +4,11 @@ import { getAuthenticatedParticipantId } from "@/lib/player-auth";
 import { getChampionList, type Champion } from "@/lib/champions";
 import { getSummonerSpellList, type SummonerSpell } from "@/lib/summoner-spells";
 import { resolveAssignedPunishment } from "@/lib/mango-launch";
-import { postMangoEventChatMessage, postMoldyMangoChatMessage } from "@/lib/chat-system-messages";
+import {
+  postMangoEventChatMessage,
+  postMoldyMangoChatMessage,
+  postNonComplianceChatMessage,
+} from "@/lib/chat-system-messages";
 
 export const dynamic = "force-dynamic";
 
@@ -47,7 +51,9 @@ export async function POST(request: Request) {
 
   const { data: mango, error: mangoError } = await supabase
     .from("mangos")
-    .select("id, status, champion_assigned, sent_by_participant_id, is_bounce_back, is_moldy_trash")
+    .select(
+      "id, status, champion_assigned, sent_by_participant_id, is_bounce_back, is_moldy_trash, is_noncompliance_penalty",
+    )
     .eq("id", mango_id)
     .maybeSingle();
 
@@ -120,15 +126,33 @@ export async function POST(request: Request) {
   };
 
   // Anuncio público en el chat — best-effort, no debe romper la revelación
-  // si falla. is_moldy_trash primero: un mango tirado a la basura con
-  // hongo tiene sent_by_participant_id = el propio dueño (para que cuente
-  // como "lanzado" en las estadísticas, ver /api/jugador/mangos/discard),
-  // así que NO es el caso normal de "alguien te lo mandó" — usa su propio
+  // si falla. is_moldy_trash e is_noncompliance_penalty primero: ambos
+  // tienen sent_by_participant_id = el propio dueño (moldy para que cuente
+  // como "lanzado" en las estadísticas; noncompliance porque no hay ningún
+  // remitente real, ver nonComplianceGrants en src/lib/penalty.ts), así que
+  // NO son el caso normal de "alguien te lo mandó" — cada uno usa su propio
   // texto sin remitente. sent_by_participant_id puede ser null en teoría
   // (tipo de la columna) para el resto de los casos, aunque en la práctica
   // launch/route.ts siempre lo completa; sin remitente no hay a quién
   // nombrar, así que se omite el anuncio.
-  if (didTransition && mango.is_moldy_trash) {
+  if (didTransition && mango.is_noncompliance_penalty) {
+    try {
+      const { data: person } = await supabase
+        .from("participants")
+        .select("nombre_display")
+        .eq("id", participantId)
+        .maybeSingle();
+      if (person) {
+        await postNonComplianceChatMessage(supabase, {
+          participantId,
+          participantName: person.nombre_display,
+          prizeLabel: resolved.name,
+        });
+      }
+    } catch (err) {
+      console.error("reveal: fallo publicando el evento de castigo por incumplimiento en el chat:", err);
+    }
+  } else if (didTransition && mango.is_moldy_trash) {
     try {
       const { data: person } = await supabase
         .from("participants")

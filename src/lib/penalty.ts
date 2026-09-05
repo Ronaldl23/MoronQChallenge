@@ -60,14 +60,15 @@ const FLASH_SPELL_KEY = 4;
  *   viejo de los dos — nunca ambos a la vez; el otro necesita su propia
  *   partida.
  * - Si no cumple ninguno, el contador sube en 1.
- * - Si el contador llega al límite sin ninguna coincidencia, TODOS los
- *   castigos que sigan pendientes en ese momento pasan a 'disqualified'
- *   juntos — automático, sin revisión manual — y el contador vuelve a 0
- *   (sin castigos pendientes no hay contador corriendo — regla 5). La
- *   única forma de revertirlo es que un admin perdone al JUGADOR completo
- *   desde /admin: eso devuelve TODOS sus castigos 'disqualified' a
- *   'pending' con ventana fresca (ver /api/admin/penalties/resolve) — no
- *   existe un perdón por castigo individual.
+ * - Si el contador llega al límite sin ninguna coincidencia, YA NO se
+ *   descalifica a nadie automáticamente: los castigos que sigan pendientes
+ *   quedan tal cual (pending), el contador vuelve a 0 (ventana fresca) y se
+ *   suma 1 a `nonComplianceGrants` — el caller (update-rankings) lo lee y
+ *   por cada uno rollea y otorga UN castigo más (sin balde de rebote, ver
+ *   rollPenaltyOutcome en mango-launch.ts), sin techo: si el jugador sigue
+ *   sin cumplir, el grupo de pendientes solo sigue creciendo. Una corrida
+ *   que procesa muchas partidas atrasadas de golpe puede agotar la ventana
+ *   más de una vez, de ahí que sea un contador y no un booleano.
  * - Remakes (gameDurationSeconds < MIN_MATCH_DURATION_SECONDS) se ignoran
  *   por completo: no cumplen ningún castigo NI gastan una de las 3
  *   partidas de la ventana — es como si no se hubieran jugado.
@@ -107,6 +108,7 @@ export interface PendingPenalty {
   createdAt: string;
 }
 
+/** "disqualified" queda solo por compatibilidad con filas viejas de antes de este cambio — processPenaltyMatches ya no lo produce (ver nonComplianceGrants). */
 export type PenaltyStatus = "pending" | "completed" | "disqualified";
 
 export interface PenaltyUpdate {
@@ -122,6 +124,8 @@ export interface ProcessPenaltyMatchesResult {
   updates: PenaltyUpdate[];
   /** Contador compartido final — el caller lo persiste en participants.penalty_games_without_compliance. */
   gamesWithoutCompliance: number;
+  /** Cuántas veces se agotó la ventana compartida sin cumplir NINGÚN castigo pendiente durante esta corrida — el caller debe otorgar un castigo nuevo por cada una (sin techo, ver comentario de processPenaltyMatches). */
+  nonComplianceGrants: number;
 }
 
 /**
@@ -166,7 +170,7 @@ export function processPenaltyMatches({
   // Regla 5: sin castigos pendientes no hay contador corriendo — no-op total,
   // y el contador vuelve a 0 (por si quedó un resto de un grupo anterior).
   if (penalties.length === 0) {
-    return { updates: [], gamesWithoutCompliance: 0 };
+    return { updates: [], gamesWithoutCompliance: 0, nonComplianceGrants: 0 };
   }
 
   const state = new Map<string, { status: PenaltyStatus; completedOnMatchId: string | null }>(
@@ -177,6 +181,7 @@ export function processPenaltyMatches({
     penalties[0].createdAt,
   );
   let counter = gamesWithoutCompliance;
+  let nonComplianceGrants = 0;
 
   for (const match of matches) {
     const stillPending = penalties.filter((p) => state.get(p.id)!.status === "pending");
@@ -217,11 +222,13 @@ export function processPenaltyMatches({
     } else {
       counter += 1;
       if (counter >= PENALTY_GAME_LIMIT) {
-        // Se agotó la ventana compartida: TODO el grupo que siga pendiente se descalifica junto, automático.
-        for (const p of stillPending) {
-          state.set(p.id, { status: "disqualified", completedOnMatchId: null });
-        }
-        counter = 0; // Sin pendientes → sin contador corriendo (regla 5), listo para el próximo grupo.
+        // Se agotó la ventana compartida sin cumplir ninguno: ya no se
+        // descalifica — el grupo pendiente queda tal cual, y se le suma un
+        // castigo más (lo rollea y lo otorga el caller). Ventana fresca
+        // para lo que quede pendiente (incluido el nuevo, una vez que el
+        // caller lo agregue).
+        nonComplianceGrants += 1;
+        counter = 0;
       }
     }
   }
@@ -232,5 +239,6 @@ export function processPenaltyMatches({
       return { id: p.id, status: s.status, completedOnMatchId: s.completedOnMatchId };
     }),
     gamesWithoutCompliance: counter,
+    nonComplianceGrants,
   };
 }
