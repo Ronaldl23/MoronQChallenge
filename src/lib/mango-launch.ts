@@ -86,7 +86,7 @@ export const PROTECTION_HOURS = 8;
  * propósito: cuanto más "bullying", más domina el rebote sobre cualquier
  * otro resultado.
  */
-export const BULLYING_BOUNCE_PERCENT_PER_RANK = 2;
+export const BULLYING_BOUNCE_PERCENT_PER_RANK = 4;
 
 /**
  * Bono de probabilidad de rebote (en puntos porcentuales, para sumarle al
