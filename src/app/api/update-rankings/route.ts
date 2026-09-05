@@ -925,6 +925,30 @@ export async function GET(request: Request) {
           elo_score,
         });
 
+        // Recién salió de placements: `rankOrder` se calculó ANTES de este
+        // insert (arriba del loop), así que si este participante no estaba
+        // ahí es porque hasta este momento no tenía ningún snapshot dentro
+        // de TREND_WINDOW_DAYS — el mismo criterio que usan inPlacements en
+        // /jugador/page.tsx y el 403 de /api/jugador/mangos/launch. Mientras
+        // estuvo en placements sus mangos en inventario no podían pudrirse
+        // (vencimiento "nunca" del lado del cliente); para que el conteo de
+        // 24h real arranque justo cuando ya puede lanzarlos, y no desde que
+        // originalmente entraron al inventario, se resetea inventory_since
+        // a ahora en este momento — una sola vez, al cruzar la frontera.
+        if (!insertError && !rankOrder.has(participant.id)) {
+          const { error: inventoryResetError } = await supabase
+            .from("mangos")
+            .update({ inventory_since: new Date().toISOString() })
+            .eq("owner_participant_id", participant.id)
+            .eq("status", "in_inventory");
+          if (inventoryResetError) {
+            console.error(
+              `Reset de inventory_since al salir de placements falló para ${participant.nombre_display}:`,
+              inventoryResetError.message,
+            );
+          }
+        }
+
         // Sistema Aegis: LP ganado en CADA partida nueva de esta corrida —
         // anclado a la hora REAL de cada una (correlateLpChanges, ver
         // src/lib/lp-correlation.ts), no al snapshot "de la corrida

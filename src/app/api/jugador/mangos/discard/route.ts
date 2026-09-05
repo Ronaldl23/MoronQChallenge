@@ -4,6 +4,7 @@ import { getAuthenticatedParticipantId } from "@/lib/player-auth";
 import { isParticipantDisqualified } from "@/lib/disqualification";
 import { getChampionList } from "@/lib/champions";
 import { getSummonerSpellList } from "@/lib/summoner-spells";
+import { fetchRankOrder } from "@/lib/ranking";
 import {
   canDiscardMango,
   rollIsMoldy,
@@ -67,6 +68,18 @@ export async function POST(request: Request) {
   if (await isParticipantDisqualified(supabase, participantId)) {
     return NextResponse.json(
       { error: "Estás descalificado — no podés tirar mangos hasta que te perdonen" },
+      { status: 403 },
+    );
+  }
+
+  // Mismo criterio que el inventario y que /api/jugador/mangos/launch: en
+  // placements todavía no le corren las 24h a ningún mango suyo (ver el
+  // vencimiento "nunca" que le manda /jugador/page.tsx), así que tampoco
+  // puede tirarlo a la basura como si estuviera podrido.
+  const rankOrder = await fetchRankOrder(supabase);
+  if (!rankOrder.has(participantId)) {
+    return NextResponse.json(
+      { error: "Todavía estás en placements — tus mangos no se pudren mientras tanto" },
       { status: 403 },
     );
   }
