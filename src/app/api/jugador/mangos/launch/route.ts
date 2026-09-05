@@ -102,6 +102,19 @@ export async function POST(request: Request) {
     );
   }
 
+  // Quien lanza todavía en placements (sin ninguna partida ranked jugada
+  // esta temporada, ver fetchRankOrder) — tampoco puede lanzar mangos
+  // (regla confirmada por el usuario), mismo criterio que ya bloquea que
+  // se le puedan lanzar a él. Se reusa este mismo rankOrder más abajo para
+  // chequear al objetivo y para el bono anti-bullying, sin pedirlo de nuevo.
+  const rankOrder = await fetchRankOrder(supabase);
+  if (!rankOrder.has(participantId)) {
+    return NextResponse.json(
+      { error: "Todavía estás en placements — no podés lanzar mangos hasta jugar tu primera ranked de la temporada" },
+      { status: 403 },
+    );
+  }
+
   // El dueño del mango se valida acá, en código — no hay policy de RLS
   // atada a la sesión de /jugador (no usa Supabase Auth), así que el
   // service role + este chequeo explícito ES el límite de autorización.
@@ -166,13 +179,13 @@ export async function POST(request: Request) {
   }
 
   // Objetivo todavía en placements (sin ninguna partida ranked jugada esta
-  // temporada, ver fetchRankOrder) — no se le puede lanzar un mango
-  // todavía: no hay forma de ubicarlo en el ranking ni de aplicarle el bono
-  // anti-bullying más abajo. Chequeo server-side real, no alcanza con
-  // deshabilitarlo en el modal (ver LaunchModal.tsx) — mismo criterio que
-  // el resto de las validaciones de esta ruta. Se reusa el mismo
-  // rankOrder para el bono anti-bullying más abajo, sin pedirlo dos veces.
-  const rankOrder = await fetchRankOrder(supabase);
+  // temporada) — no se le puede lanzar un mango todavía: no hay forma de
+  // ubicarlo en el ranking ni de aplicarle el bono anti-bullying más
+  // abajo. Chequeo server-side real, no alcanza con deshabilitarlo en el
+  // modal (ver LaunchModal.tsx) — mismo criterio que el resto de las
+  // validaciones de esta ruta. rankOrder ya se pidió arriba para el mismo
+  // chequeo sobre quien lanza, se reusa acá y para el bono anti-bullying
+  // más abajo, sin pedirlo de nuevo.
   if (!rankOrder.has(target_participant_id)) {
     return NextResponse.json(
       { error: `${target.nombre_display} todavía está en placements — no puede recibir mangos todavía` },

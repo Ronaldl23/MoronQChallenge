@@ -186,6 +186,12 @@ export default async function JugadorPage() {
   // /api/jugador/mangos/launch para el bono anti-bullying, y ya pagina bien
   // más allá del límite de 1000 filas de Supabase, ver el comentario ahí).
   const rankOrder = await fetchRankOrder(supabase);
+  // Todavía en placements (sin ninguna partida ranked jugada esta
+  // temporada) — regla confirmada por el usuario: tampoco puede LANZAR
+  // mangos hasta tener rango, mismo criterio que ya bloquea que se le
+  // puedan lanzar a él (ver hasRank en otherParticipants más abajo).
+  // Chequeo real en /api/jugador/mangos/launch — esto es solo la UI.
+  const inPlacements = !rankOrder.has(participantId);
   // Categoría de misiones ACTUAL de este jugador (ver MissionTier en
   // quests.ts) — se le pasa al InventoryPanel solo para armar las
   // etiquetas de cada misión (umbral de KDA, kills, muertes de su
@@ -286,7 +292,7 @@ export default async function JugadorPage() {
   // un 4to, la única excepción aceptada), pero no una vez que YA tiene más
   // — ahí se le deshabilita el inventario hasta que baje de nuevo a 3 o
   // menos.
-  const launchBlocked = pendingPenalties.length > MAX_ACTIVE_PENALTIES;
+  const launchBlocked = pendingPenalties.length > MAX_ACTIVE_PENALTIES || inPlacements;
 
   let pendingPunishments: {
     name: string;
@@ -415,6 +421,7 @@ export default async function JugadorPage() {
           beatParticipant={beatParticipant}
           otherParticipants={otherParticipants}
           launchBlocked={launchBlocked}
+          inPlacements={inPlacements}
           mangoStats={mangoStats}
         />
       )}
