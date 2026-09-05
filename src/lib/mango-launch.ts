@@ -5,14 +5,14 @@ import type { SummonerSpell } from "@/lib/summoner-spells";
 /** 5% de probabilidad de que la ruleta devuelva el mango (rebote) — mango normal, no caduco. Ver EXPIRED_BOUNCE_PROBABILITY_PERCENT para uno caduco. */
 export const BOUNCE_PROBABILITY_PERCENT = 5;
 /**
- * 25% de probabilidad de rebote para un mango CADUCO (ver
- * MANGO_EXPIRY_HOURS/isMangoExpired más abajo) — 5x el 5% normal, a
+ * 30% de probabilidad de rebote para un mango CADUCO (ver
+ * MANGO_EXPIRY_HOURS/isMangoExpired más abajo) — 6x el 5% normal, a
  * propósito: castiga "holdear" un mango sin lanzarlo. Solo cambia el
  * balde de rebote de la ruleta principal — el resto (Support/hechizo)
  * mantiene su % absoluto, así que el que se achica es el de campeón
  * puntual (ver rollFirstOutcome).
  */
-export const EXPIRED_BOUNCE_PROBABILITY_PERCENT = 25;
+export const EXPIRED_BOUNCE_PROBABILITY_PERCENT = 30;
 /** 20% de probabilidad de que el castigo sea "jugar de Support" en vez de un campeón puntual. */
 export const SUPPORT_PROBABILITY_PERCENT = 20;
 /** 40% de probabilidad de que el castigo sea un hechizo de invocador obligatorio (o "sin Flash"), repartido entre las SPELL_POOL_SIZE opciones de abajo (no uniforme, ver SPELL_SLOT_WEIGHTS). */
