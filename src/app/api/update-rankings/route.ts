@@ -13,7 +13,12 @@ import {
   type MatchOutcome,
   type MissionTier,
 } from "@/lib/quests";
-import { processPenaltyMatches, type PenaltyMatchOutcome, type PendingPenalty } from "@/lib/penalty";
+import {
+  processPenaltyMatches,
+  NONCOMPLIANCE_BAN_THRESHOLD,
+  type PenaltyMatchOutcome,
+  type PendingPenalty,
+} from "@/lib/penalty";
 import {
   MAX_ACTIVE_PENALTIES,
   PROTECTION_HOURS,
@@ -504,6 +509,10 @@ async function checkPenaltyCompliance({
     penalty_games_without_compliance: number;
     /** Cursor propio por match id (ver 0024_penalty_cursor_by_match_id.sql) — última partida ya evaluada contra el grupo de castigos pendientes ACTUAL. Evita recontar la misma partida en corridas sucesivas (el bug real detrás de una descalificación con muchas menos de PENALTY_GAME_LIMIT partidas jugadas). */
     penalty_last_processed_match_id: string | null;
+    /** Contador PRIVADO por día (ver NONCOMPLIANCE_BAN_THRESHOLD en src/lib/penalty.ts) — nunca se expone por ninguna API de cara al jugador. */
+    noncompliance_penalty_count: number;
+    noncompliance_penalty_last_date: string | null;
+    manually_disqualified: boolean;
   };
   riotApiKey: string;
 }): Promise<void> {
@@ -717,6 +726,11 @@ async function checkPenaltyCompliance({
   // effort: un fallo acá no debe tumbar el resto de esta corrida, ya se
   // persistió todo lo demás arriba.
   if (result.nonComplianceGrants > 0) {
+    // Cuántos de los nonComplianceGrants pedidos se llegaron a otorgar de
+    // verdad esta corrida — si algo falla a mitad de camino, el contador
+    // oculto de abajo (y el chequeo de baneo) solo debe contar los que
+    // realmente se insertaron, no los que se pidieron.
+    let grantsInserted = 0;
     try {
       const [champions, spells] = await Promise.all([getChampionList(), getSummonerSpellList()]);
       for (let i = 0; i < result.nonComplianceGrants; i++) {
@@ -739,12 +753,58 @@ async function checkPenaltyCompliance({
           mango_id: newMango.id,
         });
         if (penaltyInsertError) throw penaltyInsertError;
+        grantsInserted++;
       }
     } catch (err) {
       console.error(
         `Castigo por incumplimiento falló para ${participant.nombre_display}:`,
         err instanceof Error ? err.message : err,
       );
+    }
+
+    // Baneo silencioso al llegar a NONCOMPLIANCE_BAN_THRESHOLD EN EL DÍA
+    // (ver el comentario largo en src/lib/penalty.ts) — contador PRIVADO,
+    // nunca expuesto por ninguna API/UI a propósito. Se reinicia solo al
+    // cambiar de día (UTC): si noncompliance_penalty_last_date no es hoy,
+    // el contador de ayer (o de cualquier día anterior) no cuenta, arranca
+    // de 0 antes de sumar lo de esta corrida. Si ya estaba baneado
+    // (manualmente o por esto mismo antes), no se pisa el motivo ni se
+    // vuelve a evaluar.
+    //
+    // El castigo que hace que se llegue al umbral (el 3ro del día) YA se
+    // otorgó de verdad arriba (mango + penalty_progress + chat, como
+    // cualquier otro) — el baneo no lo cancela ni lo reemplaza, se suman
+    // las dos cosas: le cae el castigo Y queda descalificado, sin excepción
+    // — a partir de ahí lo revisa la administración (perdonar o no desde
+    // /admin, mismo flujo que un ban manual).
+    if (grantsInserted > 0 && !participant.manually_disqualified) {
+      const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
+      const countBeforeToday =
+        participant.noncompliance_penalty_last_date === today ? participant.noncompliance_penalty_count : 0;
+      const newCount = countBeforeToday + grantsInserted;
+      const patch: {
+        noncompliance_penalty_count: number;
+        noncompliance_penalty_last_date: string;
+        manually_disqualified?: true;
+        disqualification_reason?: string;
+      } = {
+        noncompliance_penalty_count: newCount,
+        noncompliance_penalty_last_date: today,
+      };
+      if (newCount >= NONCOMPLIANCE_BAN_THRESHOLD) {
+        patch.manually_disqualified = true;
+        patch.disqualification_reason = "Acumulaste demasiados castigos sin cumplir a tiempo.";
+      }
+      const { error: banCounterError } = await supabase
+        .from("participants")
+        .update(patch)
+        .eq("id", participantId);
+      if (banCounterError) {
+        console.error(
+          `No se pudo actualizar noncompliance_penalty_count para ${participant.nombre_display}:`,
+          banCounterError.message,
+        );
+      }
     }
   }
 
@@ -799,7 +859,7 @@ export async function GET(request: Request) {
   const { data: participants, error } = await supabase
     .from("participants")
     .select(
-      "id, puuid, region_platform, nombre_display, penalty_games_without_compliance, penalty_last_processed_match_id, aegis_count",
+      "id, puuid, region_platform, nombre_display, penalty_games_without_compliance, penalty_last_processed_match_id, aegis_count, noncompliance_penalty_count, noncompliance_penalty_last_date, manually_disqualified",
     );
 
   if (error) {

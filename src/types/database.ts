@@ -61,15 +61,28 @@ export type Participant = {
    */
   aegis_count: number;
   /**
-   * Descalificación manual desde /admin (trampa, conducta, etc.) —
-   * independiente de la descalificación automática por no cumplir un
-   * castigo de mango (esa sale de penalty_progress.status, ver
-   * src/lib/penalty.ts). Pública: alimenta el mismo isDisqualified
-   * derivado del leaderboard (ver 0019_manual_disqualification.sql).
+   * Descalificación manual desde /admin (trampa, conducta, etc.) — ver
+   * 0019_manual_disqualification.sql. Pública: alimenta el mismo
+   * isDisqualified derivado del leaderboard. Desde 0029_noncompliance_ban_counter.sql
+   * el propio cron TAMBIÉN puede prenderla sola, en silencio, al llegar a
+   * NONCOMPLIANCE_BAN_THRESHOLD castigos por incumplimiento acumulados (ver
+   * noncompliance_penalty_count más abajo y src/lib/penalty.ts) — mismo
+   * flag, incluso desde afuera no se distingue de un ban manual.
    */
   manually_disqualified: boolean;
-  /** Motivo que cargó el admin al descalificar manualmente — null si nunca se usó esta vía. Admin-only, no se expone en el leaderboard público. */
+  /** Motivo que cargó el admin al descalificar manualmente, o el texto genérico que pone el cron al banear por incumplimiento acumulado — null si nunca se usó ninguna de las dos vías. Admin-only, no se expone en el leaderboard público (sí se le muestra al propio jugador descalificado en /jugador). */
   disqualification_reason: string | null;
+  /**
+   * Contador PRIVADO de castigos por incumplimiento acumulados EN EL DÍA
+   * (ver noncompliance_penalty_last_date, y
+   * nonComplianceGrants/NONCOMPLIANCE_BAN_THRESHOLD en src/lib/penalty.ts)
+   * — se reinicia solo al cambiar de día, y a propósito NINGÚN endpoint de
+   * cara al jugador lo lee ni lo expone: es la mitad "secreta" del baneo
+   * automático de arriba. Solo lo toca /api/update-rankings.
+   */
+  noncompliance_penalty_count: number;
+  /** Día (UTC, "YYYY-MM-DD") al que corresponde noncompliance_penalty_count — null hasta el primer castigo por incumplimiento. Si no es el día de hoy, el contador de arriba ya no cuenta (día distinto = arranca de 0). */
+  noncompliance_penalty_last_date: string | null;
   /**
    * Hasta cuándo este jugador está protegido contra mangos nuevos — null
    * si no tiene protección activa. Se activa desde /api/update-rankings al
@@ -311,6 +324,8 @@ export type Database = {
           | "mango_protection_until"
           | "penalty_last_processed_match_id"
           | "penalty_check_debug"
+          | "noncompliance_penalty_count"
+          | "noncompliance_penalty_last_date"
         > & {
           id?: string;
           profile_icon_id?: number | null;
@@ -326,6 +341,8 @@ export type Database = {
           mango_protection_until?: string | null;
           penalty_last_processed_match_id?: string | null;
           penalty_check_debug?: string | null;
+          noncompliance_penalty_count?: number;
+          noncompliance_penalty_last_date?: string | null;
         };
         Update: Partial<Omit<Participant, "id">>;
         Relationships: [];

@@ -77,6 +77,22 @@ const FLASH_SPELL_KEY = 4;
 /** Partidas ranked que tiene un jugador para cumplir ALGUNO de sus castigos pendientes antes de que el grupo entero pase a revisión manual (regla confirmada por el usuario). */
 export const PENALTY_GAME_LIMIT = 3;
 
+/**
+ * Máximo de castigos por incumplimiento (ver nonComplianceGrants más
+ * abajo) TOLERADOS POR DÍA (UTC) antes de descalificar automáticamente al
+ * jugador — el 3ro en el mismo día banea (2 se toleran). Se reinicia solo
+ * al cambiar de día (ver noncompliance_penalty_last_date), nunca queda
+ * pegado de un día para el otro. Pedido explícito del usuario, a propósito
+ * SIN mostrarse en ninguna UI ni exponerse por ninguna API: el contador
+ * real vive en participants.noncompliance_penalty_count (ver
+ * 0029_noncompliance_ban_counter.sql), que ningún endpoint de cara al
+ * jugador lee. La idea es que nadie sepa que esta regla existe de
+ * antemano — solo se entera quien la termina gatillando, con la
+ * descalificación resultante (mismo mecanismo que un ban manual desde
+ * /admin, ver participants.manually_disqualified).
+ */
+export const NONCOMPLIANCE_BAN_THRESHOLD = 3;
+
 export interface PenaltyMatchOutcome {
   matchId: string;
   /**

@@ -17,8 +17,12 @@ import type { Participant, Snapshot } from "@/types/database";
  * disqualification_reason y mango_protection_until tampoco: son
  * admin-only/de /jugador a propósito (ni el motivo de una descalificación
  * manual ni la protección contra mangos se exponen públicamente, ver
- * 0019_manual_disqualification.sql y 0020_mango_expiry_and_protection.sql)
- * — ninguno de los siete se pide en el select de abajo.
+ * 0019_manual_disqualification.sql y 0020_mango_expiry_and_protection.sql).
+ * noncompliance_penalty_count/noncompliance_penalty_last_date TAMPOCO,
+ * a propósito — es el contador secreto del baneo automático por
+ * incumplimiento (ver NONCOMPLIANCE_BAN_THRESHOLD en src/lib/penalty.ts):
+ * nadie debe poder verlo, ni siquiera indirectamente vía este tipo.
+ * Ninguno de los nueve se pide en el select de abajo.
  */
 type PublicParticipant = Omit<
   Participant,
@@ -29,6 +33,8 @@ type PublicParticipant = Omit<
   | "last_seen_at"
   | "disqualification_reason"
   | "mango_protection_until"
+  | "noncompliance_penalty_count"
+  | "noncompliance_penalty_last_date"
 >;
 
 /** Un castigo pendiente o en revisión, en formato listo para mostrar (Fase 5) — mismo shape que el banner de /jugador. */
