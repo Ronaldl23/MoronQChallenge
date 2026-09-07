@@ -23,7 +23,7 @@ import {
   MAX_ACTIVE_PENALTIES,
   PROTECTION_HOURS,
   hoursFromNowIso,
-  rollPenaltyOutcome,
+  rollNonCompliancePenaltyOutcome,
   SUPPORT_ASSIGNMENT,
   NO_FLASH_ASSIGNMENT,
   type PunishmentOutcome,
@@ -34,7 +34,6 @@ import { correlateLpChanges, correlateSingleMatchLp } from "@/lib/lp-correlation
 import { platformToContinent } from "@/lib/riot";
 import { fetchRankOrder } from "@/lib/ranking";
 import { getChampionList } from "@/lib/champions";
-import { getSummonerSpellList } from "@/lib/summoner-spells";
 import type { Database, QuestProgress, QuestType, RankDivision, RankTier } from "@/types/database";
 
 /** Mismo helper que /api/jugador/mangos/launch y /discard — qué guardar en champion_assigned para cada tipo de resultado. */
@@ -723,10 +722,12 @@ async function checkPenaltyCompliance({
   // pendiente otorga uno más por cada vez que pasó esta corrida — sin
   // techo. Autoinfligido (sent_by = el propio participante), 'pending_reveal'
   // igual que cualquier mango recién asignado (su propia sesión dispara la
-  // ruleta) y SIN balde de rebote (rollPenaltyOutcome no lo tiene, a
-  // diferencia de rollMangoOutcome) — regla explícita del usuario. Best
-  // effort: un fallo acá no debe tumbar el resto de esta corrida, ya se
-  // persistió todo lo demás arriba.
+  // ruleta), sin balde de rebote, y con rollNonCompliancePenaltyOutcome —
+  // una ruleta más dura que la normal (solo campeón al azar o sin Flash,
+  // sin Support ni hechizos específicos, ver src/lib/mango-launch.ts) a
+  // propósito, para que ignorar un castigo a tiempo nunca termine siendo
+  // más fácil que cumplirlo. Best effort: un fallo acá no debe tumbar el
+  // resto de esta corrida, ya se persistió todo lo demás arriba.
   if (result.nonComplianceGrants > 0) {
     // Cuántos de los nonComplianceGrants pedidos se llegaron a otorgar de
     // verdad esta corrida — si algo falla a mitad de camino, el contador
@@ -734,9 +735,9 @@ async function checkPenaltyCompliance({
     // realmente se insertaron, no los que se pidieron.
     let grantsInserted = 0;
     try {
-      const [champions, spells] = await Promise.all([getChampionList(), getSummonerSpellList()]);
+      const champions = await getChampionList();
       for (let i = 0; i < result.nonComplianceGrants; i++) {
-        const outcome = rollPenaltyOutcome(champions, spells);
+        const outcome = rollNonCompliancePenaltyOutcome(champions);
         const { data: newMango, error: mangoInsertError } = await supabase
           .from("mangos")
           .insert({

@@ -10,6 +10,7 @@
 import {
   pickWeightedIndex,
   rollFirstOutcome,
+  rollNonCompliancePenaltyOutcome,
   isMangoExpired,
   mangoExpiresAt,
   hoursFromNowIso,
@@ -22,6 +23,7 @@ import {
   FLASH_SPELL_ID,
   BOUNCE_PROBABILITY_PERCENT,
   EXPIRED_BOUNCE_PROBABILITY_PERCENT,
+  NONCOMPLIANCE_NO_FLASH_PROBABILITY_PERCENT,
   MANGO_EXPIRY_HOURS,
   MOLDY_TRASH_UNLOCK_HOURS,
   MOLDY_PROBABILITY_PERCENT,
@@ -123,6 +125,35 @@ const spells = [
     if (rollFirstOutcome(champions, spells, EXPIRED_BOUNCE_PROBABILITY_PERCENT).kind === "bounce") bounces++;
   }
   assertClose((bounces / trials) * 100, EXPIRED_BOUNCE_PROBABILITY_PERCENT, 1, `mango caduco: ~${EXPIRED_BOUNCE_PROBABILITY_PERCENT}% de rebote`);
+}
+
+// === rollNonCompliancePenaltyOutcome: solo campeón al azar o sin Flash, nunca Support ni un hechizo específico ===
+
+// --- 5b. ~NONCOMPLIANCE_NO_FLASH_PROBABILITY_PERCENT de "sin Flash", el resto campeón ---
+{
+  const trials = 50_000;
+  let noFlashCount = 0;
+  let championCount = 0;
+  let other = 0;
+  for (let i = 0; i < trials; i++) {
+    const outcome = rollNonCompliancePenaltyOutcome(champions);
+    if (outcome.kind === "spell" && outcome.noFlash === true) noFlashCount++;
+    else if (outcome.kind === "champion") championCount++;
+    else other++;
+  }
+  assertEqual(other, 0, "rollNonCompliancePenaltyOutcome: nunca Support ni un hechizo específico (solo campeón o sin Flash)");
+  assertClose(
+    (noFlashCount / trials) * 100,
+    NONCOMPLIANCE_NO_FLASH_PROBABILITY_PERCENT,
+    1,
+    `rollNonCompliancePenaltyOutcome: ~${NONCOMPLIANCE_NO_FLASH_PROBABILITY_PERCENT}% sin Flash`,
+  );
+  assertClose(
+    (championCount / trials) * 100,
+    100 - NONCOMPLIANCE_NO_FLASH_PROBABILITY_PERCENT,
+    1,
+    `rollNonCompliancePenaltyOutcome: ~${100 - NONCOMPLIANCE_NO_FLASH_PROBABILITY_PERCENT}% campeón al azar`,
+  );
 }
 
 // === isMangoExpired ===

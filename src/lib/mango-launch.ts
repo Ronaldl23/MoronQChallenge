@@ -264,6 +264,26 @@ export function rollPenaltyOutcome(
   return { kind: "champion", champion: pickRandomChampion(champions) };
 }
 
+/** % de "jugar sin Flash" en rollNonCompliancePenaltyOutcome — el resto (80%) es campeón al azar. */
+export const NONCOMPLIANCE_NO_FLASH_PROBABILITY_PERCENT = 20;
+
+/**
+ * Ruleta EXCLUSIVA del castigo por no cumplir un castigo a tiempo (ver
+ * nonComplianceGrants en src/lib/penalty.ts) — a pedido explícito del
+ * usuario: SIN Support ni hechizos específicos (son los castigos más
+ * "fáciles" del pool — un jugador estaba abusando de ignorar sus castigos
+ * a propósito porque le tocaban más seguido que a otros). Solo entre
+ * campeón al azar (80%) y jugar SIN Flash (20%), los dos castigos más
+ * duros — deliberadamente separada de rollPenaltyOutcome, que sigue igual
+ * para el rebote (ese endurecimiento es específico para este abuso, no
+ * para los rebotes normales).
+ */
+export function rollNonCompliancePenaltyOutcome(champions: Champion[]): PunishmentOutcome {
+  const roll = randomInt(100);
+  if (roll < NONCOMPLIANCE_NO_FLASH_PROBABILITY_PERCENT) return { kind: "spell", noFlash: true };
+  return { kind: "champion", champion: pickRandomChampion(champions) };
+}
+
 /** Nombre/ícono para mostrar un castigo ya asignado (notificaciones, banner, ruleta) — resuelve Support, un hechizo (normal o "sin Flash"), o un campeón puntual. */
 export function resolveAssignedPunishment(
   championAssigned: string | null,
