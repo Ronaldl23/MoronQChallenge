@@ -94,16 +94,19 @@ export type Participant = {
    */
   mango_protection_until: string | null;
   /**
-   * Cuántos castigos recibió este jugador (lanzamiento externo, rebote
-   * propio, hongo, o castigo por incumplimiento — CUALQUIER fuente que le
-   * inserte una fila en penalty_progress) desde la última vez que ganó
-   * protección — a diferencia de "cuántos tiene pendientes ahora mismo",
-   * este NUNCA baja al cumplir uno, solo se resetea a 0 al otorgarle
-   * protección (ver 0030_penalty_received_count.sql). Cierra el hueco de
-   * mantener a alguien siempre por debajo de MAX_ACTIVE_PENALTIES
-   * pendientes a la vez para que nunca gane protección. Público dentro de
-   * /jugador (LaunchModal lo muestra por cada objetivo posible, mismo
-   * criterio que antes con el conteo de pendientes), no en el leaderboard.
+   * Cuántos castigos recibió este jugador por lanzamiento EXTERNO de otro
+   * participante (SOLO eso — a propósito NO cuenta rebote propio, hongo, ni
+   * castigo por incumplimiento: esos tres son autoinfligidos/excepciones ya
+   * aceptadas para superar MAX_ACTIVE_PENALTIES, contarlos acá bloquearía
+   * lanzamientos ajenos por mala suerte propia en vez de por hostigamiento
+   * real) desde la última vez que ganó protección — a diferencia de
+   * "cuántos tiene pendientes ahora mismo", este NUNCA baja al cumplir uno,
+   * solo se resetea a 0 al otorgarle protección (ver
+   * 0030_penalty_received_count.sql). Cierra el hueco de mantener a
+   * alguien siempre por debajo de MAX_ACTIVE_PENALTIES pendientes a la vez
+   * para que nunca gane protección. Público dentro de /jugador (LaunchModal
+   * lo muestra por cada objetivo posible, mismo criterio que antes con el
+   * conteo de pendientes), no en el leaderboard.
    */
   penalty_received_count: number;
   /**

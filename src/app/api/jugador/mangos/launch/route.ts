@@ -353,26 +353,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: bouncePenaltyError.message }, { status: 500 });
   }
 
-  // El rebote también cuenta como "castigo recibido" para quien lanzó (ver
-  // penalty_received_count más arriba) — mismo criterio que un lanzamiento
-  // externo normal, best-effort igual que ahí.
-  const { data: selfRow } = await supabase
-    .from("participants")
-    .select("penalty_received_count")
-    .eq("id", participantId)
-    .maybeSingle();
-  if (selfRow) {
-    const { error: receivedCountError } = await supabase
-      .from("participants")
-      .update({ penalty_received_count: selfRow.penalty_received_count + 1 })
-      .eq("id", participantId);
-    if (receivedCountError) {
-      console.error(
-        "launch: fallo incrementando penalty_received_count del rebote:",
-        receivedCountError.message,
-      );
-    }
-  }
-
+  // A propósito NO incrementa penalty_received_count de quien lanzó: el
+  // rebote es autoinfligido (consecuencia de SU PROPIO lanzamiento, no algo
+  // que otro jugador le haya mandado a propósito) — mismo criterio que ya
+  // lo excluye del cupo de MAX_ACTIVE_PENALTIES en canLaunchMango. Contarlo
+  // acá arruinaría el propósito del contador: bloquear coordinación externa
+  // para hostigar a alguien, no penalizar la mala suerte propia.
   return NextResponse.json({ ok: true, targetNombreDisplay: target.nombre_display });
 }

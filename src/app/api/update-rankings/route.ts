@@ -784,21 +784,20 @@ async function checkPenaltyCompliance({
       const countBeforeToday =
         participant.noncompliance_penalty_last_date === today ? participant.noncompliance_penalty_count : 0;
       const newCount = countBeforeToday + grantsInserted;
+      // A propósito NO toca penalty_received_count: un castigo por
+      // incumplimiento es autoinfligido (uno mismo lo ignoró, ver
+      // nonComplianceGrants en src/lib/penalty.ts) — igual que el rebote y
+      // el hongo en launch/discard, no algo que otro jugador le haya
+      // mandado a propósito. penalty_received_count solo debe medir
+      // hostigamiento externo real; contarlo acá lo desvirtuaría.
       const patch: {
         noncompliance_penalty_count: number;
         noncompliance_penalty_last_date: string;
-        // Cada castigo por incumplimiento cuenta también como "castigo
-        // recibido" (ver penalty_received_count/MAX_ACTIVE_PENALTIES en
-        // /api/jugador/mangos/launch) — misma razón que ahí: acumulado
-        // desde la última protección, para que tampoco sirva de vía
-        // indirecta para esquivarla.
-        penalty_received_count: number;
         manually_disqualified?: true;
         disqualification_reason?: string;
       } = {
         noncompliance_penalty_count: newCount,
         noncompliance_penalty_last_date: today,
-        penalty_received_count: participant.penalty_received_count + grantsInserted,
       };
       if (newCount >= NONCOMPLIANCE_BAN_THRESHOLD) {
         patch.manually_disqualified = true;

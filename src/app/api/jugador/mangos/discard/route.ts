@@ -165,26 +165,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: penaltyError.message }, { status: 500 });
   }
 
-  // Cuenta como "castigo recibido" igual que uno mandado por otro jugador
-  // (ver penalty_received_count en /api/jugador/mangos/launch) — best
-  // effort, un fallo acá no debe tumbar el descarte en sí.
-  const { data: selfRow } = await supabase
-    .from("participants")
-    .select("penalty_received_count")
-    .eq("id", participantId)
-    .maybeSingle();
-  if (selfRow) {
-    const { error: receivedCountError } = await supabase
-      .from("participants")
-      .update({ penalty_received_count: selfRow.penalty_received_count + 1 })
-      .eq("id", participantId);
-    if (receivedCountError) {
-      console.error(
-        "discard: fallo incrementando penalty_received_count del hongo:",
-        receivedCountError.message,
-      );
-    }
-  }
+  // A propósito NO incrementa penalty_received_count: el hongo es
+  // autoinfligido (uno mismo decidió tirar SU PROPIO mango podrido a la
+  // basura, ver más arriba) — igual que el rebote en /api/jugador/mangos/launch,
+  // no algo que otro jugador le haya mandado a propósito. penalty_received_count
+  // solo debe medir hostigamiento externo real.
 
   return NextResponse.json({ ok: true, moldy: true });
 }
