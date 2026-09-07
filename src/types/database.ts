@@ -86,12 +86,26 @@ export type Participant = {
   /**
    * Hasta cuándo este jugador está protegido contra mangos nuevos — null
    * si no tiene protección activa. Se activa desde /api/update-rankings al
-   * cumplir un castigo TENIENDO 3 activos (ver PROTECTION_HOURS en
+   * cumplir un castigo TENIENDO penalty_received_count en
+   * MAX_ACTIVE_PENALTIES o más (ver PROTECTION_HOURS en
    * src/lib/mango-launch.ts), nunca por otra razón. Admin-only en la
    * práctica (solo lo lee /api/jugador/mangos/launch con el service role),
    * no se expone en el leaderboard público.
    */
   mango_protection_until: string | null;
+  /**
+   * Cuántos castigos recibió este jugador (lanzamiento externo, rebote
+   * propio, hongo, o castigo por incumplimiento — CUALQUIER fuente que le
+   * inserte una fila en penalty_progress) desde la última vez que ganó
+   * protección — a diferencia de "cuántos tiene pendientes ahora mismo",
+   * este NUNCA baja al cumplir uno, solo se resetea a 0 al otorgarle
+   * protección (ver 0030_penalty_received_count.sql). Cierra el hueco de
+   * mantener a alguien siempre por debajo de MAX_ACTIVE_PENALTIES
+   * pendientes a la vez para que nunca gane protección. Público dentro de
+   * /jugador (LaunchModal lo muestra por cada objetivo posible, mismo
+   * criterio que antes con el conteo de pendientes), no en el leaderboard.
+   */
+  penalty_received_count: number;
   /**
    * Última partida de match-v5 (Riot) ya evaluada contra los castigos
    * pendientes actuales de este jugador — igual que
@@ -326,6 +340,7 @@ export type Database = {
           | "penalty_check_debug"
           | "noncompliance_penalty_count"
           | "noncompliance_penalty_last_date"
+          | "penalty_received_count"
         > & {
           id?: string;
           profile_icon_id?: number | null;
@@ -343,6 +358,7 @@ export type Database = {
           penalty_check_debug?: string | null;
           noncompliance_penalty_count?: number;
           noncompliance_penalty_last_date?: string | null;
+          penalty_received_count?: number;
         };
         Update: Partial<Omit<Participant, "id">>;
         Relationships: [];

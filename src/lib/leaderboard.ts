@@ -22,7 +22,10 @@ import type { Participant, Snapshot } from "@/types/database";
  * a propósito — es el contador secreto del baneo automático por
  * incumplimiento (ver NONCOMPLIANCE_BAN_THRESHOLD en src/lib/penalty.ts):
  * nadie debe poder verlo, ni siquiera indirectamente vía este tipo.
- * Ninguno de los nueve se pide en el select de abajo.
+ * penalty_received_count tampoco: es admin/de-jugador igual que
+ * mango_protection_until (LaunchModal lo muestra dentro de /jugador, no en
+ * el leaderboard público, ver 0030_penalty_received_count.sql). Ninguno de
+ * los diez se pide en el select de abajo.
  */
 type PublicParticipant = Omit<
   Participant,
@@ -35,6 +38,7 @@ type PublicParticipant = Omit<
   | "mango_protection_until"
   | "noncompliance_penalty_count"
   | "noncompliance_penalty_last_date"
+  | "penalty_received_count"
 >;
 
 /** Un castigo pendiente o en revisión, en formato listo para mostrar (Fase 5) — mismo shape que el banner de /jugador. */

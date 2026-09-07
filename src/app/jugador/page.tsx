@@ -82,7 +82,7 @@ export default async function JugadorPage() {
       .eq("participant_id", participantId),
     supabase
       .from("participants")
-      .select("id, nombre_display, last_seen_at, mango_protection_until")
+      .select("id, nombre_display, last_seen_at, mango_protection_until, penalty_received_count")
       .neq("id", participantId),
     // Solo status='pending': todavía dentro de las 3 partidas para
     // cumplirlo (Fase 4). 'disqualified' ya salió de la ventana de
@@ -186,14 +186,6 @@ export default async function JugadorPage() {
   };
 
   const others = othersResult.data ?? [];
-  // Cupo de castigos ACTIVOS simultáneos por jugador (penalty_progress en
-  // 'pending') — reemplaza al viejo "recibidos en las últimas 24hs". Ya no
-  // importa cuándo los recibió, importa cuántos tiene sin resolver ahora
-  // mismo (ver MAX_ACTIVE_PENALTIES).
-  const { data: activePenalties } = await supabase
-    .from("penalty_progress")
-    .select("participant_id")
-    .eq("status", "pending");
 
   // Categoría de misiones ACTUAL de este jugador (ver MissionTier en
   // quests.ts) — se le pasa al InventoryPanel solo para armar las
@@ -202,14 +194,6 @@ export default async function JugadorPage() {
   // arriba desde quest_progress, que el cron mantiene al día con esta
   // misma categoría en cada corrida.
   const tier = tierForRank(rankOrder.get(participantId) ?? null);
-
-  const activePenaltyCountByParticipant = new Map<string, number>();
-  for (const row of activePenalties ?? []) {
-    activePenaltyCountByParticipant.set(
-      row.participant_id,
-      (activePenaltyCountByParticipant.get(row.participant_id) ?? 0) + 1,
-    );
-  }
 
   // Estadísticas de mangos (apartado nuevo dentro del inventario) — cuentan
   // TODA la vida del torneo, no una ventana de tiempo: cuántos mangos
@@ -272,7 +256,7 @@ export default async function JugadorPage() {
     id: p.id,
     nombre_display: p.nombre_display,
     hasRank: rankOrder.has(p.id),
-    activePenaltyCount: activePenaltyCountByParticipant.get(p.id) ?? 0,
+    receivedPenaltyCount: p.penalty_received_count,
     maxActivePenalties: MAX_ACTIVE_PENALTIES,
     protectedUntil: p.mango_protection_until,
     online: isOnline(p.last_seen_at),

@@ -13,10 +13,10 @@ export interface LaunchTarget {
   nombre_display: string;
   /** false mientras esté en placements (sin ninguna partida ranked jugada esta temporada, ver fetchRankOrder en src/lib/ranking.ts) — no se le puede lanzar un mango todavía. */
   hasRank: boolean;
-  /** Castigos activos ahora mismo (penalty_progress en 'pending') — ver MAX_ACTIVE_PENALTIES en src/lib/mango-launch.ts. */
-  activePenaltyCount: number;
+  /** Castigos RECIBIDOS acumulados desde su última protección (penalty_received_count, ver 0030_penalty_received_count.sql) — NO "cuántos tiene pendientes ahora", a propósito: eso permitía coordinar lanzamientos para que nunca llegara a estar "lleno". Ver MAX_ACTIVE_PENALTIES en src/lib/mango-launch.ts. */
+  receivedPenaltyCount: number;
   maxActivePenalties: number;
-  /** ISO — null o en el pasado si no tiene protección activa. Se gana al cumplir un castigo teniendo maxActivePenalties activos a la vez (ver PROTECTION_HOURS). */
+  /** ISO — null o en el pasado si no tiene protección activa. Se gana al cumplir un castigo teniendo receivedPenaltyCount en maxActivePenalties o más (ver PROTECTION_HOURS). */
   protectedUntil: string | null;
   /** Presencia (últimos 45s de last_seen_at) — ver src/lib/presence.ts. Calculado server-side. */
   online: boolean;
@@ -95,7 +95,7 @@ export function LaunchModal({
               )}
               {otherParticipants.map((p) => {
                 const protectedNow = isProtected(p);
-                const atLimit = p.activePenaltyCount >= p.maxActivePenalties;
+                const atLimit = p.receivedPenaltyCount >= p.maxActivePenalties;
                 const inPlacements = !p.hasRank;
                 const disabled = protectedNow || atLimit || inPlacements;
                 return (
@@ -130,7 +130,7 @@ export function LaunchModal({
                       <span className="text-xs text-loss">todavía en placements</span>
                     ) : (
                       <span className="text-xs text-text-secondary">
-                        {p.activePenaltyCount}/{p.maxActivePenalties} castigos
+                        {p.receivedPenaltyCount}/{p.maxActivePenalties} castigos
                       </span>
                     )}
                   </button>

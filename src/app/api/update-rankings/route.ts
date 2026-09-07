@@ -513,6 +513,8 @@ async function checkPenaltyCompliance({
     noncompliance_penalty_count: number;
     noncompliance_penalty_last_date: string | null;
     manually_disqualified: boolean;
+    /** Acumulado de castigos RECIBIDOS desde la última protección (ver 0030_penalty_received_count.sql) — reemplaza el viejo criterio "cuántos pendientes tiene ahora" para decidir cuándo se gana la protección de PROTECTION_HOURS. */
+    penalty_received_count: number;
   };
   riotApiKey: string;
 }): Promise<void> {
@@ -785,11 +787,18 @@ async function checkPenaltyCompliance({
       const patch: {
         noncompliance_penalty_count: number;
         noncompliance_penalty_last_date: string;
+        // Cada castigo por incumplimiento cuenta también como "castigo
+        // recibido" (ver penalty_received_count/MAX_ACTIVE_PENALTIES en
+        // /api/jugador/mangos/launch) — misma razón que ahí: acumulado
+        // desde la última protección, para que tampoco sirva de vía
+        // indirecta para esquivarla.
+        penalty_received_count: number;
         manually_disqualified?: true;
         disqualification_reason?: string;
       } = {
         noncompliance_penalty_count: newCount,
         noncompliance_penalty_last_date: today,
+        penalty_received_count: participant.penalty_received_count + grantsInserted,
       };
       if (newCount >= NONCOMPLIANCE_BAN_THRESHOLD) {
         patch.manually_disqualified = true;
@@ -810,22 +819,25 @@ async function checkPenaltyCompliance({
 
   // Protección de PROTECTION_HOURS contra mangos nuevos (ver
   // src/lib/mango-launch.ts) — SOLO si ya no podía recibir uno más (target
-  // check en /api/jugador/mangos/launch bloquea desde MAX_ACTIVE_PENALTIES
-  // pendientes en adelante, con >=) Y esta corrida cumplió AL MENOS uno.
-  // `penalties` de arriba es el estado antes de procesar las partidas de
-  // esta corrida. >= y no === a propósito: sin techo (ver
-  // nonComplianceGrants) un jugador puede llegar a tener 4, 5... pendientes
-  // por no cumplir a tiempo, y sigue tan "lleno" como uno con exactamente 3
-  // — cumplir uno de esos también debe dar protección. Cumplir un castigo
-  // teniendo 1 o 2 activos (nunca llegó a estar "lleno") no da protección
-  // — regla explícita del usuario.
+  // check en /api/jugador/mangos/launch bloquea desde
+  // penalty_received_count en MAX_ACTIVE_PENALTIES en adelante) Y esta
+  // corrida cumplió AL MENOS uno. penalty_received_count es un ACUMULADO
+  // desde la última protección (0030_penalty_received_count.sql), no
+  // "cuántos tiene pendientes ahora" — a propósito: ese criterio viejo
+  // dejaba coordinar lanzamientos para que nunca llegara a tener 3
+  // pendientes A LA VEZ (aunque en total le mandaran muchos más) y la
+  // protección nunca se disparaba. Con el acumulado, aunque los vaya
+  // cumpliendo de a uno sin juntar 3 pendientes nunca, al 3er RECIBIDO
+  // alcanza con cumplir cualquiera de los que le queden para ganarla.
+  // Cumplir un castigo sin haber llegado nunca a ese acumulado no da
+  // protección — regla explícita del usuario.
   if (
-    penalties.length >= MAX_ACTIVE_PENALTIES &&
+    participant.penalty_received_count >= MAX_ACTIVE_PENALTIES &&
     result.updates.some((update) => update.status === "completed")
   ) {
     const { error: protectionError } = await supabase
       .from("participants")
-      .update({ mango_protection_until: hoursFromNowIso(PROTECTION_HOURS) })
+      .update({ mango_protection_until: hoursFromNowIso(PROTECTION_HOURS), penalty_received_count: 0 })
       .eq("id", participantId);
     if (protectionError) throw protectionError;
   }
@@ -859,7 +871,7 @@ export async function GET(request: Request) {
   const { data: participants, error } = await supabase
     .from("participants")
     .select(
-      "id, puuid, region_platform, nombre_display, penalty_games_without_compliance, penalty_last_processed_match_id, aegis_count, noncompliance_penalty_count, noncompliance_penalty_last_date, manually_disqualified",
+      "id, puuid, region_platform, nombre_display, penalty_games_without_compliance, penalty_last_processed_match_id, aegis_count, noncompliance_penalty_count, noncompliance_penalty_last_date, manually_disqualified, penalty_received_count",
     );
 
   if (error) {

@@ -136,7 +136,7 @@ export async function POST(request: Request) {
 
   const { data: target, error: targetError } = await supabase
     .from("participants")
-    .select("id, nombre_display, mango_protection_until")
+    .select("id, nombre_display, mango_protection_until, penalty_received_count")
     .eq("id", target_participant_id)
     .maybeSingle();
 
@@ -159,19 +159,17 @@ export async function POST(request: Request) {
     );
   }
 
-  // Cupo de castigos ACTIVOS simultáneos (penalty_progress en 'pending') —
-  // ya no importa cuándo los recibió, importa cuántos tiene sin resolver
-  // ahora mismo (reemplaza al viejo límite "3 recibidos por día").
-  const { count: activePenaltyCount, error: countError } = await supabase
-    .from("penalty_progress")
-    .select("id", { count: "exact", head: true })
-    .eq("participant_id", target_participant_id)
-    .eq("status", "pending");
-
-  if (countError) {
-    return NextResponse.json({ error: countError.message }, { status: 500 });
-  }
-  if ((activePenaltyCount ?? 0) >= MAX_ACTIVE_PENALTIES) {
+  // Cupo de castigos RECIBIDOS (penalty_received_count, acumulado desde su
+  // última protección — ver 0030_penalty_received_count.sql) — a propósito
+  // ya NO es "cuántos tiene pendientes ahora mismo": ese criterio dejaba un
+  // vacío legal (coordinar lanzamientos para que nunca llegue a tener 3
+  // pendientes A LA VEZ, aunque en total le hayan mandado 6, 10, los que
+  // sean, sin que la protección se disparara nunca). Con el acumulado,
+  // aunque los vaya cumpliendo de a uno, al 3er castigo recibido ya no se
+  // le puede mandar más hasta que cumpla alguno de los que le queden
+  // pendientes (eso le da la protección de 8h, ver checkPenaltyCompliance
+  // en /api/update-rankings).
+  if (target.penalty_received_count >= MAX_ACTIVE_PENALTIES) {
     return NextResponse.json(
       { error: `${target.nombre_display} ya alcanzó el máximo de castigos disponibles` },
       { status: 409 },
@@ -268,6 +266,20 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: penaltyError.message }, { status: 500 });
     }
 
+    // Best-effort: si esto falla no debe tumbar el lanzamiento en sí (ya se
+    // insertó todo lo real arriba) — en el peor caso el contador queda un
+    // poco atrasado, se sigue igual la próxima vez que le manden otro.
+    const { error: receivedCountError } = await supabase
+      .from("participants")
+      .update({ penalty_received_count: target.penalty_received_count + 1 })
+      .eq("id", target_participant_id);
+    if (receivedCountError) {
+      console.error(
+        "launch: fallo incrementando penalty_received_count del objetivo:",
+        receivedCountError.message,
+      );
+    }
+
     return NextResponse.json({ ok: true, targetNombreDisplay: target.nombre_display });
   }
 
@@ -339,6 +351,27 @@ export async function POST(request: Request) {
   if (bouncePenaltyError) {
     console.error("launch: fallo insertando penalty_progress del rebote:", bouncePenaltyError.message);
     return NextResponse.json({ error: bouncePenaltyError.message }, { status: 500 });
+  }
+
+  // El rebote también cuenta como "castigo recibido" para quien lanzó (ver
+  // penalty_received_count más arriba) — mismo criterio que un lanzamiento
+  // externo normal, best-effort igual que ahí.
+  const { data: selfRow } = await supabase
+    .from("participants")
+    .select("penalty_received_count")
+    .eq("id", participantId)
+    .maybeSingle();
+  if (selfRow) {
+    const { error: receivedCountError } = await supabase
+      .from("participants")
+      .update({ penalty_received_count: selfRow.penalty_received_count + 1 })
+      .eq("id", participantId);
+    if (receivedCountError) {
+      console.error(
+        "launch: fallo incrementando penalty_received_count del rebote:",
+        receivedCountError.message,
+      );
+    }
   }
 
   return NextResponse.json({ ok: true, targetNombreDisplay: target.nombre_display });
