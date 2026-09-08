@@ -188,7 +188,8 @@ export type QuestType =
   | "kda_streak"
   | "deathless_win"
   | "high_kills"
-  | "beat_participant";
+  | "beat_participant"
+  | "loss_streak";
 
 export type QuestProgress = {
   id: string;

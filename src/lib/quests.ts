@@ -94,7 +94,10 @@ export function tierForRank(rank: number | null): MissionTier {
   return "top21_plus";
 }
 
-/** Targets efectivos de las 5 quests para una categoría dada — lo que se persiste en quest_progress.target y lo que usa tryGrant en processNewMatches. */
+/** 3 derrotas ranked seguidas para completar loss_streak — IGUAL para todas las categorías (a diferencia del resto de las misiones), regla confirmada por el usuario. */
+export const LOSS_STREAK_TARGET = 3;
+
+/** Targets efectivos de las 6 quests para una categoría dada — lo que se persiste en quest_progress.target y lo que usa tryGrant en processNewMatches. */
 export function questTargetsForTier(tier: MissionTier): Record<QuestType, number> {
   const cfg = MISSION_TIERS[tier];
   return {
@@ -105,6 +108,8 @@ export function questTargetsForTier(tier: MissionTier): Record<QuestType, number
     high_kills: 1,
     /** Igual que high_kills: target=1, se otorga en la partida misma. Sin cambios por categoría (regla confirmada por el usuario). */
     beat_participant: 1,
+    /** Sin cambios por categoría a propósito — ver LOSS_STREAK_TARGET. */
+    loss_streak: LOSS_STREAK_TARGET,
   };
 }
 
@@ -142,6 +147,8 @@ const QUEST_RESETS_ON_FAIL: Record<QuestType, boolean> = {
   deathless_win: false,
   high_kills: false,
   beat_participant: false,
+  /** Racha de verdad, igual que win_streak (su opuesto) — una victoria en el medio corta el contador a 0. */
+  loss_streak: true,
 };
 
 /** Todas las quests conocidas, en el orden en que se evalúan por partida (no afecta el resultado, solo el orden de los grants cuando varias se completan en la misma partida). */
@@ -151,6 +158,7 @@ export const QUEST_TYPES: QuestType[] = [
   "deathless_win",
   "high_kills",
   "beat_participant",
+  "loss_streak",
 ];
 
 export interface MatchOutcome {
@@ -184,6 +192,7 @@ function questCriteriaForTier(tier: MissionTier): Record<QuestType, (match: Matc
       (!cfg.lowDeathsRequireWin || match.win) && match.deaths < cfg.lowDeathsMaxDeaths,
     high_kills: (match) => (!cfg.killsRequireWin || match.win) && match.kills >= cfg.killsThreshold,
     beat_participant: (match) => match.win && match.beatTrackedParticipant,
+    loss_streak: (match) => !match.win,
   };
 }
 
@@ -215,7 +224,8 @@ export interface ProcessMatchesResult {
  * exactos de cada categoría):
  * - win_streak: partidas ranked solo/duo ganadas seguidas: winStreakTarget
  *   de la categoría consecutivas sin cortes -> mango. Una derrota en el
- *   medio vuelve el contador a 0. Es la ÚNICA racha de verdad.
+ *   medio vuelve el contador a 0. Racha de verdad, igual que loss_streak
+ *   (su opuesto).
  * - kda_streak: acumular kdaGames partidas (no necesariamente seguidas) con
  *   KDA >= kdaThreshold de la categoría; una partida por debajo no corta
  *   nada, se ignora y el contador sigue esperando la próxima que sí cumpla.
@@ -231,11 +241,19 @@ export interface ProcessMatchesResult {
  *   REGISTRADO del torneo del lado rival (target=1) — se otorga cada vez
  *   que se cumple, no una sola vez en toda la temporada. Sin cambios por
  *   categoría.
+ * - loss_streak: LOSS_STREAK_TARGET (3) derrotas ranked solo/duo SEGUIDAS
+ *   -> mango. Una victoria en el medio vuelve el contador a 0. IGUAL para
+ *   todas las categorías, a diferencia del resto (regla confirmada por el
+ *   usuario — "para los que tengan mala racha", no algo que dependa de
+ *   qué tan bien rankeado estés). Solo cuenta partidas jugadas DESPUÉS de
+ *   que se agregó esta misión: comparte el mismo cursor de partidas que el
+ *   resto (ver grantCompletedQuests en /api/update-rankings), así que para
+ *   un participante ya existente nunca hace backfill de derrotas viejas.
  * - Remakes (gameDurationSeconds < MIN_MATCH_DURATION_SECONDS) se ignoran
- *   por completo para las CINCO quests — ni suman progreso ni cortan una
- *   racha existente (win_streak es la única que resetea con una partida
- *   que no cumple: un remake NO es "una partida que no cumple", es como si
- *   no se hubiera jugado).
+ *   por completo para las SEIS quests — ni suman progreso ni cortan una
+ *   racha existente (win_streak/loss_streak son las únicas que resetean
+ *   con una partida que no cumple: un remake NO es "una partida que no
+ *   cumple", es como si no se hubiera jugado).
  * - Al completar una quest (progress === target), el progreso de ESA quest
  *   vuelve a 0 SIEMPRE, haya o no cupo. Cupo máximo de MAX_MANGO_INVENTORY
  *   mangos 'in_inventory' simultáneos: si hay lugar, se otorga el Mango; si

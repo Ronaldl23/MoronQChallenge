@@ -13,6 +13,7 @@ import {
   MISSION_TIERS,
   tierForRank,
   questTargetsForTier,
+  LOSS_STREAK_TARGET,
 } from "../src/lib/quests.ts";
 
 let passed = 0;
@@ -85,7 +86,7 @@ function beatWin(id, kills = 2, deaths = 5, assists = 1) {
   return { ...win(id, kills, deaths, assists), beatTrackedParticipant: true };
 }
 
-const ZERO = { win_streak: 0, kda_streak: 0, deathless_win: 0, high_kills: 0, beat_participant: 0 };
+const ZERO = { win_streak: 0, kda_streak: 0, deathless_win: 0, high_kills: 0, beat_participant: 0, loss_streak: 0 };
 
 function run(overrides) {
   return processNewMatches({ tier: TOP_TIER, ...overrides });
@@ -409,6 +410,69 @@ function run(overrides) {
 }
 
 // ============================================================
+// loss_streak: racha de derrotas (opuesto de win_streak), sin cambios por categoría
+// ============================================================
+
+// --- 22b. LOSS_STREAK_TARGET (3) derrotas seguidas -> 1 mango, progreso vuelve a 0 ---
+{
+  const seq = [loss("l1"), loss("l2"), loss("l3")];
+  const result = run({ progress: ZERO, matches: seq, mangoCount: 0 });
+  assertEqual(
+    result.grants,
+    [{ matchId: "l3", quest_type: "loss_streak" }],
+    "3 derrotas seguidas: se otorga exactamente 1 mango, en la 3ra partida",
+  );
+  assertEqual(result.progress.loss_streak, 0, "3 derrotas seguidas: progreso resetea a 0");
+}
+
+// --- 22c. Una victoria a mitad de la racha corta el contador a 0 ---
+{
+  const seq = [loss("m1"), loss("m2"), win("m3"), loss("m4"), loss("m5"), loss("m6")];
+  const result = run({ progress: ZERO, matches: seq, mangoCount: 0 });
+  assertEqual(
+    result.grants,
+    [{ matchId: "m6", quest_type: "loss_streak" }],
+    "L×2 + W + L×3: se otorga UNA sola vez, en m6 (la victoria en el medio cortó la racha de L×2)",
+  );
+}
+
+// --- 22d. 2 derrotas y corta ahí (no llega a 3): sin mango, progreso = 2 ---
+{
+  const seq = [loss("n1"), loss("n2")];
+  const result = run({ progress: ZERO, matches: seq, mangoCount: 0 });
+  assertEqual(result.grants, [], "2 derrotas: todavía no se otorga nada");
+  assertEqual(result.progress.loss_streak, 2, "2 derrotas: progreso queda en 2, esperando la 3ra");
+}
+
+// --- 22e. Remake en el medio no cuenta ni corta la racha de derrotas ---
+{
+  const seq = [loss("o1"), loss("o2"), remake("o3", { win: true }), loss("o4")];
+  const result = run({ progress: ZERO, matches: seq, mangoCount: 0 });
+  assertEqual(
+    result.grants,
+    [{ matchId: "o4", quest_type: "loss_streak" }],
+    "remake (aunque figure como win) en el medio de una racha de derrotas: se ignora, no corta nada",
+  );
+}
+
+// --- 22f. loss_streak NO varía por categoría (a diferencia de win_streak) ---
+{
+  const seq = [loss("p1"), loss("p2"), loss("p3")];
+  const top = processNewMatches({ progress: ZERO, matches: seq, mangoCount: 0, tier: "top1_3" });
+  const bottom = processNewMatches({ progress: ZERO, matches: seq, mangoCount: 0, tier: "top21_plus" });
+  assertEqual(
+    top.grants,
+    [{ matchId: "p3", quest_type: "loss_streak" }],
+    "loss_streak en top1_3: 3 derrotas alcanzan igual (target=3, sin cambios por categoría)",
+  );
+  assertEqual(
+    bottom.grants,
+    [{ matchId: "p3", quest_type: "loss_streak" }],
+    "loss_streak en top21_plus: mismo resultado que top1_3",
+  );
+}
+
+// ============================================================
 // Categorías: límites y targets
 // ============================================================
 
@@ -429,23 +493,23 @@ function run(overrides) {
 {
   assertEqual(
     questTargetsForTier("top1_3"),
-    { win_streak: 5, kda_streak: 5, deathless_win: 1, high_kills: 1, beat_participant: 1 },
-    "top1_3: 5 wins seguidas, 5 partidas KDA>=6, deathless target=1, high_kills target=1",
+    { win_streak: 5, kda_streak: 5, deathless_win: 1, high_kills: 1, beat_participant: 1, loss_streak: 3 },
+    "top1_3: 5 wins seguidas, 5 partidas KDA>=6, deathless target=1, high_kills target=1, loss_streak=3",
   );
   assertEqual(
     questTargetsForTier("top4_10"),
-    { win_streak: 5, kda_streak: 5, deathless_win: 1, high_kills: 1, beat_participant: 1 },
+    { win_streak: 5, kda_streak: 5, deathless_win: 1, high_kills: 1, beat_participant: 1, loss_streak: 3 },
     "top4_10: mismos targets numéricos que top1_3 (solo cambian los umbrales/requisito de ganar)",
   );
   assertEqual(
     questTargetsForTier("top11_20"),
-    { win_streak: 4, kda_streak: 4, deathless_win: 1, high_kills: 1, beat_participant: 1 },
+    { win_streak: 4, kda_streak: 4, deathless_win: 1, high_kills: 1, beat_participant: 1, loss_streak: 3 },
     "top11_20: 4 wins seguidas, 4 partidas KDA>=4",
   );
   assertEqual(
     questTargetsForTier("top21_plus"),
-    { win_streak: 3, kda_streak: 3, deathless_win: 3, high_kills: 1, beat_participant: 1 },
-    "top21_plus: 3 wins seguidas, 3 partidas KDA>=3, deathless_win pasa a target=3 (3 partidas con menos de 3 muertes)",
+    { win_streak: 3, kda_streak: 3, deathless_win: 3, high_kills: 1, beat_participant: 1, loss_streak: 3 },
+    "top21_plus: 3 wins seguidas, 3 partidas KDA>=3, deathless_win pasa a target=3 (3 partidas con menos de 3 muertes), loss_streak=3 (sin cambios por categoría)",
   );
 }
 
@@ -461,6 +525,7 @@ function run(overrides) {
 }
 
 assertEqual(MIN_MATCH_DURATION_SECONDS, 240, "MIN_MATCH_DURATION_SECONDS es 240 (4 minutos, regla confirmada por el usuario)");
+assertEqual(LOSS_STREAK_TARGET, 3, "LOSS_STREAK_TARGET es 3 (regla confirmada por el usuario)");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);

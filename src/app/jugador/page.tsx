@@ -158,7 +158,7 @@ export default async function JugadorPage() {
     (questsResult.data ?? []).map((q) => [q.quest_type, q] as const),
   );
   // Fallback SOLO para el caso raro de una fila de quest_progress que
-  // todavía no existe (el cron de /api/update-rankings, que crea las 5
+  // todavía no existe (el cron de /api/update-rankings, que crea las 6
   // filas y les mantiene el target al día con la categoría actual —ver
   // MissionTier en quests.ts—, todavía no corrió ni una vez para este
   // participante) — la categoría más floja (top21_plus) como default
@@ -183,6 +183,10 @@ export default async function JugadorPage() {
   const beatParticipant = {
     current: questByType.get("beat_participant")?.current_progress ?? 0,
     target: questByType.get("beat_participant")?.target ?? defaultTargets.beat_participant,
+  };
+  const lossStreak = {
+    current: questByType.get("loss_streak")?.current_progress ?? 0,
+    target: questByType.get("loss_streak")?.target ?? defaultTargets.loss_streak,
   };
 
   const others = othersResult.data ?? [];
@@ -379,6 +383,7 @@ export default async function JugadorPage() {
           deathlessWin={deathlessWin}
           highKills={highKills}
           beatParticipant={beatParticipant}
+          lossStreak={lossStreak}
           otherParticipants={otherParticipants}
           launchBlocked={launchBlocked}
           inPlacements={inPlacements}

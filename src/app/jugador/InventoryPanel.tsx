@@ -45,6 +45,7 @@ export function InventoryPanel({
   deathlessWin,
   highKills,
   beatParticipant,
+  lossStreak,
   otherParticipants,
   launchBlocked,
   inPlacements,
@@ -58,6 +59,8 @@ export function InventoryPanel({
   deathlessWin: QuestProgressView;
   highKills: QuestProgressView;
   beatParticipant: QuestProgressView;
+  /** 3 derrotas ranked seguidas -> mango — IGUAL para todas las categorías, no varía con tier (ver LOSS_STREAK_TARGET en src/lib/quests.ts). */
+  lossStreak: QuestProgressView;
   otherParticipants: LaunchTarget[];
   /** true si ya tiene MÁS de MAX_ACTIVE_PENALTIES castigos activos propios (ver canLaunchMango en src/lib/mango-launch.ts) — puede pasar con un rebote propio estando ya en el tope, la única excepción aceptada — O si está en placements (inPlacements). El chequeo real (que esto solo refleja) vive en /api/jugador/mangos/launch. */
   launchBlocked: boolean;
@@ -175,6 +178,11 @@ export function InventoryPanel({
             label="Ganar contra otro participante del torneo"
             current={beatParticipant.current}
             target={beatParticipant.target}
+          />
+          <QuestBar
+            label={`${lossStreak.target} Derrotas seguidas`}
+            current={lossStreak.current}
+            target={lossStreak.target}
           />
         </div>
       </section>
