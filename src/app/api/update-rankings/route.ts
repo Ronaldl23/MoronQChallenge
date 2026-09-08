@@ -899,11 +899,18 @@ export async function GET(request: Request) {
   }
 
   const supabase = createAdminClient();
+  // Orden por last_update_attempted_at ascendente (null primero, ver
+  // 0031_last_update_attempted_at.sql) — rotación justa: si esta corrida se
+  // queda sin tiempo (maxDuration=60) antes de llegar a todos, quien quedó
+  // afuera esta vez es justo quien va PRIMERO la próxima, en vez de que
+  // los mismos participantes queden siempre rezagados corrida tras corrida
+  // (bug real reportado, Juan Ruiz sin actualizarse 18+ horas).
   const { data: participants, error } = await supabase
     .from("participants")
     .select(
       "id, puuid, region_platform, nombre_display, penalty_games_without_compliance, penalty_last_processed_match_id, aegis_count, noncompliance_penalty_count, noncompliance_penalty_last_date, manually_disqualified, penalty_received_count",
-    );
+    )
+    .order("last_update_attempted_at", { ascending: true, nullsFirst: true });
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -936,6 +943,22 @@ export async function GET(request: Request) {
     const rankOrder = await fetchRankOrder(supabase);
 
     for (const participant of participants ?? []) {
+      // Se marca ACÁ, antes de hacer nada más — ver el comentario largo en
+      // 0031_last_update_attempted_at.sql sobre por qué al principio y no
+      // al final (rotación justa aunque este participante puntual falle o
+      // tarde). Best-effort: si esto falla no debe abortar su
+      // procesamiento real.
+      const { error: attemptMarkError } = await supabase
+        .from("participants")
+        .update({ last_update_attempted_at: new Date().toISOString() })
+        .eq("id", participant.id);
+      if (attemptMarkError) {
+        console.error(
+          `No se pudo marcar last_update_attempted_at para ${participant.nombre_display}:`,
+          attemptMarkError.message,
+        );
+      }
+
       const platform = participant.region_platform.toLowerCase();
 
       // Ícono de invocador: best-effort, independiente del resultado de

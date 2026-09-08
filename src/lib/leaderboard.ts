@@ -24,8 +24,11 @@ import type { Participant, Snapshot } from "@/types/database";
  * nadie debe poder verlo, ni siquiera indirectamente vía este tipo.
  * penalty_received_count tampoco: es admin/de-jugador igual que
  * mango_protection_until (LaunchModal lo muestra dentro de /jugador, no en
- * el leaderboard público, ver 0030_penalty_received_count.sql). Ninguno de
- * los diez se pide en el select de abajo.
+ * el leaderboard público, ver 0030_penalty_received_count.sql).
+ * last_update_attempted_at tampoco: puramente operacional, para la
+ * rotación justa del cron (ver 0031_last_update_attempted_at.sql), sin
+ * ningún sentido de cara al jugador. Ninguno de los once se pide en el
+ * select de abajo.
  */
 type PublicParticipant = Omit<
   Participant,
@@ -39,6 +42,7 @@ type PublicParticipant = Omit<
   | "noncompliance_penalty_count"
   | "noncompliance_penalty_last_date"
   | "penalty_received_count"
+  | "last_update_attempted_at"
 >;
 
 /** Un castigo pendiente o en revisión, en formato listo para mostrar (Fase 5) — mismo shape que el banner de /jugador. */

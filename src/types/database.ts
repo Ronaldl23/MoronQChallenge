@@ -110,6 +110,18 @@ export type Participant = {
    */
   penalty_received_count: number;
   /**
+   * Cuándo el cron de /api/update-rankings empezó a procesar a este
+   * participante por última vez (no cuándo terminó, ni si tuvo éxito) —
+   * null si nunca se lo procesó. Cada corrida ordena por esta columna
+   * ascendente (ver 0031_last_update_attempted_at.sql) para rotar de forma
+   * justa quién se procesa primero cuando el roster no entra entero en una
+   * sola corrida (maxDuration=60 de Vercel) — sin esto, algunos
+   * participantes podían quedar rezagados corrida tras corrida mientras
+   * otros se actualizaban cada pocos minutos. Operacional, no se expone en
+   * ninguna UI.
+   */
+  last_update_attempted_at: string | null;
+  /**
    * Última partida de match-v5 (Riot) ya evaluada contra los castigos
    * pendientes actuales de este jugador — igual que
    * quest_progress.last_processed_match_id, pero para el cumplimiento de
@@ -344,6 +356,7 @@ export type Database = {
           | "noncompliance_penalty_count"
           | "noncompliance_penalty_last_date"
           | "penalty_received_count"
+          | "last_update_attempted_at"
         > & {
           id?: string;
           profile_icon_id?: number | null;
@@ -362,6 +375,7 @@ export type Database = {
           noncompliance_penalty_count?: number;
           noncompliance_penalty_last_date?: string | null;
           penalty_received_count?: number;
+          last_update_attempted_at?: string | null;
         };
         Update: Partial<Omit<Participant, "id">>;
         Relationships: [];
