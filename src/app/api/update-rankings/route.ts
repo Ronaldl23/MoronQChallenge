@@ -44,10 +44,15 @@ function toStoredAssignment(outcome: PunishmentOutcome): string {
 }
 
 export const dynamic = "force-dynamic";
-// Con reintentos por 429 el tiempo total ya no es 100% predecible; damos
-// margen de sobra en Vercel en vez de arriesgar que corte la función a
-// mitad de camino (el default sin esto es 10s en Hobby).
-export const maxDuration = 60;
+// 300s (el máximo que permite el plan Pro de Vercel) — con 60s el roster
+// completo (27 participantes, varias llamadas a Riot cada uno con
+// reintentos por 429) no entraba entero en una sola corrida, dejando
+// participantes a medio procesar (caso real reportado: Juan Ruiz marcado
+// como "intentado" pero sin llegar a procesarse de verdad). La rotación
+// justa (ver last_update_attempted_at) sigue como red de seguridad para
+// cuando el roster crezca más de lo que da incluso este margen, pero esto
+// ataca la causa real en vez de solo repartir el problema.
+export const maxDuration = 300;
 
 /**
  * Delay entre CADA llamada a Riot (no solo entre participantes — ver abajo
@@ -132,7 +137,7 @@ const MATCH_HISTORY_WINDOW = 20;
  * (cada una es 1 llamada extra a Riot con su propio sleep de espaciado).
  * Sin esto, un backfill completo (participante sin last_processed_match_id,
  * hasta MATCH_HISTORY_WINDOW partidas) multiplicado por ~20 participantes
- * puede superar fácil el maxDuration=60 de Vercel en la primera corrida
+ * puede superar fácil el maxDuration de Vercel en la primera corrida
  * después de desplegar esta fase. Con el tope, el resto queda para las
  * próximas corridas — no se pierde nada, el cursor solo avanza hasta donde
  * realmente se llegó a procesar.
@@ -901,10 +906,12 @@ export async function GET(request: Request) {
   const supabase = createAdminClient();
   // Orden por last_update_attempted_at ascendente (null primero, ver
   // 0031_last_update_attempted_at.sql) — rotación justa: si esta corrida se
-  // queda sin tiempo (maxDuration=60) antes de llegar a todos, quien quedó
+  // queda sin tiempo (maxDuration) antes de llegar a todos, quien quedó
   // afuera esta vez es justo quien va PRIMERO la próxima, en vez de que
   // los mismos participantes queden siempre rezagados corrida tras corrida
-  // (bug real reportado, Juan Ruiz sin actualizarse 18+ horas).
+  // (bug real reportado, Juan Ruiz sin actualizarse 18+ horas) — red de
+  // seguridad aparte de subir maxDuration a 300, para cuando el roster
+  // crezca más de lo que da incluso ese margen.
   const { data: participants, error } = await supabase
     .from("participants")
     .select(
@@ -927,8 +934,8 @@ export async function GET(request: Request) {
   // ejemplo, corta a los 30s y lo marca "failed" aunque el servidor siga
   // trabajando bien) — se responde de inmediato más abajo y el trabajo
   // pesado sigue corriendo server-side vía after(), acotado por el mismo
-  // maxDuration=60 de siempre (no cambia cuánto tarda esto en terminar,
-  // solo evita que el cliente del cron tenga que quedarse esperando).
+  // maxDuration de siempre (no cambia cuánto tarda esto en terminar, solo
+  // evita que el cliente del cron tenga que quedarse esperando).
   after(async () => {
     const results: Array<{
       participant_id: string;
