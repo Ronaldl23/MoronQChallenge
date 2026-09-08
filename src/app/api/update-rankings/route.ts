@@ -564,13 +564,31 @@ async function checkPenaltyCompliance({
 
   const { data: mangoRows, error: mangoError } = await supabase
     .from("mangos")
-    .select("id, champion_assigned, status")
+    .select("id, champion_assigned, status, is_noncompliance_penalty")
     .in(
       "id",
       pendingRows.map((row) => row.mango_id),
     );
   if (mangoError) throw mangoError;
   const mangoById = new Map((mangoRows ?? []).map((m) => [m.id, m]));
+
+  // Castigos por incumplimiento (ver nonComplianceGrants en
+  // src/lib/penalty.ts) — autoinfligidos: un jugador puede ignorar a
+  // propósito sus castigos REALES para que la ventana se agote y le
+  // otorguen uno de estos en su lugar, con una ruleta más dura pero SIN
+  // ningún remitente eligiéndolo. Si cumplirlos contara igual que cumplir
+  // uno real para la protección de más abajo, sería un exploit: fabricar
+  // su propio "castigo cumplido" en vez de resolver los que de verdad le
+  // mandaron (caso real reportado por el usuario, Benimaru). Este set
+  // marca cuáles de los penalty_progress.id de este grupo son de ese tipo,
+  // para excluirlos del chequeo de protección sin afectar en nada el
+  // resto de processPenaltyMatches (siguen siendo un castigo pendiente
+  // normal, hay que cumplirlos igual).
+  const noncompliancePenaltyIds = new Set(
+    pendingRows
+      .filter((row) => mangoById.get(row.mango_id)?.is_noncompliance_penalty)
+      .map((row) => row.id),
+  );
 
   const penalties: PendingPenalty[] = pendingRows.flatMap((row) => {
     const mango = mangoById.get(row.mango_id);
@@ -830,10 +848,16 @@ async function checkPenaltyCompliance({
   // cumpliendo de a uno sin juntar 3 pendientes nunca, al 3er RECIBIDO
   // alcanza con cumplir cualquiera de los que le queden para ganarla.
   // Cumplir un castigo sin haber llegado nunca a ese acumulado no da
-  // protección — regla explícita del usuario.
+  // protección — regla explícita del usuario. !noncompliancePenaltyIds.has
+  // también a propósito (ver el comentario largo más arriba, caso real
+  // Benimaru): cumplir un castigo por INCUMPLIMIENTO (autoinfligido, se lo
+  // otorgó él mismo por ignorar los reales) no debe contar como "cumplió
+  // uno" para ganar protección — si contara, alcanzaría con ignorar los
+  // castigos reales a propósito para farmear su propia excusa y ganar
+  // protección sin haber resuelto nada de lo que de verdad le mandaron.
   if (
     participant.penalty_received_count >= MAX_ACTIVE_PENALTIES &&
-    result.updates.some((update) => update.status === "completed")
+    result.updates.some((update) => update.status === "completed" && !noncompliancePenaltyIds.has(update.id))
   ) {
     const { error: protectionError } = await supabase
       .from("participants")
