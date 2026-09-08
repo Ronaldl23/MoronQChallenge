@@ -5,6 +5,7 @@ import { AddShowcaseParticipantForm } from "./AddShowcaseParticipantForm";
 import { ReplaceParticipantAccountForm } from "./ReplaceParticipantAccountForm";
 import { DisqualifyParticipantForm } from "./DisqualifyParticipantForm";
 import { PenaltyReviewPanel } from "./PenaltyReviewPanel";
+import { PendingPenaltiesPanel } from "./PendingPenaltiesPanel";
 import { PickemAdminPanel } from "./PickemAdminPanel";
 
 export const dynamic = "force-dynamic";
@@ -32,6 +33,7 @@ export default async function AdminPage() {
         {authenticated && <AddShowcaseParticipantForm />}
         {authenticated && <ReplaceParticipantAccountForm />}
         {authenticated && <DisqualifyParticipantForm />}
+        {authenticated && <PendingPenaltiesPanel />}
         {authenticated && <PenaltyReviewPanel />}
         {authenticated && <PickemAdminPanel />}
       </main>
