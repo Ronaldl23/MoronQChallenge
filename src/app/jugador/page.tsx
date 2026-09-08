@@ -187,6 +187,21 @@ export default async function JugadorPage() {
 
   const others = othersResult.data ?? [];
 
+  // Cupo de castigos PENDIENTES simultáneos por jugador — red de seguridad
+  // aparte de penalty_received_count (ver el mismo chequeo doble en
+  // /api/jugador/mangos/launch): ganar la protección de 8h resetea el
+  // acumulado de recibidos a 0, pero eso no debería dejar que le manden 3
+  // MÁS encima de otros que ya tenía sin resolver de antes. Se muestra acá
+  // para que LaunchModal refleje el mismo bloqueo real del servidor.
+  const { data: pendingByTarget } = await supabase
+    .from("penalty_progress")
+    .select("participant_id")
+    .eq("status", "pending");
+  const pendingCountByParticipant = new Map<string, number>();
+  for (const row of pendingByTarget ?? []) {
+    pendingCountByParticipant.set(row.participant_id, (pendingCountByParticipant.get(row.participant_id) ?? 0) + 1);
+  }
+
   // Categoría de misiones ACTUAL de este jugador (ver MissionTier en
   // quests.ts) — se le pasa al InventoryPanel solo para armar las
   // etiquetas de cada misión (umbral de KDA, kills, muertes de su
@@ -257,6 +272,7 @@ export default async function JugadorPage() {
     nombre_display: p.nombre_display,
     hasRank: rankOrder.has(p.id),
     receivedPenaltyCount: p.penalty_received_count,
+    pendingPenaltyCount: pendingCountByParticipant.get(p.id) ?? 0,
     maxActivePenalties: MAX_ACTIVE_PENALTIES,
     protectedUntil: p.mango_protection_until,
     online: isOnline(p.last_seen_at),

@@ -176,6 +176,29 @@ export async function POST(request: Request) {
     );
   }
 
+  // Red de seguridad ADICIONAL, independiente de penalty_received_count:
+  // ganar la protección de 8h resetea ese contador a 0 (ver
+  // checkPenaltyCompliance), pero eso NO revisa si todavía le quedan otros
+  // castigos REALES sin resolver de antes — sin este chequeo, apenas se le
+  // termina la protección se le podrían volver a mandar 3 más encima de
+  // los que ya tenía pendientes, terminando con 5+ a la vez. Esto nunca
+  // debe pasar: cuántos tiene PENDIENTES ahora mismo (sin importar
+  // cuándo los recibió) sigue siendo un tope aparte, siempre activo.
+  const { count: targetPendingCount, error: targetPendingCountError } = await supabase
+    .from("penalty_progress")
+    .select("id", { count: "exact", head: true })
+    .eq("participant_id", target_participant_id)
+    .eq("status", "pending");
+  if (targetPendingCountError) {
+    return NextResponse.json({ error: targetPendingCountError.message }, { status: 500 });
+  }
+  if ((targetPendingCount ?? 0) >= MAX_ACTIVE_PENALTIES) {
+    return NextResponse.json(
+      { error: `${target.nombre_display} ya alcanzó el máximo de castigos disponibles` },
+      { status: 409 },
+    );
+  }
+
   // Objetivo todavía en placements (sin ninguna partida ranked jugada esta
   // temporada) — no se le puede lanzar un mango todavía: no hay forma de
   // ubicarlo en el ranking ni de aplicarle el bono anti-bullying más

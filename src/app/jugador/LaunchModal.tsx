@@ -15,6 +15,8 @@ export interface LaunchTarget {
   hasRank: boolean;
   /** Castigos RECIBIDOS acumulados desde su última protección (penalty_received_count, ver 0030_penalty_received_count.sql) — NO "cuántos tiene pendientes ahora", a propósito: eso permitía coordinar lanzamientos para que nunca llegara a estar "lleno". Ver MAX_ACTIVE_PENALTIES en src/lib/mango-launch.ts. */
   receivedPenaltyCount: number;
+  /** Castigos PENDIENTES ahora mismo (penalty_progress en 'pending') — tope aparte de receivedPenaltyCount, mismo chequeo doble que /api/jugador/mangos/launch: ganar protección resetea receivedPenaltyCount a 0, pero no debe dejar que se acumulen más encima de otros que ya tenía sin resolver de antes. */
+  pendingPenaltyCount: number;
   maxActivePenalties: number;
   /** ISO — null o en el pasado si no tiene protección activa. Se gana al cumplir un castigo teniendo receivedPenaltyCount en maxActivePenalties o más (ver PROTECTION_HOURS). */
   protectedUntil: string | null;
@@ -95,7 +97,8 @@ export function LaunchModal({
               )}
               {otherParticipants.map((p) => {
                 const protectedNow = isProtected(p);
-                const atLimit = p.receivedPenaltyCount >= p.maxActivePenalties;
+                const atLimit =
+                  p.receivedPenaltyCount >= p.maxActivePenalties || p.pendingPenaltyCount >= p.maxActivePenalties;
                 const inPlacements = !p.hasRank;
                 const disabled = protectedNow || atLimit || inPlacements;
                 return (
