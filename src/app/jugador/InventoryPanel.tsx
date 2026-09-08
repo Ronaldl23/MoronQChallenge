@@ -180,7 +180,7 @@ export function InventoryPanel({
             target={beatParticipant.target}
           />
           <QuestBar
-            label={`${lossStreak.target} Derrotas seguidas`}
+            label={`Misión Jonas, ${lossStreak.target} Derrotas seguidas`}
             current={lossStreak.current}
             target={lossStreak.target}
           />
