@@ -43,23 +43,19 @@ export const MAX_ACTIVE_PENALTIES = 3;
 
 /**
  * El cupo de MAX_ACTIVE_PENALTIES es sobre lo que a un jugador le PUEDEN
- * lanzar (ver el chequeo del objetivo en /api/jugador/mangos/launch) — no
- * bloquea que ÉL MISMO siga lanzando mangos aunque ya esté en el tope,
- * porque si su propio mango rebota (ver BOUNCE_PROBABILITY_PERCENT),
- * ese castigo es autoinfligido: la única excepción confirmada por el
- * usuario para terminar con MÁS de MAX_ACTIVE_PENALTIES castigos activos
- * es exactamente esa — un jugador con 3 que lanza y le rebota, sumando un
- * 4to. Pero esa excepción es de una sola vez, no una puerta abierta: un
- * jugador que ya está en 4+ (porque tuvo su propio rebote) queda
- * bloqueado para lanzar OTRO mango hasta volver a 3 o menos (cumpliendo
- * uno, o que lo perdonen) — sin este freno podría seguir lanzando y
- * acumulando un 5to, 6to castigo sin ningún límite. Se permite lanzar en
- * 0..MAX_ACTIVE_PENALTIES (incluido el propio tope, para que el rebote que
- * te suma el 4to pueda pasar) y se bloquea recién en MAX_ACTIVE_PENALTIES+1
- * en adelante.
+ * lanzar (ver el chequeo del objetivo en /api/jugador/mangos/launch) —
+ * pero TAMBIÉN bloquea que él mismo siga lanzando mangos apenas llega al
+ * tope, a propósito (cambio pedido por el usuario: "para que la gente se
+ * quiera quitar los castigos" — que tener 3 pendientes se sienta como un
+ * freno real, no algo que se pueda ignorar y seguir jugando el sistema de
+ * mangos con normalidad). Antes se permitía lanzar estando EN el tope
+ * (0..MAX_ACTIVE_PENALTIES) para que un rebote propio pudiera sumar un
+ * 4to sin quedar bloqueado por eso — esa excepción ya no existe: se
+ * bloquea desde MAX_ACTIVE_PENALTIES en adelante (0..MAX_ACTIVE_PENALTIES-1
+ * es el único rango que permite lanzar).
  */
 export function canLaunchMango(ownActivePenaltyCount: number): boolean {
-  return ownActivePenaltyCount <= MAX_ACTIVE_PENALTIES;
+  return ownActivePenaltyCount < MAX_ACTIVE_PENALTIES;
 }
 
 /**

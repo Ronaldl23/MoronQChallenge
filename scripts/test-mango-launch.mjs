@@ -248,23 +248,23 @@ const spells = [
   assertEqual(computeBullyingBonusPercent(null, null), 0, "sin rank de ninguno: sin bono");
 }
 
-// === canLaunchMango (vacío legal: el rebote propio te puede sumar UN 4to, pero no más) ===
+// === canLaunchMango (bloquea apenas se llega al tope, sin excepción — regla confirmada por el usuario: "para que la gente se quiera quitar los castigos") ===
 
-// --- 17. Con 0..MAX_ACTIVE_PENALTIES castigos activos propios -> puede lanzar ---
+// --- 17. Con 0..MAX_ACTIVE_PENALTIES-1 castigos activos propios -> puede lanzar ---
 {
-  for (let n = 0; n <= MAX_ACTIVE_PENALTIES; n++) {
-    assertEqual(canLaunchMango(n), true, `con ${n} castigos activos (<= ${MAX_ACTIVE_PENALTIES}): puede lanzar`);
+  for (let n = 0; n < MAX_ACTIVE_PENALTIES; n++) {
+    assertEqual(canLaunchMango(n), true, `con ${n} castigos activos (< ${MAX_ACTIVE_PENALTIES}): puede lanzar`);
   }
 }
 
-// --- 18. Justo en el tope (3): TODAVÍA puede lanzar — así el rebote propio puede sumarle el 4to ---
+// --- 18. Justo en el tope (3): YA bloqueado, sin excepción ---
 {
-  assertEqual(canLaunchMango(MAX_ACTIVE_PENALTIES), true, "en el tope exacto: puede lanzar (para que el rebote propio pueda pasar)");
+  assertEqual(canLaunchMango(MAX_ACTIVE_PENALTIES), false, "en el tope exacto: bloqueado, sin excepción para el rebote propio");
 }
 
-// --- 19. Con MAX_ACTIVE_PENALTIES + 1 (el 4to, ya sumado por un rebote propio) -> bloqueado ---
+// --- 19. Por encima del tope -> sigue bloqueado ---
 {
-  assertEqual(canLaunchMango(MAX_ACTIVE_PENALTIES + 1), false, "con el 4to ya sumado: bloqueado hasta bajar de nuevo");
+  assertEqual(canLaunchMango(MAX_ACTIVE_PENALTIES + 1), false, "por encima del tope: bloqueado");
 }
 
 // --- 20. Muy por encima del tope -> sigue bloqueado, no hay un techo mágico aparte ---

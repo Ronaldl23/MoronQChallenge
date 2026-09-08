@@ -290,13 +290,13 @@ export default async function JugadorPage() {
     // Se maneja en MangoRevealModal: sin campeones/hechizos no se puede tirar la ruleta.
   }
   const pendingPenalties = pendingPenaltiesResult.data ?? [];
-  // Vacío legal cerrado (ver el chequeo real en /api/jugador/mangos/launch,
-  // esto es solo la UI): un jugador puede seguir lanzando estando en el
-  // tope de MAX_ACTIVE_PENALTIES (para que un rebote propio pueda sumarle
-  // un 4to, la única excepción aceptada), pero no una vez que YA tiene más
-  // — ahí se le deshabilita el inventario hasta que baje de nuevo a 3 o
-  // menos.
-  const launchBlocked = pendingPenalties.length > MAX_ACTIVE_PENALTIES || inPlacements;
+  // Ver el chequeo real en /api/jugador/mangos/launch, esto es solo la UI:
+  // apenas llega a MAX_ACTIVE_PENALTIES castigos pendientes se le
+  // deshabilita el inventario hasta que baje cumpliendo alguno (a
+  // propósito, para que tener el tope se sienta como un freno real —
+  // antes se permitía lanzar justo EN el tope para que un rebote propio
+  // pudiera sumar un 4to, esa excepción ya no existe).
+  const launchBlocked = pendingPenalties.length >= MAX_ACTIVE_PENALTIES || inPlacements;
 
   // Filtra los que todavía están 'pending_reveal': mostrar el castigo acá
   // sería un spoiler y saltearía por completo la ruleta de revelación —

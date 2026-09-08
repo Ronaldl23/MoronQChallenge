@@ -77,14 +77,10 @@ export async function POST(request: Request) {
     );
   }
 
-  // Vacío legal cerrado: MAX_ACTIVE_PENALTIES le pone techo a lo que a un
-  // jugador le PUEDEN lanzar (chequeo del objetivo, más abajo), pero nada
-  // le impedía a ÉL MISMO seguir lanzando más allá de su propio cupo — si
-  // ya tenía 3 y le rebotaba, quedaba en 4 (la única excepción aceptada:
-  // autoinfligida por su propio lanzamiento), pero podía seguir lanzando
-  // de ahí en más y acumular un 5to, 6to sin límite. canLaunchMango permite
-  // lanzar estando en el tope (para que ese rebote pueda pasar) y bloquea
-  // recién en MAX_ACTIVE_PENALTIES+1 en adelante.
+  // MAX_ACTIVE_PENALTIES también bloquea que ÉL MISMO siga lanzando mangos
+  // apenas llega al tope (ver canLaunchMango en src/lib/mango-launch.ts) —
+  // a propósito, para que tener el tope se sienta como un freno real y no
+  // algo que se pueda ignorar y seguir jugando con normalidad.
   const { count: ownActivePenaltyCount, error: ownCountError } = await supabase
     .from("penalty_progress")
     .select("id", { count: "exact", head: true })
@@ -96,7 +92,7 @@ export async function POST(request: Request) {
   if (!canLaunchMango(ownActivePenaltyCount ?? 0)) {
     return NextResponse.json(
       {
-        error: `Ya tenés más de ${MAX_ACTIVE_PENALTIES} castigos activos — cumplí uno o esperá a que te perdonen antes de lanzar otro mango`,
+        error: `Ya tenés ${MAX_ACTIVE_PENALTIES} castigos activos — cumplí uno o esperá a que te perdonen antes de lanzar otro mango`,
       },
       { status: 403 },
     );
@@ -378,9 +374,8 @@ export async function POST(request: Request) {
 
   // A propósito NO incrementa penalty_received_count de quien lanzó: el
   // rebote es autoinfligido (consecuencia de SU PROPIO lanzamiento, no algo
-  // que otro jugador le haya mandado a propósito) — mismo criterio que ya
-  // lo excluye del cupo de MAX_ACTIVE_PENALTIES en canLaunchMango. Contarlo
-  // acá arruinaría el propósito del contador: bloquear coordinación externa
-  // para hostigar a alguien, no penalizar la mala suerte propia.
+  // que otro jugador le haya mandado a propósito). Contarlo acá arruinaría
+  // el propósito del contador: bloquear coordinación externa para
+  // hostigar a alguien, no penalizar la mala suerte propia.
   return NextResponse.json({ ok: true, targetNombreDisplay: target.nombre_display });
 }

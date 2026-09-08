@@ -62,7 +62,7 @@ export function InventoryPanel({
   /** 3 derrotas ranked seguidas -> mango — IGUAL para todas las categorías, no varía con tier (ver LOSS_STREAK_TARGET en src/lib/quests.ts). */
   lossStreak: QuestProgressView;
   otherParticipants: LaunchTarget[];
-  /** true si ya tiene MÁS de MAX_ACTIVE_PENALTIES castigos activos propios (ver canLaunchMango en src/lib/mango-launch.ts) — puede pasar con un rebote propio estando ya en el tope, la única excepción aceptada — O si está en placements (inPlacements). El chequeo real (que esto solo refleja) vive en /api/jugador/mangos/launch. */
+  /** true si ya tiene MAX_ACTIVE_PENALTIES castigos activos propios O MÁS (ver canLaunchMango en src/lib/mango-launch.ts) — O si está en placements (inPlacements). El chequeo real (que esto solo refleja) vive en /api/jugador/mangos/launch. */
   launchBlocked: boolean;
   /** true si todavía no jugó ninguna partida ranked esta temporada — no puede lanzar mangos hasta tener rango (regla confirmada por el usuario, mismo criterio que ya bloquea que se le puedan lanzar a él). Solo para mostrar el motivo puntual del bloqueo; launchBlocked ya incluye este caso. */
   inPlacements: boolean;
