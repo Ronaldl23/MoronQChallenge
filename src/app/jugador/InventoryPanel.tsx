@@ -95,7 +95,9 @@ export function InventoryPanel({
         <p className="mt-1 text-sm text-text-secondary">
           {inPlacements
             ? "Todavía estás en placements — no podés lanzar mangos hasta jugar tu primera ranked de la temporada."
-            : "Pasá el mouse por un mango y hacé click para lanzarlo."}
+            : launchBlocked
+              ? "Tenés más castigos pendientes de los que se permiten a la vez — no podés lanzar mangos hasta cumplir alguno de los que ya tenés."
+              : "Pasá el mouse por un mango y hacé click para lanzarlo."}
         </p>
         <div className="mt-4 flex gap-4">
           {Array.from({ length: MAX_SLOTS }, (_, i) => mangos[i] ?? null).map((mango, i) => {
