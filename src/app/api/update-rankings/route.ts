@@ -336,7 +336,14 @@ async function grantCompletedQuests({
  * principal — si Riot falla acá, o hay un error de datos, no debe tocar el
  * resto de la actualización de ese participante ni de los demás.
  */
-async function processParticipantQuests({
+/**
+ * Exportada (a diferencia del resto de los helpers de este archivo) para
+ * que /api/admin/participants/refresh-rank pueda ponerle al día las
+ * misiones a UN SOLO participante puntual sin duplicar esta lógica —
+ * sigue siendo el mismo motor que usa el cron general, solo que llamado
+ * fuera de su loop principal.
+ */
+export async function processParticipantQuests({
   supabase,
   participant,
   riotApiKey,
