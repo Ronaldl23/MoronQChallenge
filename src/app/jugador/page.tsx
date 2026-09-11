@@ -42,27 +42,45 @@ export default async function JugadorPage() {
 
   const supabase = createAdminClient();
 
-  // Quién ya tiene rango asignado — un participante todavía en placements
-  // (sin ninguna partida ranked jugada esta temporada) no puede recibir NI
-  // lanzar mangos todavía (regla confirmada por el usuario), y sus mangos
-  // en inventario tampoco se pudren mientras tanto (ver el uso de
-  // inPlacements más abajo, al armar `mangos`) — sería injusto que se les
-  // pudra un mango que no pueden lanzar. Se calcula temprano, antes que
-  // nada más, porque hace falta para eso. Reusa fetchRankOrder (mismo
-  // criterio que ya usa /api/jugador/mangos/launch para el bono
-  // anti-bullying, y ya pagina bien más allá del límite de 1000 filas de
-  // Supabase, ver el comentario ahí).
-  const rankOrder = await fetchRankOrder(supabase);
-  const inPlacements = !rankOrder.has(participantId);
-
+  // TODO lo que este render necesita de Supabase (más el listado de
+  // campeones/hechizos, cacheado vía fetch) es independiente entre sí —
+  // ninguna consulta de acá abajo depende del RESULTADO de otra de este
+  // mismo lote, solo de `participantId` (ya conocido) — así que se piden
+  // todas en un único Promise.all en vez de en varias tandas secuenciales,
+  // para no sumar ida y vuelta a Supabase de más por cada tanda. rankOrder
+  // (antes se esperaba solo, "antes que nada más") tampoco necesitaba
+  // bloquear al resto: se espera primero porque `inPlacements` hace falta
+  // para el mapeo de `mangos` más abajo, pero eso es un cálculo en JS sobre
+  // datos YA recibidos, no algo que las demás consultas necesiten para
+  // poder pedirse. Antes también vivían en dos tandas más aparte (pedidas
+  // recién después de que esta primera terminara): el cupo de castigos
+  // pendientes roster-wide (pendingByTargetResult) y las estadísticas de
+  // mangos de toda la vida del torneo (allMangosSentResult/
+  // allPenaltiesResult/allParticipantsResult) — ninguna de las dos depende
+  // de nada de acá tampoco, así que se unieron al mismo lote.
   const [
+    rankOrder,
     participantResult,
     mangosResult,
     questsResult,
     othersResult,
     pendingPenaltiesResult,
     disqualifiedPenaltyCountResult,
+    pendingByTargetResult,
+    allMangosSentResult,
+    allPenaltiesResult,
+    allParticipantsResult,
+    championsSpellsResult,
   ] = await Promise.all([
+    // Quién ya tiene rango asignado — un participante todavía en placements
+    // (sin ninguna partida ranked jugada esta temporada) no puede recibir NI
+    // lanzar mangos todavía (regla confirmada por el usuario), y sus mangos
+    // en inventario tampoco se pudren mientras tanto (ver el uso de
+    // inPlacements más abajo, al armar `mangos`). Reusa fetchRankOrder
+    // (mismo criterio que ya usa /api/jugador/mangos/launch para el bono
+    // anti-bullying, y ya pagina bien más allá del límite de 1000 filas de
+    // Supabase, ver el comentario ahí).
+    fetchRankOrder(supabase),
     supabase
       .from("participants")
       .select(
@@ -108,7 +126,38 @@ export default async function JugadorPage() {
       .select("id", { count: "exact", head: true })
       .eq("participant_id", participantId)
       .eq("status", "disqualified"),
+    // Cupo de castigos PENDIENTES simultáneos por jugador — red de seguridad
+    // aparte de penalty_received_count (ver el mismo chequeo doble en
+    // /api/jugador/mangos/launch): ganar la protección de 8h resetea el
+    // acumulado de recibidos a 0, pero eso no debería dejar que le manden 3
+    // MÁS encima de otros que ya tenía sin resolver de antes. Se muestra acá
+    // para que LaunchModal refleje el mismo bloqueo real del servidor.
+    supabase.from("penalty_progress").select("participant_id").eq("status", "pending"),
+    // Estadísticas de mangos (apartado nuevo dentro del inventario) — cuentan
+    // TODA la vida del torneo, no una ventana de tiempo: cuántos mangos
+    // lanzó/recibió cada participante y cuántos de los que lanzó rebotaron,
+    // más el top 5 de lanzadores y de receptores. is_bounce_back=false en
+    // "mangos" filtra los mangos ORIGINALES lanzados a propósito por alguien
+    // (excluye el mango nuevo que nace del rebote en sí, que "envía" el
+    // objetivo devolviendo la jugada — no fue una decisión suya, ver
+    // /api/jugador/mangos/launch). penalty_progress no distingue normal vs.
+    // rebote: "recibido" cuenta las dos cosas por igual, es lo que a uno le
+    // tocó cumplir, venga de donde venga.
+    supabase
+      .from("mangos")
+      .select("sent_by_participant_id, status")
+      .not("sent_by_participant_id", "is", null)
+      .eq("is_bounce_back", false),
+    supabase.from("penalty_progress").select("participant_id"),
+    supabase.from("participants").select("id, nombre_display"),
+    // getChampionList()/getSummonerSpellList() están cacheados 1h en el Data
+    // Cache de Next (ver src/lib/champions.ts) — el .catch acá preserva el
+    // mismo fallback de antes (pool vacío, sin bloquear el resto de la
+    // página) si Data Dragon no responde.
+    Promise.all([getChampionList(), getSummonerSpellList()]).catch(() => null),
   ]);
+
+  const inPlacements = !rankOrder.has(participantId);
 
   const nombreDisplay = participantResult.data?.nombre_display ?? null;
   // Contador COMPARTIDO entre TODOS los castigos pendientes (rediseño de
@@ -191,16 +240,7 @@ export default async function JugadorPage() {
 
   const others = othersResult.data ?? [];
 
-  // Cupo de castigos PENDIENTES simultáneos por jugador — red de seguridad
-  // aparte de penalty_received_count (ver el mismo chequeo doble en
-  // /api/jugador/mangos/launch): ganar la protección de 8h resetea el
-  // acumulado de recibidos a 0, pero eso no debería dejar que le manden 3
-  // MÁS encima de otros que ya tenía sin resolver de antes. Se muestra acá
-  // para que LaunchModal refleje el mismo bloqueo real del servidor.
-  const { data: pendingByTarget } = await supabase
-    .from("penalty_progress")
-    .select("participant_id")
-    .eq("status", "pending");
+  const pendingByTarget = pendingByTargetResult.data;
   const pendingCountByParticipant = new Map<string, number>();
   for (const row of pendingByTarget ?? []) {
     pendingCountByParticipant.set(row.participant_id, (pendingCountByParticipant.get(row.participant_id) ?? 0) + 1);
@@ -214,26 +254,9 @@ export default async function JugadorPage() {
   // misma categoría en cada corrida.
   const tier = tierForRank(rankOrder.get(participantId) ?? null);
 
-  // Estadísticas de mangos (apartado nuevo dentro del inventario) — cuentan
-  // TODA la vida del torneo, no una ventana de tiempo: cuántos mangos
-  // lanzó/recibió cada participante y cuántos de los que lanzó rebotaron,
-  // más el top 5 de lanzadores y de receptores. is_bounce_back=false en
-  // "mangos" filtra los mangos ORIGINALES lanzados a propósito por alguien
-  // (excluye el mango nuevo que nace del rebote en sí, que "envía" el
-  // objetivo devolviendo la jugada — no fue una decisión suya, ver
-  // /api/jugador/mangos/launch). penalty_progress no distingue normal vs.
-  // rebote: "recibido" cuenta las dos cosas por igual, es lo que a uno le
-  // tocó cumplir, venga de donde venga.
-  const [{ data: allMangosSent }, { data: allPenalties }, { data: allParticipants }] =
-    await Promise.all([
-      supabase
-        .from("mangos")
-        .select("sent_by_participant_id, status")
-        .not("sent_by_participant_id", "is", null)
-        .eq("is_bounce_back", false),
-      supabase.from("penalty_progress").select("participant_id"),
-      supabase.from("participants").select("id, nombre_display"),
-    ]);
+  const allMangosSent = allMangosSentResult.data;
+  const allPenalties = allPenaltiesResult.data;
+  const allParticipants = allParticipantsResult.data;
 
   const nameById = new Map((allParticipants ?? []).map((p) => [p.id, p.nombre_display]));
 
@@ -282,12 +305,11 @@ export default async function JugadorPage() {
     online: isOnline(p.last_seen_at),
   }));
 
+  // Se maneja en MangoRevealModal: sin campeones/hechizos no se puede tirar la ruleta.
   let champions: Champion[] = [];
   let spells: SummonerSpell[] = [];
-  try {
-    [champions, spells] = await Promise.all([getChampionList(), getSummonerSpellList()]);
-  } catch {
-    // Se maneja en MangoRevealModal: sin campeones/hechizos no se puede tirar la ruleta.
+  if (championsSpellsResult) {
+    [champions, spells] = championsSpellsResult;
   }
   const pendingPenalties = pendingPenaltiesResult.data ?? [];
   // Ver el chequeo real en /api/jugador/mangos/launch, esto es solo la UI:

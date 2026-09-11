@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Rajdhani } from "next/font/google";
+import { unstable_cache } from "next/cache";
 import { getAuthenticatedParticipantId } from "@/lib/player-auth";
 import { getChampionList, type Champion } from "@/lib/champions";
 import { getSummonerSpellList, type SummonerSpell } from "@/lib/summoner-spells";
@@ -9,6 +10,32 @@ import { MangoNotifications } from "@/components/MangoNotifications";
 import { ChatWidget } from "@/components/ChatWidget";
 import { GlobalPenaltyAlert } from "@/components/GlobalPenaltyAlert";
 import "./globals.css";
+
+/**
+ * Este layout envuelve TODA página del sitio, así que este query corre en
+ * CADA navegación de cualquier jugador con sesión — solo para el
+ * nombre/avatar que ChatWidget muestra en su composer, dato que casi nunca
+ * cambia dentro de una sesión. Cacheado por participantId (unstable_cache
+ * incluye los argumentos de la función en la clave) con un revalidate
+ * corto para no sumar una ida y vuelta a Supabase de más en cada click
+ * entre secciones del sitio — un cambio de nombre/avatar puede tardar hasta
+ * CHAT_IDENTITY_CACHE_SECONDS en reflejarse acá, tradeoff aceptable para
+ * algo tan secundario.
+ */
+const CHAT_IDENTITY_CACHE_SECONDS = 60;
+const getCachedChatIdentity = unstable_cache(
+  async (participantId: string) => {
+    const supabase = createAdminClient();
+    const { data } = await supabase
+      .from("participants")
+      .select("nombre_display, avatar_url, profile_icon_id")
+      .eq("id", participantId)
+      .maybeSingle();
+    return data ?? null;
+  },
+  ["chat-identity"],
+  { revalidate: CHAT_IDENTITY_CACHE_SECONDS },
+);
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -61,24 +88,30 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   let ddragonVersion: string | null = null;
 
   if (participantId) {
-    try {
-      [champions, spells] = await Promise.all([getChampionList(), getSummonerSpellList()]);
-    } catch {
-      // Sin campeones/hechizos el pool visual de la ruleta queda corto (solo
-      // Support de relleno) — no bloquea nada, MangoRevealModal igual
-      // funciona con el resultado real que ya viene del servidor.
-    }
+    // Las dos ramas de abajo son independientes entre sí (una arma el pool
+    // de campeones/hechizos de la ruleta, la otra la identidad de
+    // ChatWidget) — antes se esperaba una tras otra sin necesidad; ahora
+    // corren en paralelo, cada una con su propio fallback si falla, para no
+    // sumar ese tiempo dos veces en CADA navegación del sitio.
+    const [championsSpells, chatIdentity] = await Promise.all([
+      Promise.all([getChampionList(), getSummonerSpellList()]).catch(() => {
+        // Sin campeones/hechizos el pool visual de la ruleta queda corto (solo
+        // Support de relleno) — no bloquea nada, MangoRevealModal igual
+        // funciona con el resultado real que ya viene del servidor.
+        return null;
+      }),
+      Promise.all([getCachedChatIdentity(participantId), getDataDragonVersion()]).catch(() => {
+        // Sin esto ChatWidget simplemente no se monta (ver abajo) — el resto
+        // del sitio no depende de esta llamada.
+        return null;
+      }),
+    ]);
 
-    try {
-      const supabase = createAdminClient();
-      const [{ data: participant }, version] = await Promise.all([
-        supabase
-          .from("participants")
-          .select("nombre_display, avatar_url, profile_icon_id")
-          .eq("id", participantId)
-          .maybeSingle(),
-        getDataDragonVersion(),
-      ]);
+    if (championsSpells) {
+      [champions, spells] = championsSpells;
+    }
+    if (chatIdentity) {
+      const [participant, version] = chatIdentity;
       ddragonVersion = version;
       if (participant) {
         chatMe = {
@@ -88,9 +121,6 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
           profileIconId: participant.profile_icon_id,
         };
       }
-    } catch {
-      // Sin esto ChatWidget simplemente no se monta (ver abajo) — el resto
-      // del sitio no depende de esta llamada.
     }
   }
 
