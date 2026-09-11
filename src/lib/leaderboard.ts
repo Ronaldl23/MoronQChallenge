@@ -1,4 +1,5 @@
-import { createClient } from "@/lib/supabase/server";
+import { unstable_cache } from "next/cache";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getChampionList, type Champion } from "@/lib/champions";
 import { getSummonerSpellList, type SummonerSpell } from "@/lib/summoner-spells";
 import { resolveAssignedPunishment } from "@/lib/mango-launch";
@@ -151,13 +152,29 @@ export interface Leaderboard {
   lastUpdated: string | null;
 }
 
-export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
-  const supabase = await createClient();
+/**
+ * Segundos que se cachea el resultado calculado de getLeaderboard() (ver
+ * más abajo) — se eligió bien por debajo de la cadencia real del cron
+ * (~15min, /api/update-rankings) para no notarse como "desactualizado",
+ * pero suficiente para que AutoRefresh.tsx (cada 60s, UNA petición por
+ * pestaña abierta) no dispare un recálculo completo — varias consultas a
+ * Supabase en cascada, más Data Dragon si hay castigos pendientes — por
+ * cada pestaña de cada visitante. Con esto, todas las pestañas que pidan
+ * la página dentro de la misma ventana de 30s comparten un solo cálculo.
+ */
+const LEADERBOARD_CACHE_SECONDS = 30;
 
-  // Columnas explícitas, sin login_code: esa columna le tiene el select
-  // revocado a anon/authenticated (ver 0005_mango_system_phase1.sql) — es
-  // el código personal de acceso a /jugador, no algo que el leaderboard
-  // público deba poder leer. select("*") rompería con un permission denied.
+async function computeLeaderboard(limit: number): Promise<Leaderboard> {
+  // Client de service role, no el de por-pedido (createClient(), que
+  // depende de cookies()): el leaderboard es 100% público, sin nada
+  // personalizado por sesión, y unstable_cache no admite funciones que
+  // lean cookies()/headers() — mismo criterio ya usado en
+  // getCommunityPickem (src/lib/pickem.ts) para su propia sección pública.
+  const supabase = createAdminClient();
+
+  // Columnas explícitas, sin login_code: es el código personal de acceso a
+  // /jugador, no algo que el leaderboard público deba exponer — se excluye
+  // a mano en vez de select("*") aunque el service role sí podría leerlo.
   const { data: participants, error: participantsError } = await supabase
     .from("participants")
     .select(
@@ -336,9 +353,10 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
   // rankChange más abajo — aparte de `entries` (que no lo necesita en su
   // forma pública) en vez de embebido y después descartado. Un solo cutoff
   // fijo para toda la corrida (no uno por participante) — se recalcula
-  // fresco en cada request (getLeaderboard corre en cada carga de página,
-  // force-dynamic), así la ventana de comparación va deslizándose sola con
-  // el tiempo real sin que haga falta ningún cron ni estado guardado.
+  // fresco en cada corrida de computeLeaderboard (como mucho una vez cada
+  // LEADERBOARD_CACHE_SECONDS, ver el cache de getLeaderboard más abajo),
+  // así la ventana de comparación va deslizándose sola con el tiempo real
+  // sin que haga falta ningún cron ni estado guardado.
   const rankChangeCutoffIso = new Date(Date.now() - RANK_CHANGE_MIN_AGE_MS).toISOString();
   const previousEloScoreByParticipantId = new Map<string, number>();
 
@@ -431,4 +449,19 @@ export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
     unrankedEntries,
     lastUpdated,
   };
+}
+
+/**
+ * Cacheado con unstable_cache (Data Cache de Next, LEADERBOARD_CACHE_SECONDS
+ * arriba) — la clave incluye `limit` aunque hoy todos los callers (Home,
+ * getFinalRankByName en src/lib/pickem.ts) usan el default, para que un
+ * llamado futuro con otro límite no reciba la entrada cacheada de uno
+ * distinto por error.
+ */
+export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
+  return unstable_cache(
+    () => computeLeaderboard(limit),
+    ["leaderboard", String(limit)],
+    { revalidate: LEADERBOARD_CACHE_SECONDS },
+  )();
 }
