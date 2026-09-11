@@ -79,6 +79,9 @@ export function MangoNotifications({
   // evento, el mismo que las notificaciones de sistema del chat.
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const eventAudioRef = useRef<HTMLAudioElement | null>(null);
+  // Exclusivo de "shield_protected" (Misión Escudo) — alguien te lanzó un
+  // mango y tu Escudo lo reflejó, ver más abajo.
+  const protectAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioUnlockedRef = useRef(false);
   // Evita setState después de que el componente se desmontó (setTimeout de
   // advanceQueue puede seguir vivo un instante más).
@@ -107,6 +110,7 @@ export function MangoNotifications({
   useEffect(() => {
     audioRef.current = new Audio("/TomaMango.mp3");
     eventAudioRef.current = new Audio("/NotificacionEvento.mp3");
+    protectAudioRef.current = new Audio("/Protect.mp3");
 
     function unlockOne(audio: HTMLAudioElement) {
       return audio
@@ -121,7 +125,7 @@ export function MangoNotifications({
 
     function unlockAudio() {
       if (audioUnlockedRef.current) return;
-      const audios = [audioRef.current, eventAudioRef.current];
+      const audios = [audioRef.current, eventAudioRef.current, protectAudioRef.current];
       if (audios.some((audio) => !audio)) return;
       Promise.all(audios.map((audio) => unlockOne(audio!))).then((results) => {
         // Solo se marca desbloqueado si los dos sonidos realmente
@@ -228,10 +232,17 @@ export function MangoNotifications({
         setToasts((prev) => [...prev, ...freshImmediate]);
         // TomaMango.mp3 es solo para el flujo de "te llegó un Mango y lo
         // vas a revelar ya" (advanceQueue, más abajo) — este batch es todo
-        // lo demás (disqualified, launcher_reveal, o un "received"
-        // viejo que ya no va a disparar la ruleta), así que usa el sonido
-        // genérico de evento.
-        eventAudioRef.current?.play().catch(() => {});
+        // lo demás (disqualified, launcher_reveal, un "received" viejo que
+        // ya no va a disparar la ruleta, o shield_protected), así que usa el
+        // sonido genérico de evento salvo para shield_protected, que tiene
+        // el suyo propio (Protect.mp3) — las dos pueden sonar juntas si el
+        // batch trae de ambos tipos a la vez.
+        if (freshImmediate.some((n) => n.kind === "shield_protected")) {
+          protectAudioRef.current?.play().catch(() => {});
+        }
+        if (freshImmediate.some((n) => n.kind !== "shield_protected")) {
+          eventAudioRef.current?.play().catch(() => {});
+        }
 
         const ackRes = await fetch("/api/jugador/notifications/ack", {
           method: "POST",
@@ -327,19 +338,25 @@ function MangoToast({
       exit={{ opacity: 0, x: 40 }}
       transition={{ duration: 0.25, ease: "easeOut" }}
       className={`pointer-events-auto flex w-80 items-center gap-3 rounded-2xl border bg-surface p-4 ${
-        notification.kind === "received" || notification.kind === "disqualified"
-          ? "border-loss/50 shadow-[0_0_40px_-12px_var(--loss)]"
-          : "border-gold/50 shadow-[0_0_40px_-12px_var(--gold)]"
+        notification.kind === "shield_protected"
+          ? "border-aegis/50 shadow-[0_0_40px_-12px_var(--aegis)]"
+          : notification.kind === "received" || notification.kind === "disqualified"
+            ? "border-loss/50 shadow-[0_0_40px_-12px_var(--loss)]"
+            : "border-gold/50 shadow-[0_0_40px_-12px_var(--gold)]"
       }`}
     >
       <PunishmentIcon
         iconUrl={
           notification.championIconUrl ??
-          (notification.kind === "received" && notification.isNoncompliancePenalty
-            ? "/Peligro.png"
-            : notification.kind === "received" && notification.isMoldyTrash
-              ? "/MangoPodridoFurioso.png"
-              : "/MangoAngry.png")
+          (notification.kind === "shield_protected"
+            ? "/Escudo.webp"
+            : notification.kind === "received" && notification.isNoncompliancePenalty
+              ? "/Peligro.png"
+              : notification.kind === "received" && notification.isMoldyTrash
+                ? "/MangoPodridoFurioso.png"
+                : notification.kind === "received" && notification.isShieldReflection
+                  ? "/Escudo.webp"
+                  : "/MangoAngry.png")
         }
         noFlash={notification.noFlash}
         size={48}
@@ -384,7 +401,10 @@ function MangoToast({
             </p>
           </>
         )}
-        {notification.kind === "received" && !notification.isMoldyTrash && notification.isBounceBack && (
+        {notification.kind === "received" &&
+          !notification.isShieldReflection &&
+          !notification.isMoldyTrash &&
+          notification.isBounceBack && (
           <>
             <p className="font-display text-sm font-bold text-loss">¡Se te regresó un Mango!</p>
             <p className="truncate text-sm text-text-primary">
@@ -403,10 +423,26 @@ function MangoToast({
             </p>
           </>
         )}
+        {notification.kind === "received" && notification.isShieldReflection && (
+          <>
+            <p className="font-display text-sm font-bold text-aegis">¡Tu mango fue reflejado!</p>
+            <p className="truncate text-sm text-text-primary">
+              El Escudo de <strong>{notification.otherPartyName}</strong> te devolvió tu propio mango
+              {notification.championName ? (
+                <>
+                  : <strong>{notification.championName}</strong>
+                </>
+              ) : (
+                "..."
+              )}
+            </p>
+          </>
+        )}
         {notification.kind === "received" &&
           !notification.isNoncompliancePenalty &&
           !notification.isMoldyTrash &&
-          !notification.isBounceBack && (
+          !notification.isBounceBack &&
+          !notification.isShieldReflection && (
           <>
             <p className="font-display text-sm font-bold text-loss">¡Te llegó un Mango!</p>
             <p className="truncate text-sm text-text-primary">
@@ -427,6 +463,14 @@ function MangoToast({
             <p className="truncate text-sm text-text-primary">
               <strong>{notification.otherPartyName}</strong> recibió tu mango con el castigo:{" "}
               <strong>{notification.championName}</strong>.
+            </p>
+          </>
+        )}
+        {notification.kind === "shield_protected" && (
+          <>
+            <p className="font-display text-sm font-bold text-aegis">¡Tu Escudo te protegió!</p>
+            <p className="truncate text-sm text-text-primary">
+              <strong>{notification.otherPartyName}</strong> te lanzó un mango, pero tu Escudo lo reflejó.
             </p>
           </>
         )}

@@ -130,9 +130,23 @@ export async function POST(request: Request) {
     );
   }
 
+  // Se pide acá (antes de todo lo demás) en vez de justo antes de rollear,
+  // como antes — el camino del Escudo (más abajo) también necesita esta
+  // lista, y así se pide una sola vez para los dos caminos.
+  let champions;
+  let spells;
+  try {
+    [champions, spells] = await Promise.all([getChampionList(), getSummonerSpellList()]);
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "No se pudo cargar la lista de campeones/hechizos" },
+      { status: 502 },
+    );
+  }
+
   const { data: target, error: targetError } = await supabase
     .from("participants")
-    .select("id, nombre_display, mango_protection_until, penalty_received_count")
+    .select("id, nombre_display, mango_protection_until, penalty_received_count, shield_count")
     .eq("id", target_participant_id)
     .maybeSingle();
 
@@ -141,6 +155,88 @@ export async function POST(request: Request) {
   }
   if (!target) {
     return NextResponse.json({ error: "Participante objetivo no encontrado" }, { status: 404 });
+  }
+
+  // Misión Escudo: si el objetivo tiene al menos un Escudo guardado, el
+  // mango NUNCA le llega — se refleja hacia quien lo lanzó, con el MISMO
+  // mecanismo que un rebote (mango nuevo + penalty_progress apuntando a
+  // participantId, is_shield_reflection en vez de is_bounce_back), así que
+  // se evalúa ANTES que la protección/el tope de castigos de abajo: nada de
+  // eso aplica si el objetivo en los hechos no va a recibir nada. Se
+  // consume con un UPDATE condicional (WHERE shield_count > 0), mismo
+  // patrón atómico que el gate de penalty_received_count más abajo, para
+  // que dos lanzamientos casi simultáneos contra el mismo objetivo no
+  // consuman el mismo Escudo dos veces.
+  const { data: consumedShieldRows, error: shieldError } = await supabase
+    .from("participants")
+    .update({ shield_count: target.shield_count - 1 })
+    .eq("id", target_participant_id)
+    .gt("shield_count", 0)
+    .select("id");
+  if (shieldError) {
+    return NextResponse.json({ error: shieldError.message }, { status: 500 });
+  }
+  if ((consumedShieldRows?.length ?? 0) > 0) {
+    // UPDATE condicional del mango, mismo motivo que los demás caminos de
+    // abajo: no dejar que una carrera contra otra request sobre el MISMO
+    // mango termine insertando dos reflejos.
+    const { data: updatedShieldRows, error: shieldMangoError } = await supabase
+      .from("mangos")
+      .update({ status: "returned" })
+      .eq("id", mango.id)
+      .eq("status", "in_inventory")
+      .select("id");
+    if (shieldMangoError) {
+      console.error("launch: fallo marcando el mango original 'returned' (Escudo):", shieldMangoError.message);
+      return NextResponse.json({ error: shieldMangoError.message }, { status: 500 });
+    }
+    if ((updatedShieldRows?.length ?? 0) === 0) {
+      return NextResponse.json(
+        { error: "Ese mango no está disponible para lanzar" },
+        { status: 409 },
+      );
+    }
+
+    // Roll directo de castigo (sin balde de rebote — el Escudo ya decidió
+    // que esto no llega a destino, no hace falta evaluar de nuevo el azar
+    // de rebotar) para quien lanzó, exactamente igual que un rebote normal.
+    const shieldOutcome = rollPenaltyOutcome(champions, spells);
+
+    const { data: shieldMango, error: shieldMangoInsertError } = await supabase
+      .from("mangos")
+      .insert({
+        owner_participant_id: target_participant_id,
+        status: "pending_reveal",
+        sent_by_participant_id: target_participant_id,
+        champion_assigned: toStoredAssignment(shieldOutcome),
+        is_shield_reflection: true,
+      })
+      .select()
+      .single();
+    if (shieldMangoInsertError || !shieldMango) {
+      console.error("launch: fallo insertando el mango reflejado por el Escudo:", shieldMangoInsertError?.message);
+      return NextResponse.json(
+        { error: shieldMangoInsertError?.message ?? "No se pudo registrar el reflejo" },
+        { status: 500 },
+      );
+    }
+
+    const { error: shieldPenaltyError } = await supabase.from("penalty_progress").insert({
+      participant_id: participantId,
+      mango_id: shieldMango.id,
+    });
+    if (shieldPenaltyError) {
+      console.error("launch: fallo insertando penalty_progress del reflejo:", shieldPenaltyError.message);
+      return NextResponse.json({ error: shieldPenaltyError.message }, { status: 500 });
+    }
+
+    // A propósito NO incrementa penalty_received_count de quien lanzó: mismo
+    // criterio que un rebote (autoinfligido, consecuencia de atacar a
+    // alguien protegido, no hostigamiento externo que alguien más le haya
+    // hecho a él). Tampoco revela nada acá — ni que el objetivo tenía
+    // Escudo, ni el resultado: eso se entera recién al revelar (ver
+    // /api/jugador/mangos/reveal), como cualquier otro mango.
+    return NextResponse.json({ ok: true, targetNombreDisplay: target.nombre_display });
   }
 
   // Protección de PROTECTION_HOURS que gana un jugador al cumplir un
@@ -207,17 +303,6 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { error: `${target.nombre_display} todavía está en placements — no puede recibir mangos todavía` },
       { status: 409 },
-    );
-  }
-
-  let champions;
-  let spells;
-  try {
-    [champions, spells] = await Promise.all([getChampionList(), getSummonerSpellList()]);
-  } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "No se pudo cargar la lista de campeones/hechizos" },
-      { status: 502 },
     );
   }
 

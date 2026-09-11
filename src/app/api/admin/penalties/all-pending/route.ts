@@ -15,11 +15,13 @@ export interface PendingPenaltyAdminView {
   championIconUrl: string | null;
   noFlash?: boolean;
   createdAt: string;
-  /** null si es autoinfligido (rebote/hongo/incumplimiento) — no hay a quién nombrar. */
+  /** null si es autoinfligido (rebote/hongo/incumplimiento) — no hay a quién nombrar. Para un reflejo de Escudo SÍ se completa (a diferencia de la vista pública/de jugador): a un admin le sirve ver quién tenía el Escudo. */
   senderName: string | null;
   isBounceBack: boolean;
   isMoldyTrash: boolean;
   isNoncompliancePenalty: boolean;
+  /** true si este castigo se generó al reflejar un mango con un Escudo (Misión Escudo, ver 0033_shield_mission.sql) — senderName acá es quien tenía el Escudo. */
+  isShieldReflection: boolean;
   /** false mientras el mango siga 'pending_reveal' — el jugador todavía no lo vio, pero se muestra igual acá (a un admin no lo "arruina"). */
   revealed: boolean;
 }
@@ -52,7 +54,9 @@ export async function GET(request: Request) {
 
   const { data: mangos, error: mangosError } = await supabase
     .from("mangos")
-    .select("id, champion_assigned, status, sent_by_participant_id, is_bounce_back, is_moldy_trash, is_noncompliance_penalty")
+    .select(
+      "id, champion_assigned, status, sent_by_participant_id, is_bounce_back, is_moldy_trash, is_noncompliance_penalty, is_shield_reflection",
+    )
     .in(
       "id",
       pendingRows.map((p) => p.mango_id),
@@ -107,6 +111,7 @@ export async function GET(request: Request) {
         isBounceBack: mango.is_bounce_back,
         isMoldyTrash: mango.is_moldy_trash,
         isNoncompliancePenalty: mango.is_noncompliance_penalty,
+        isShieldReflection: mango.is_shield_reflection,
         revealed: mango.status !== "pending_reveal",
       },
     ];

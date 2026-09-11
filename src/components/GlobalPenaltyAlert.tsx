@@ -154,6 +154,10 @@ export function GlobalPenaltyAlert() {
                         <span className="text-text-secondary">No cumpliste un castigo a tiempo:</span>
                       ) : punishment.isMoldyTrash ? (
                         <span className="text-text-secondary">Tu mango tirado a la basura tenía hongos:</span>
+                      ) : punishment.isShieldReflection ? (
+                        <span className="text-text-secondary">
+                          El Escudo de {punishment.senderName} te devolvió tu propio mango:
+                        </span>
                       ) : punishment.isBounceBack ? (
                         <span className="text-text-secondary">
                           Se regresó tu mango enviado a {punishment.senderName}:

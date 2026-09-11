@@ -8,7 +8,7 @@
 //
 //   node --experimental-strip-types scripts/test-penalty.mjs
 //
-import { processPenaltyMatches, PENALTY_GAME_LIMIT } from "../src/lib/penalty.ts";
+import { processPenaltyMatches, PENALTY_GAME_LIMIT, SHIELD_STREAK_TARGET } from "../src/lib/penalty.ts";
 import {
   SUPPORT_ASSIGNMENT as SUPPORT_ASSIGNMENT_FROM_MANGO_LAUNCH,
   NO_FLASH_ASSIGNMENT as NO_FLASH_ASSIGNMENT_FROM_MANGO_LAUNCH,
@@ -54,6 +54,10 @@ function penalty(id, championAssigned, { createdAt = BASE_DATE } = {}) {
 // summoner1Id/summoner2Id: 0 por defecto (ningún hechizo real de Riot usa
 // ese id) — así un test de castigo de campeón/Support que no pasa estos
 // campos explícito nunca "cumple" un castigo de hechizo por accidente.
+// win: true por defecto — la mayoría de los tests de acá no le importa a
+// la racha de Misión Escudo, así que todas las partidas "ganan" salvo que
+// un test puntual (los de la sección Misión Escudo, más abajo) diga lo
+// contrario a propósito.
 function match(
   id,
   {
@@ -63,9 +67,10 @@ function match(
     summoner1Id = 0,
     summoner2Id = 0,
     gameDurationSeconds = NORMAL_GAME_DURATION_SECONDS,
+    win = true,
   },
 ) {
-  return { matchId: id, playedAt, championPlayed, teamPosition, summoner1Id, summoner2Id, gameDurationSeconds };
+  return { matchId: id, playedAt, championPlayed, teamPosition, summoner1Id, summoner2Id, gameDurationSeconds, win };
 }
 // Remake: duración corta (por defecto 3 min) es lo único que importa acá.
 function remakeMatch(
@@ -77,17 +82,18 @@ function remakeMatch(
     summoner1Id = 0,
     summoner2Id = 0,
     gameDurationSeconds = 180,
+    win = true,
   },
 ) {
-  return { matchId: id, playedAt, championPlayed, teamPosition, summoner1Id, summoner2Id, gameDurationSeconds };
+  return { matchId: id, playedAt, championPlayed, teamPosition, summoner1Id, summoner2Id, gameDurationSeconds, win };
 }
 
 function at(hoursAfterBase) {
   return new Date(new Date(BASE_DATE).getTime() + hoursAfterBase * 60 * 60 * 1000).toISOString();
 }
 
-function run(penalties, matches, gamesWithoutCompliance = 0) {
-  return processPenaltyMatches({ penalties, matches, gamesWithoutCompliance });
+function run(penalties, matches, gamesWithoutCompliance = 0, shieldStreakCount = 0) {
+  return processPenaltyMatches({ penalties, matches, gamesWithoutCompliance, shieldStreakCount });
 }
 
 function statusOf(result, id) {
@@ -432,6 +438,72 @@ function statusOf(result, id) {
   assertEqual(statusOf(result, "a"), "pending", "remake con el hechizo correcto: NO cumple, se ignora por completo");
   assertEqual(result.gamesWithoutCompliance, 0, "remake: tampoco suma al contador (castigo de hechizo)");
 }
+
+// --- 24. Misión Escudo: ganar una partida de castigo suma a la racha, sin llegar todavía al Escudo ---
+{
+  const result = run(
+    [penalty("a", "Teemo")],
+    [match("m1", { playedAt: at(1), championPlayed: "Teemo", win: true })],
+  );
+  assertEqual(result.shieldStreakCount, 1, "1 partida de castigo ganada: racha en 1");
+  assertEqual(result.shieldsGranted, 0, "1/3: todavía no se otorga ningún Escudo");
+}
+
+// --- 25. Misión Escudo: EJEMPLO DEL USUARIO — castigo ganado, partida normal (no castigo) perdida en el medio no corta la racha, otro castigo ganado después -> racha en 2 ---
+{
+  const penalties = [penalty("a", "Teemo", { createdAt: at(0) }), penalty("b", "Zed", { createdAt: at(0) })];
+  const matches = [
+    match("m1", { playedAt: at(1), championPlayed: "Teemo", win: true }), // partida de castigo, ganada -> racha=1
+    match("m2", { playedAt: at(2), championPlayed: "Ahri", win: false }), // NO es de castigo (no cumple nada pendiente en ese momento) -> no toca la racha
+    match("m3", { playedAt: at(3), championPlayed: "Zed", win: true }), // partida de castigo, ganada -> racha=2
+  ];
+  const result = run(penalties, matches);
+  assertEqual(result.shieldStreakCount, 2, "ejemplo del usuario: la partida normal perdida en el medio no corta la racha (queda en 2)");
+  assertEqual(result.shieldsGranted, 0, "ejemplo del usuario: todavía 2/3, sin Escudo");
+}
+
+// --- 26. Misión Escudo: perder una partida de castigo (la cumple igual, pero la pierde) corta la racha a 0 ---
+{
+  const result = run(
+    [penalty("a", "Teemo")],
+    [match("m1", { playedAt: at(1), championPlayed: "Teemo", win: false })],
+    0,
+    2, // racha ya en 2 al arrancar
+  );
+  assertEqual(statusOf(result, "a"), "completed", "se cumple el castigo igual, ganarlo o no es aparte");
+  assertEqual(result.shieldStreakCount, 0, "perder una partida de castigo corta la racha a 0, aunque la cumpla");
+}
+
+// --- 27. Misión Escudo: llegar a SHIELD_STREAK_TARGET otorga un Escudo y reinicia la racha a 0 ---
+{
+  const result = run(
+    [penalty("a", "Teemo")],
+    [match("m1", { playedAt: at(1), championPlayed: "Teemo", win: true })],
+    0,
+    2, // racha ya en 2 al arrancar -> esta partida la lleva a 3
+  );
+  assertEqual(result.shieldStreakCount, 0, "al llegar al target, la racha se reinicia a 0");
+  assertEqual(result.shieldsGranted, 1, "al llegar al target, se otorga 1 Escudo");
+}
+
+// --- 28. Misión Escudo: una partida que no cumple NINGÚN castigo pendiente no toca la racha para nada (ni suma ni corta), la pierda o la gane ---
+{
+  const result = run(
+    [penalty("a", "Teemo")],
+    [match("m1", { playedAt: at(1), championPlayed: "Ahri", win: false })],
+    0,
+    2, // racha ya en 2
+  );
+  assertEqual(result.shieldStreakCount, 2, "partida que no es de castigo: la racha queda intacta en 2, sin importar el resultado");
+}
+
+// --- 29. Misión Escudo: sin castigos pendientes, la racha se devuelve tal cual (no se resetea por quedarse sin pendientes) ---
+{
+  const result = run([], [match("m1", { playedAt: at(1), championPlayed: "Teemo" })], 0, 2);
+  assertEqual(result.shieldStreakCount, 2, "sin castigos pendientes: la racha de Misión Escudo sobrevive, a diferencia del contador de incumplimiento");
+}
+
+assertEqual(SHIELD_STREAK_TARGET, 3, "SHIELD_STREAK_TARGET es 3 (Misión Escudo, pedido explícito del usuario)");
 
 assertEqual(PENALTY_GAME_LIMIT, 3, "PENALTY_GAME_LIMIT es 3 (regla confirmada por el usuario)");
 assertEqual(

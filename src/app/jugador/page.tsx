@@ -5,7 +5,7 @@ import { getChampionList, type Champion } from "@/lib/champions";
 import { getSummonerSpellList, type SummonerSpell } from "@/lib/summoner-spells";
 import { MAX_ACTIVE_PENALTIES, mangoExpiresAt, discardUnlocksAt } from "@/lib/mango-launch";
 import { questTargetsForTier, tierForRank } from "@/lib/quests";
-import { PENALTY_GAME_LIMIT } from "@/lib/penalty";
+import { PENALTY_GAME_LIMIT, SHIELD_STREAK_TARGET } from "@/lib/penalty";
 import { fetchPendingPunishments } from "@/lib/pending-penalties";
 import { isOnline } from "@/lib/presence";
 import { fetchRankOrder } from "@/lib/ranking";
@@ -145,7 +145,7 @@ export default async function JugadorPage() {
     supabase
       .from("participants")
       .select(
-        "nombre_display, penalty_games_without_compliance, manually_disqualified, disqualification_reason",
+        "nombre_display, penalty_games_without_compliance, manually_disqualified, disqualification_reason, shield_count, shield_streak_count",
       )
       .eq("id", participantId)
       .maybeSingle(),
@@ -228,6 +228,18 @@ export default async function JugadorPage() {
     (participantResult.data?.manually_disqualified ?? false) ||
     (disqualifiedPenaltyCountResult.count ?? 0) > 0;
   const disqualificationReason = participantResult.data?.disqualification_reason ?? null;
+  // Escudos SIN USAR guardados ahora — Misión Escudo, ver
+  // 0033_shield_mission.sql. Acumulable a propósito (pedido explícito del
+  // usuario): no hay tope.
+  const shieldCount = participantResult.data?.shield_count ?? 0;
+  // Racha ACTUAL hacia el próximo Escudo — mismo shape que las demás
+  // misiones (QuestProgressView), aunque no vive en quest_progress: se
+  // calcula/persiste aparte en checkPenaltyCompliance (ver
+  // src/lib/penalty.ts), solo cuenta partidas de castigo GANADAS seguidas.
+  const shieldStreak = {
+    current: participantResult.data?.shield_streak_count ?? 0,
+    target: SHIELD_STREAK_TARGET,
+  };
 
   if (!nombreDisplay) {
     // Cookie firmada pero el participante ya no existe — sesión huérfana.
@@ -419,6 +431,10 @@ export default async function JugadorPage() {
                     <span className="text-text-secondary">No cumpliste un castigo a tiempo:</span>
                   ) : punishment.isMoldyTrash ? (
                     <span className="text-text-secondary">Tu mango tirado a la basura tenía hongos:</span>
+                  ) : punishment.isShieldReflection ? (
+                    <span className="text-text-secondary">
+                      El Escudo de {punishment.senderName} te devolvió tu propio mango:
+                    </span>
                   ) : punishment.isBounceBack ? (
                     <span className="text-text-secondary">
                       Se regresó tu mango enviado a {punishment.senderName}:
@@ -454,6 +470,8 @@ export default async function JugadorPage() {
       ) : (
         <InventoryPanel
           mangos={mangos}
+          shieldCount={shieldCount}
+          shieldStreak={shieldStreak}
           tier={tier}
           winStreak={winStreak}
           kdaStreak={kdaStreak}

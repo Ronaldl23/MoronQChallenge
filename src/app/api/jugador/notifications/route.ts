@@ -7,14 +7,14 @@ import { resolveAssignedPunishment } from "@/lib/mango-launch";
 
 export const dynamic = "force-dynamic";
 
-export type MangoNotificationKind = "received" | "disqualified" | "launcher_reveal";
+export type MangoNotificationKind = "received" | "disqualified" | "launcher_reveal" | "shield_protected";
 
 export interface MangoNotification {
   id: string;
   kind: MangoNotificationKind;
   /** El mango detrás de esta notificación — 'received' lo usa para emparejar el toast con su turno en la cola de revelación (ver MangoNotifications). */
   mangoId: string;
-  /** 'received': quién te lo envió. 'launcher_reveal': quién lo recibió. 'disqualified': no se usa (vacío). */
+  /** 'received': quién te lo envió. 'launcher_reveal': quién lo recibió. 'shield_protected': quién te lo lanzó (y a quien ahora le rebotó). 'disqualified': no se usa (vacío). */
   otherPartyName: string;
   /**
    * 'disqualified' y 'launcher_reveal': el campeón/Support real, ya
@@ -53,6 +53,14 @@ export interface MangoNotification {
    * cambia el texto/ícono del toast (Peligro en vez del mango genérico).
    */
   isNoncompliancePenalty?: boolean;
+  /**
+   * Solo 'received': true si este castigo es el que se te reflejó por
+   * atacar a alguien con un Escudo activo (Misión Escudo, ver
+   * 0033_shield_mission.sql) — `otherPartyName` acá es quien tenía el
+   * Escudo (quien lo reflejó), no alguien que te lo mandó a propósito. El
+   * cliente cambia el texto del toast para reflejar esto.
+   */
+  isShieldReflection?: boolean;
 }
 
 export interface NotificationsResponse {
@@ -113,7 +121,7 @@ export async function GET() {
     // No es crítico para las notificaciones — se sigue igual.
   }
 
-  const [receivedRes, flaggedRes, launcherRevealRes, activePenaltiesRes] = await Promise.all([
+  const [receivedRes, flaggedRes, launcherRevealRes, shieldProtectedRes, activePenaltiesRes] = await Promise.all([
     supabase
       .from("penalty_progress")
       .select("id, mango_id")
@@ -135,6 +143,10 @@ export async function GET() {
     // "tu mango llegó a destino" con uno mismo como destinatario, que no
     // tiene sentido acá (ya se avisan como "received" con
     // isMoldyTrash/isNoncompliancePenalty, ver más abajo).
+    // is_shield_reflection=false: acá sent_by_participant_id también queda
+    // en uno mismo (quien reflejó, ver 0033_shield_mission.sql) — mismo
+    // motivo, se avisa aparte como "shield_protected" (más abajo), no como
+    // "tu mango llegó a destino".
     supabase
       .from("mangos")
       .select("id, champion_assigned")
@@ -143,6 +155,20 @@ export async function GET() {
       .eq("launcher_notified", false)
       .eq("is_moldy_trash", false)
       .eq("is_noncompliance_penalty", false)
+      .eq("is_shield_reflection", false)
+      .order("created_at", { ascending: true }),
+    // Misión Escudo: a diferencia de "launcher_reveal" (que espera a que el
+    // OTRO revele, status='sent'), esto avisa apenas se refleja — quien
+    // tiene el Escudo no necesita esperar nada de nadie para saber que
+    // bloqueó un ataque. sent_by_participant_id = uno mismo en la fila
+    // reflejada (ver /api/jugador/mangos/launch), pending_reveal o sent no
+    // importa acá.
+    supabase
+      .from("mangos")
+      .select("id")
+      .eq("sent_by_participant_id", participantId)
+      .eq("is_shield_reflection", true)
+      .eq("launcher_notified", false)
       .order("created_at", { ascending: true }),
     supabase
       .from("penalty_progress")
@@ -166,6 +192,10 @@ export async function GET() {
     console.error("notifications: fallo consultando launcherReveals:", launcherRevealRes.error.message);
     return NextResponse.json({ error: launcherRevealRes.error.message }, { status: 500 });
   }
+  if (shieldProtectedRes.error) {
+    console.error("notifications: fallo consultando shieldProtected:", shieldProtectedRes.error.message);
+    return NextResponse.json({ error: shieldProtectedRes.error.message }, { status: 500 });
+  }
   if (activePenaltiesRes.error) {
     console.error("notifications: fallo consultando activePenalties:", activePenaltiesRes.error.message);
     return NextResponse.json({ error: activePenaltiesRes.error.message }, { status: 500 });
@@ -174,6 +204,7 @@ export async function GET() {
   const received = receivedRes.data ?? [];
   const flagged = flaggedRes.data ?? [];
   const launcherReveals = launcherRevealRes.data ?? [];
+  const shieldProtected = shieldProtectedRes.data ?? [];
   const activePenalties = activePenaltiesRes.data ?? [];
 
   let pendingReveals: { mangoId: string }[] = [];
@@ -194,7 +225,12 @@ export async function GET() {
     pendingReveals = (pendingRevealMangos ?? []).map((m) => ({ mangoId: m.id }));
   }
 
-  if (received.length === 0 && flagged.length === 0 && launcherReveals.length === 0) {
+  if (
+    received.length === 0 &&
+    flagged.length === 0 &&
+    launcherReveals.length === 0 &&
+    shieldProtected.length === 0
+  ) {
     return NextResponse.json({ notifications: [], pendingReveals } satisfies NotificationsResponse);
   }
 
@@ -203,7 +239,7 @@ export async function GET() {
     ? await supabase
         .from("mangos")
         .select(
-          "id, champion_assigned, sent_by_participant_id, status, is_bounce_back, is_moldy_trash, is_noncompliance_penalty",
+          "id, champion_assigned, sent_by_participant_id, status, is_bounce_back, is_moldy_trash, is_noncompliance_penalty, is_shield_reflection",
         )
         .in(
           "id",
@@ -240,7 +276,24 @@ export async function GET() {
   }
   const recipientIds = [...new Set(recipientByMangoId.values())];
 
-  const nameIds = [...new Set([...senderIds, ...recipientIds])];
+  // Para "shield_protected": el lanzador ORIGINAL del mango que se reflejó
+  // — mismo mecanismo que recipientByMangoId de arriba (penalty_progress
+  // sigue teniendo el dato real, sent_by_participant_id acá apunta a quien
+  // reflejó, no a quien lanzó).
+  let launcherByMangoId = new Map<string, string>();
+  if (shieldProtected.length > 0) {
+    const { data: launcherPenalties } = await supabase
+      .from("penalty_progress")
+      .select("mango_id, participant_id")
+      .in(
+        "mango_id",
+        shieldProtected.map((m) => m.id),
+      );
+    launcherByMangoId = new Map((launcherPenalties ?? []).map((p) => [p.mango_id, p.participant_id]));
+  }
+  const shieldLauncherIds = [...new Set(launcherByMangoId.values())];
+
+  const nameIds = [...new Set([...senderIds, ...recipientIds, ...shieldLauncherIds])];
   const { data: participantsData } = nameIds.length
     ? await supabase.from("participants").select("id, nombre_display").in("id", nameIds)
     : { data: [] };
@@ -279,6 +332,7 @@ export async function GET() {
           isBounceBack: mango?.is_bounce_back ?? false,
           isMoldyTrash: mango?.is_moldy_trash ?? false,
           isNoncompliancePenalty: mango?.is_noncompliance_penalty ?? false,
+          isShieldReflection: mango?.is_shield_reflection ?? false,
         };
       }
       const resolved = resolveAssignedPunishment(mango.champion_assigned, championById, spellById);
@@ -293,6 +347,7 @@ export async function GET() {
         isBounceBack: mango.is_bounce_back,
         isMoldyTrash: mango.is_moldy_trash,
         isNoncompliancePenalty: mango.is_noncompliance_penalty,
+        isShieldReflection: mango.is_shield_reflection,
       };
     }),
     ...flagged.map((p): MangoNotification => {
@@ -320,6 +375,20 @@ export async function GET() {
         championName: resolved.name,
         championIconUrl: resolved.iconUrl,
         noFlash: resolved.noFlash,
+      };
+    }),
+    // Misión Escudo: no se muestra el campeón/castigo acá (le tocó a quien
+    // atacó, no es asunto de quien lo reflejó) — solo quién lo intentó.
+    ...shieldProtected.map((m): MangoNotification => {
+      const launcherId = launcherByMangoId.get(m.id);
+      const launcherName = (launcherId && nameById.get(launcherId)) || "Alguien";
+      return {
+        id: m.id,
+        kind: "shield_protected",
+        mangoId: m.id,
+        otherPartyName: launcherName,
+        championName: "",
+        championIconUrl: null,
       };
     }),
   ];

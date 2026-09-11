@@ -93,6 +93,18 @@ export const PENALTY_GAME_LIMIT = 3;
  */
 export const NONCOMPLIANCE_BAN_THRESHOLD = 3;
 
+/**
+ * "Misión Escudo": ganar SHIELD_STREAK_TARGET partidas de castigo SEGUIDAS
+ * (jugar la partida que cumple un castigo pendiente, y ganarla) otorga un
+ * Escudo. Una partida que NO cumple ningún castigo pendiente no cuenta para
+ * nada acá (ni suma ni corta la racha) — solo importan las partidas que sí
+ * cumplieron uno (`compliant.length > 0` en el loop de abajo). Perder una de
+ * esas SÍ corta la racha a 0, aunque el castigo igual se marque cumplido
+ * (compliance ≠ ganar: se cumple jugando el campeón/rol/hechizo asignado,
+ * sin importar el resultado). Pedido explícito del usuario.
+ */
+export const SHIELD_STREAK_TARGET = 3;
+
 export interface PenaltyMatchOutcome {
   matchId: string;
   /**
@@ -114,6 +126,8 @@ export interface PenaltyMatchOutcome {
   summoner2Id: number;
   /** gameDuration crudo de match-v5, en segundos. Menos de MIN_MATCH_DURATION_SECONDS = remake, se ignora por completo (no gasta ventana ni cumple nada). */
   gameDurationSeconds: number;
+  /** Si el jugador ganó ESTA partida — para la racha de Misión Escudo (ver SHIELD_STREAK_TARGET más abajo), que solo mira partidas que cumplieron un castigo. */
+  win: boolean;
 }
 
 export interface PendingPenalty {
@@ -142,6 +156,10 @@ export interface ProcessPenaltyMatchesResult {
   gamesWithoutCompliance: number;
   /** Cuántas veces se agotó la ventana compartida sin cumplir NINGÚN castigo pendiente durante esta corrida — el caller debe otorgar un castigo nuevo por cada una (sin techo, ver comentario de processPenaltyMatches). */
   nonComplianceGrants: number;
+  /** Racha final de partidas de castigo ganadas seguidas — el caller lo persiste en participants.shield_streak_count (ver SHIELD_STREAK_TARGET). */
+  shieldStreakCount: number;
+  /** Cuántas veces la racha llegó a SHIELD_STREAK_TARGET durante esta corrida — el caller suma esto a participants.shield_count (acumulable, sin techo). */
+  shieldsGranted: number;
 }
 
 /**
@@ -177,16 +195,31 @@ export function processPenaltyMatches({
   penalties,
   matches,
   gamesWithoutCompliance,
+  shieldStreakCount,
 }: {
   penalties: PendingPenalty[];
   matches: PenaltyMatchOutcome[];
   /** Contador compartido actual del participante (participants.penalty_games_without_compliance). */
   gamesWithoutCompliance: number;
+  /** Racha actual de partidas de castigo ganadas seguidas (participants.shield_streak_count) — ver SHIELD_STREAK_TARGET. */
+  shieldStreakCount: number;
 }): ProcessPenaltyMatchesResult {
   // Regla 5: sin castigos pendientes no hay contador corriendo — no-op total,
   // y el contador vuelve a 0 (por si quedó un resto de un grupo anterior).
+  // La racha de Misión Escudo NO se toca acá: a diferencia del contador de
+  // incumplimiento (que solo tiene sentido mientras haya un grupo activo),
+  // la racha de castigos ganados debe sobrevivir entre un castigo y el
+  // siguiente (el ejemplo del propio pedido: ganás un castigo, no tenés
+  // ningún otro pendiente por un rato, te llega uno nuevo y lo ganás — la
+  // racha sigue en 1, no se resetea por quedarte sin pendientes en el medio).
   if (penalties.length === 0) {
-    return { updates: [], gamesWithoutCompliance: 0, nonComplianceGrants: 0 };
+    return {
+      updates: [],
+      gamesWithoutCompliance: 0,
+      nonComplianceGrants: 0,
+      shieldStreakCount,
+      shieldsGranted: 0,
+    };
   }
 
   const state = new Map<string, { status: PenaltyStatus; completedOnMatchId: string | null }>(
@@ -198,6 +231,8 @@ export function processPenaltyMatches({
   );
   let counter = gamesWithoutCompliance;
   let nonComplianceGrants = 0;
+  let shieldStreak = shieldStreakCount;
+  let shieldsGranted = 0;
 
   for (const match of matches) {
     const stillPending = penalties.filter((p) => state.get(p.id)!.status === "pending");
@@ -235,6 +270,22 @@ export function processPenaltyMatches({
         state.set(p.id, { status: "completed", completedOnMatchId: match.matchId });
       }
       counter = 0; // Ventana fresca para los castigos que queden pendientes.
+
+      // Misión Escudo: esta partida SÍ fue "de castigo" (cumplió al menos
+      // uno) — solo acá adentro se toca la racha, nunca en el `else` de
+      // abajo (una partida que no cumplió nada no es "de castigo", ni suma
+      // ni corta, pedido explícito del usuario). Ganarla suma; perderla la
+      // corta a 0 aunque el castigo se haya cumplido igual (cumplir ≠
+      // ganar).
+      if (match.win) {
+        shieldStreak += 1;
+        if (shieldStreak >= SHIELD_STREAK_TARGET) {
+          shieldsGranted += 1;
+          shieldStreak = 0;
+        }
+      } else {
+        shieldStreak = 0;
+      }
     } else {
       counter += 1;
       if (counter >= PENALTY_GAME_LIMIT) {
@@ -256,5 +307,7 @@ export function processPenaltyMatches({
     }),
     gamesWithoutCompliance: counter,
     nonComplianceGrants,
+    shieldStreakCount: shieldStreak,
+    shieldsGranted,
   };
 }

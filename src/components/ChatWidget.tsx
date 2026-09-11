@@ -39,7 +39,8 @@ function SystemChatMessageRow({ msg }: { msg: ChatMessage }) {
       <span className="flex h-6 w-6 shrink-0 items-center justify-center">
         {msg.type === "mango_event" ||
         msg.type === "mango_moldy_event" ||
-        msg.type === "mango_noncompliance_event" ? (
+        msg.type === "mango_noncompliance_event" ||
+        msg.type === "mango_shield_event" ? (
           // eslint-disable-next-line @next/next/no-img-element -- ícono de evento fijo, no una foto de perfil dinámica
           <img
             src={
@@ -47,7 +48,9 @@ function SystemChatMessageRow({ msg }: { msg: ChatMessage }) {
                 ? "/MangoPodridoFurioso.png"
                 : msg.type === "mango_noncompliance_event"
                   ? "/Peligro.png"
-                  : "/MangoAngry.png"
+                  : msg.type === "mango_shield_event"
+                    ? "/Escudo.webp"
+                    : "/MangoAngry.png"
             }
             alt=""
             className="h-6 w-6 object-contain"
@@ -144,6 +147,10 @@ export function ChatWidget({
   // comentario en la suscripción de Realtime más abajo.
   const messageAudioRef = useRef<HTMLAudioElement | null>(null);
   const eventAudioRef = useRef<HTMLAudioElement | null>(null);
+  // Exclusivos de 'rank_event' — reemplazan a eventAudioRef solo para
+  // ascenso/descenso de tier/división, según rank_direction.
+  const rankUpAudioRef = useRef<HTMLAudioElement | null>(null);
+  const rankDownAudioRef = useRef<HTMLAudioElement | null>(null);
   const audioUnlockedRef = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -180,6 +187,8 @@ export function ChatWidget({
   useEffect(() => {
     messageAudioRef.current = new Audio("/NotificacionMensaje.mp3");
     eventAudioRef.current = new Audio("/NotificacionEvento.mp3");
+    rankUpAudioRef.current = new Audio("/Subio.mp3");
+    rankDownAudioRef.current = new Audio("/Bajo.mp3");
 
     function unlockOne(audio: HTMLAudioElement) {
       return audio
@@ -194,7 +203,12 @@ export function ChatWidget({
 
     function unlockAudio() {
       if (audioUnlockedRef.current) return;
-      const audios = [messageAudioRef.current, eventAudioRef.current];
+      const audios = [
+        messageAudioRef.current,
+        eventAudioRef.current,
+        rankUpAudioRef.current,
+        rankDownAudioRef.current,
+      ];
       if (audios.some((audio) => !audio)) return;
       Promise.all(audios.map((audio) => unlockOne(audio!))).then((results) => {
         // Solo se marca desbloqueado si los dos sonidos realmente
@@ -272,13 +286,18 @@ export function ChatWidget({
           if (shouldNotify) {
             setUnreadCount((prev) => prev + 1);
             // Eventos de sistema NUNCA usan TomaMango.mp3 (ese sonido es
-            // exclusivo de la notificación personal) — acá siempre es
-            // NotificacionMensaje.mp3 (mensajes de jugador) o
-            // NotificacionEvento.mp3 (mango_event/rank_event).
+            // exclusivo de la notificación personal) — acá es
+            // NotificacionMensaje.mp3 (mensajes de jugador),
+            // Subio.mp3/Bajo.mp3 (rank_event, según la dirección) o
+            // NotificacionEvento.mp3 (el resto de los eventos de sistema).
             const audio =
               incoming.type === "user"
                 ? messageAudioRef.current
-                : eventAudioRef.current;
+                : incoming.type === "rank_event"
+                  ? incoming.rank_direction === "up"
+                    ? rankUpAudioRef.current
+                    : rankDownAudioRef.current
+                  : eventAudioRef.current;
             audio?.play().catch(() => {});
           }
         },

@@ -8,6 +8,7 @@ import {
   postMangoEventChatMessage,
   postMoldyMangoChatMessage,
   postNonComplianceChatMessage,
+  postShieldReflectionChatMessage,
 } from "@/lib/chat-system-messages";
 
 export const dynamic = "force-dynamic";
@@ -52,7 +53,7 @@ export async function POST(request: Request) {
   const { data: mango, error: mangoError } = await supabase
     .from("mangos")
     .select(
-      "id, status, champion_assigned, sent_by_participant_id, is_bounce_back, is_moldy_trash, is_noncompliance_penalty",
+      "id, status, champion_assigned, sent_by_participant_id, is_bounce_back, is_moldy_trash, is_noncompliance_penalty, is_shield_reflection",
     )
     .eq("id", mango_id)
     .maybeSingle();
@@ -168,6 +169,30 @@ export async function POST(request: Request) {
       }
     } catch (err) {
       console.error("reveal: fallo publicando el evento de mango con hongo en el chat:", err);
+    }
+  } else if (didTransition && mango.is_shield_reflection && mango.sent_by_participant_id) {
+    // sent_by_participant_id acá es quien REFLEJÓ (el dueño del Escudo), no
+    // quien de verdad lo lanzó — mismo mecanismo que is_bounce_back.
+    // participantId (quien revela) es el lanzador original, ahora también
+    // el que tiene que cumplir el castigo reflejado.
+    try {
+      const { data: people } = await supabase
+        .from("participants")
+        .select("id, nombre_display")
+        .in("id", [participantId, mango.sent_by_participant_id]);
+      const nameById = new Map((people ?? []).map((p) => [p.id, p.nombre_display]));
+      const launcherName = nameById.get(participantId);
+      const shieldOwnerName = nameById.get(mango.sent_by_participant_id);
+      if (launcherName && shieldOwnerName) {
+        await postShieldReflectionChatMessage(supabase, {
+          participantId,
+          launcherName,
+          shieldOwnerName,
+          prizeLabel: resolved.name,
+        });
+      }
+    } catch (err) {
+      console.error("reveal: fallo publicando el evento de reflejo de Escudo en el chat:", err);
     }
   } else if (didTransition && mango.sent_by_participant_id) {
     try {

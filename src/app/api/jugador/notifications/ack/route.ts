@@ -15,7 +15,10 @@ function isAckItem(value: unknown): value is AckItem {
   const item = value as Record<string, unknown>;
   return (
     typeof item.id === "string" &&
-    (item.kind === "received" || item.kind === "disqualified" || item.kind === "launcher_reveal")
+    (item.kind === "received" ||
+      item.kind === "disqualified" ||
+      item.kind === "launcher_reveal" ||
+      item.kind === "shield_protected")
   );
 }
 
@@ -57,10 +60,15 @@ export async function POST(request: Request) {
   const penaltyIds = items
     .filter((item) => item.kind === "received" || item.kind === "disqualified")
     .map((item) => item.id);
-  // launcher_reveal vive en mangos.launcher_notified — el sent_by ahí
-  // abajo es lo que impide que alguien ackee el mango de otro pasando un id
-  // a mano (mismo rol que el scoping a participant_id de penalty_progress).
-  const mangoIds = items.filter((item) => item.kind === "launcher_reveal").map((item) => item.id);
+  // launcher_reveal/shield_protected viven en mangos.launcher_notified —
+  // mismo flag para las dos (shield_protected también tiene
+  // sent_by_participant_id = quien la recibe, ver 0033_shield_mission.sql)
+  // — el sent_by ahí abajo es lo que impide que alguien ackee el mango de
+  // otro pasando un id a mano (mismo rol que el scoping a participant_id de
+  // penalty_progress).
+  const mangoIds = items
+    .filter((item) => item.kind === "launcher_reveal" || item.kind === "shield_protected")
+    .map((item) => item.id);
 
   const [penaltyResult, mangoResult] = await Promise.all([
     penaltyIds.length

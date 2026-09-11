@@ -39,6 +39,8 @@ const MAX_SLOTS = 3;
 
 export function InventoryPanel({
   mangos,
+  shieldCount,
+  shieldStreak,
   tier,
   winStreak,
   kdaStreak,
@@ -52,6 +54,16 @@ export function InventoryPanel({
   mangoStats,
 }: {
   mangos: InventoryMango[];
+  /**
+   * Escudos SIN USAR guardados ahora (Misión Escudo, ver
+   * 0033_shield_mission.sql) — acumulable, sin tope. A propósito invisible
+   * para cualquiera que no sea el propio dueño: no aparece en el
+   * leaderboard público ni en LaunchTarget de otros participantes, solo
+   * acá, en el inventario de quien lo tiene.
+   */
+  shieldCount: number;
+  /** Racha ACTUAL de partidas de castigo ganadas seguidas, hacia el próximo Escudo (ver SHIELD_STREAK_TARGET en src/lib/penalty.ts) — no se reinicia por partidas normales en el medio, solo por perder una partida de castigo. */
+  shieldStreak: QuestProgressView;
   /** Categoría de misiones ACTUAL (ver MissionTier en src/lib/quests.ts) — solo para armar las etiquetas de cada misión (umbral de KDA/kills/muertes), los números current/target ya vienen resueltos del server. */
   tier: MissionTier;
   winStreak: QuestProgressView;
@@ -149,6 +161,7 @@ export function InventoryPanel({
               />
             );
           })}
+          <ShieldSlot count={shieldCount} />
         </div>
       </section>
 
@@ -201,6 +214,11 @@ export function InventoryPanel({
             label={`Misión Jonas, ${lossStreak.target} Derrotas seguidas`}
             current={lossStreak.current}
             target={lossStreak.target}
+          />
+          <QuestBar
+            label={`Misión Escudo, ${shieldStreak.target} castigos ganados seguidos`}
+            current={shieldStreak.current}
+            target={shieldStreak.target}
           />
         </div>
       </section>
@@ -320,6 +338,45 @@ function MangoSlot({
           {isExpired ? "Podrido" : formatTimeRemaining(millisRemaining)}
         </span>
       )}
+    </div>
+  );
+}
+
+/**
+ * Slot APARTE de los MAX_SLOTS mangos (más chico, sin click — no es algo
+ * que se lance a mano, se activa solo cuando te lanzan un mango) para
+ * Misión Escudo (ver 0033_shield_mission.sql). Acumulable: el número de
+ * abajo es cuántos tenés guardados AHORA, sin tope. Con margen extra a la
+ * izquierda para separarlo visualmente de los mangos — es un ítem distinto,
+ * no un cuarto mango.
+ */
+function ShieldSlot({ count }: { count: number }) {
+  const filled = count > 0;
+  return (
+    <div className="ml-2 flex flex-col items-center gap-1">
+      <div
+        title={
+          filled
+            ? `Tenés ${count} Escudo${count === 1 ? "" : "s"} guardado${count === 1 ? "" : "s"} — refleja el próximo mango que te lancen`
+            : "Ganá 3 partidas de castigo seguidas para conseguir un Escudo"
+        }
+        className={`relative flex h-16 w-16 items-center justify-center rounded-xl border-2 ${
+          filled ? "border-aegis/50 bg-bg-elevated" : "border-dashed border-border-hairline bg-bg-elevated/40"
+        }`}
+      >
+        {filled ? (
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element -- asset local */}
+            <img src="/Escudo.webp" alt="Escudo" className="h-10 w-10 object-contain" />
+            <span className="absolute -right-1.5 -bottom-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-aegis px-1 text-[11px] font-bold text-white ring-2 ring-bg-elevated">
+              {count}
+            </span>
+          </>
+        ) : (
+          <span className="h-2.5 w-2.5 rounded-full bg-border-hairline" aria-hidden />
+        )}
+      </div>
+      <span className="text-xs font-semibold text-text-secondary">Escudo</span>
     </div>
   );
 }

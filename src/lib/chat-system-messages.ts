@@ -19,7 +19,12 @@ async function insertSystemChatMessage(
   input: {
     participantId: string;
     message: string;
-    type: "mango_event" | "rank_event" | "mango_moldy_event" | "mango_noncompliance_event";
+    type:
+      | "mango_event"
+      | "rank_event"
+      | "mango_moldy_event"
+      | "mango_noncompliance_event"
+      | "mango_shield_event";
     rankDirection?: RankEventDirection;
   },
 ) {
@@ -126,6 +131,36 @@ export function postNonComplianceChatMessage(
     participantId,
     type: "mango_noncompliance_event",
     message: `${participantName} no ha cumplido su castigo en el plazo acordado, ha recibido otro castigo y le ha tocado: ${prizeLabel}`,
+  });
+}
+
+/**
+ * Se publica al revelar un mango que fue reflejado por el Escudo de quien
+ * iba a recibirlo (Misión Escudo, ver 0033_shield_mission.sql) — a
+ * diferencia de un rebote (mala suerte al azar), acá el motivo es explícito
+ * y se cuenta: quién lo lanzó, a quién, y que el Escudo de esa persona lo
+ * reflejó. `participantId` (quien recibe el mensaje en su fila de
+ * chat_messages) es quien lanzó originalmente — es quien ahora tiene que
+ * cumplir el castigo reflejado.
+ */
+export function postShieldReflectionChatMessage(
+  supabase: SupabaseClient<Database>,
+  {
+    participantId,
+    launcherName,
+    shieldOwnerName,
+    prizeLabel,
+  }: {
+    participantId: string;
+    launcherName: string;
+    shieldOwnerName: string;
+    prizeLabel: string;
+  },
+) {
+  return insertSystemChatMessage(supabase, {
+    participantId,
+    type: "mango_shield_event",
+    message: `${launcherName} le lanzó un mango a ${shieldOwnerName}, pero fue reflejado gracias a su Escudo Protector — le tocó: ${prizeLabel}`,
   });
 }
 

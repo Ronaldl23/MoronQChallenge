@@ -118,9 +118,11 @@ export function PendingPenaltiesPanel() {
                         ? "Por incumplimiento (autoinfligido)"
                         : p.isMoldyTrash
                           ? "Mango con hongos (autoinfligido)"
-                          : p.isBounceBack
-                            ? "Rebote de su propio lanzamiento (autoinfligido)"
-                            : `Enviado por ${p.senderName}`}
+                          : p.isShieldReflection
+                            ? `Reflejado por el Escudo de ${p.senderName}`
+                            : p.isBounceBack
+                              ? "Rebote de su propio lanzamiento (autoinfligido)"
+                              : `Enviado por ${p.senderName}`}
                       {!p.revealed && " — todavía no revelado"}
                     </p>
                     <p className="text-zinc-500 dark:text-zinc-400">

@@ -144,6 +144,20 @@ export type Participant = {
    * logs de Vercel — ver 0025_penalty_check_debug.sql.
    */
   penalty_check_debug: string | null;
+  /**
+   * Racha ACTUAL de partidas de castigo ganadas seguidas (Misión Escudo, ver
+   * SHIELD_STREAK_TARGET en src/lib/penalty.ts) — privada, ningún endpoint
+   * de cara al jugador la expone (ver 0033_shield_mission.sql).
+   */
+  shield_streak_count: number;
+  /**
+   * Escudos sin usar que tiene guardados AHORA — acumulable (pedido
+   * explícito del usuario). Al lanzarle un mango a alguien con al menos uno,
+   * se consume uno y el castigo se refleja hacia quien lo lanzó (ver
+   * /api/jugador/mangos/launch). Visible solo en el propio inventario de
+   * quien lo tiene, nunca en el leaderboard público ni en el de nadie más.
+   */
+  shield_count: number;
 };
 
 /**
@@ -171,6 +185,14 @@ export type Mango = {
   is_moldy_trash: boolean;
   /** true solo en la fila creada por no cumplir un castigo a tiempo (ver nonComplianceGrants en src/lib/penalty.ts) — autoinfligida, sin balde de rebote, distingue el mensaje de chat/toast/ícono global de las demás (ver 0028_noncompliance_penalty.sql). */
   is_noncompliance_penalty: boolean;
+  /**
+   * true solo en la fila creada al reflejar un mango con un Escudo (Misión
+   * Escudo, ver shield_count en Participant) — mismo mecanismo que
+   * is_bounce_back (sent_by_participant_id queda en quien reflejó, no en
+   * quien de verdad lo lanzó), pero con su propio mensaje/ícono/sonido en
+   * vez del genérico de rebote (ver 0033_shield_mission.sql).
+   */
+  is_shield_reflection: boolean;
   /**
    * Cuándo entró ESTE mango al inventario (se resetea a NOW en cada mango
    * nuevo otorgado por misión, nunca se toca en un lanzamiento/rebote —
@@ -275,7 +297,8 @@ export type ChatMessageType =
   | "mango_event"
   | "rank_event"
   | "mango_moldy_event"
-  | "mango_noncompliance_event";
+  | "mango_noncompliance_event"
+  | "mango_shield_event";
 
 /** Solo aplica a type = 'rank_event' — qué flecha (verde/roja) mostrar. */
 export type RankEventDirection = "up" | "down";
@@ -358,6 +381,8 @@ export type Database = {
           | "noncompliance_penalty_last_date"
           | "penalty_received_count"
           | "last_update_attempted_at"
+          | "shield_streak_count"
+          | "shield_count"
         > & {
           id?: string;
           profile_icon_id?: number | null;
@@ -377,6 +402,8 @@ export type Database = {
           noncompliance_penalty_last_date?: string | null;
           penalty_received_count?: number;
           last_update_attempted_at?: string | null;
+          shield_streak_count?: number;
+          shield_count?: number;
         };
         Update: Partial<Omit<Participant, "id">>;
         Relationships: [];
@@ -411,6 +438,7 @@ export type Database = {
           | "is_bounce_back"
           | "is_moldy_trash"
           | "is_noncompliance_penalty"
+          | "is_shield_reflection"
           | "launcher_notified"
           | "inventory_since"
         > & {
@@ -422,6 +450,7 @@ export type Database = {
           is_bounce_back?: boolean;
           is_moldy_trash?: boolean;
           is_noncompliance_penalty?: boolean;
+          is_shield_reflection?: boolean;
           launcher_notified?: boolean;
           inventory_since?: string;
         };

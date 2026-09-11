@@ -15,6 +15,8 @@ export interface PendingPunishment {
   isMoldyTrash: boolean;
   /** true si este castigo es el autoinfligido por no cumplir otro a tiempo (ver nonComplianceGrants en src/lib/penalty.ts) — igual que isMoldyTrash, senderName no aplica. */
   isNoncompliancePenalty: boolean;
+  /** true si este castigo se te reflejó por atacar a alguien con un Escudo (Misión Escudo, ver 0033_shield_mission.sql) — senderName acá es quien tenía el Escudo (quien lo reflejó), no alguien que te lo mandó a propósito. */
+  isShieldReflection: boolean;
 }
 
 /**
@@ -44,7 +46,7 @@ export async function fetchPendingPunishments(
   const { data: pendingMangos } = await supabase
     .from("mangos")
     .select(
-      "id, status, champion_assigned, sent_by_participant_id, is_bounce_back, is_moldy_trash, is_noncompliance_penalty",
+      "id, status, champion_assigned, sent_by_participant_id, is_bounce_back, is_moldy_trash, is_noncompliance_penalty, is_shield_reflection",
     )
     .in(
       "id",
@@ -74,6 +76,7 @@ export async function fetchPendingPunishments(
         isBounceBack: mango?.is_bounce_back ?? false,
         isMoldyTrash: mango?.is_moldy_trash ?? false,
         isNoncompliancePenalty: mango?.is_noncompliance_penalty ?? false,
+        isShieldReflection: mango?.is_shield_reflection ?? false,
       };
     });
 }

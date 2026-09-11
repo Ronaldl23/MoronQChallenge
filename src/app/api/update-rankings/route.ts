@@ -526,6 +526,10 @@ async function checkPenaltyCompliance({
     manually_disqualified: boolean;
     /** Acumulado de castigos RECIBIDOS desde la última protección (ver 0030_penalty_received_count.sql) — reemplaza el viejo criterio "cuántos pendientes tiene ahora" para decidir cuándo se gana la protección de PROTECTION_HOURS. */
     penalty_received_count: number;
+    /** Racha actual de partidas de castigo ganadas seguidas (Misión Escudo, ver SHIELD_STREAK_TARGET en src/lib/penalty.ts y 0033_shield_mission.sql). */
+    shield_streak_count: number;
+    /** Escudos sin usar acumulados hasta ahora — se le suman los que otorgue esta corrida. */
+    shield_count: number;
   };
   riotApiKey: string;
 }): Promise<void> {
@@ -693,6 +697,7 @@ async function checkPenaltyCompliance({
       summoner1Id: mp.summoner1Id,
       summoner2Id: mp.summoner2Id,
       gameDurationSeconds: match.info.gameDuration,
+      win: mp.win,
     });
     advancedTo = matchId;
   }
@@ -711,6 +716,7 @@ async function checkPenaltyCompliance({
     penalties,
     matches: penaltyMatches,
     gamesWithoutCompliance: participant.penalty_games_without_compliance,
+    shieldStreakCount: participant.shield_streak_count,
   });
 
   await Promise.all(
@@ -734,17 +740,30 @@ async function checkPenaltyCompliance({
   // hay uno) arranca fresco, sin heredar el progreso de evaluación de este.
   const groupFullyResolved = result.updates.every((update) => update.status !== "pending");
 
-  const patch: { penalty_games_without_compliance?: number; penalty_last_processed_match_id: string | null } = {
+  const patch: {
+    penalty_games_without_compliance?: number;
+    penalty_last_processed_match_id: string | null;
+    shield_streak_count?: number;
+    shield_count?: number;
+  } = {
     penalty_last_processed_match_id: groupFullyResolved ? null : advancedTo,
   };
   if (result.gamesWithoutCompliance !== participant.penalty_games_without_compliance) {
     patch.penalty_games_without_compliance = result.gamesWithoutCompliance;
   }
+  if (result.shieldStreakCount !== participant.shield_streak_count) {
+    patch.shield_streak_count = result.shieldStreakCount;
+  }
+  // Acumulable, sin techo (pedido explícito del usuario) — se le suma lo que
+  // haya otorgado esta corrida al total que ya tenía guardado.
+  if (result.shieldsGranted > 0) {
+    patch.shield_count = participant.shield_count + result.shieldsGranted;
+  }
   const { error: persistError } = await supabase.from("participants").update(patch).eq("id", participantId);
   if (persistError) throw persistError;
 
   await writeDebug(
-    `ok: ${penaltyMatches.length} partida(s) evaluada(s), ${result.updates.filter((u) => u.status === "completed").length} completada(s), ${result.nonComplianceGrants} castigo(s) nuevo(s) por incumplimiento, contador ${result.gamesWithoutCompliance}, cursor ${patch.penalty_last_processed_match_id ?? "null"}`,
+    `ok: ${penaltyMatches.length} partida(s) evaluada(s), ${result.updates.filter((u) => u.status === "completed").length} completada(s), ${result.nonComplianceGrants} castigo(s) nuevo(s) por incumplimiento, contador ${result.gamesWithoutCompliance}, racha Escudo ${result.shieldStreakCount}, ${result.shieldsGranted} Escudo(s) nuevo(s), cursor ${patch.penalty_last_processed_match_id ?? "null"}`,
   );
 
   // Ya no hay descalificación automática (ver nonComplianceGrants en
@@ -915,7 +934,7 @@ export async function GET(request: Request) {
   const { data: participants, error } = await supabase
     .from("participants")
     .select(
-      "id, puuid, region_platform, nombre_display, penalty_games_without_compliance, penalty_last_processed_match_id, aegis_count, noncompliance_penalty_count, noncompliance_penalty_last_date, manually_disqualified, penalty_received_count",
+      "id, puuid, region_platform, nombre_display, penalty_games_without_compliance, penalty_last_processed_match_id, aegis_count, noncompliance_penalty_count, noncompliance_penalty_last_date, manually_disqualified, penalty_received_count, shield_streak_count, shield_count",
     )
     .order("last_update_attempted_at", { ascending: true, nullsFirst: true });
 
