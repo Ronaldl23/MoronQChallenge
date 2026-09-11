@@ -47,8 +47,8 @@ function assertEqual(actual, expected, label) {
 const BASE_DATE = "2026-01-01T00:00:00.000Z";
 const NORMAL_GAME_DURATION_SECONDS = 1200;
 
-function penalty(id, championAssigned, { createdAt = BASE_DATE } = {}) {
-  return { id, championAssigned, createdAt };
+function penalty(id, championAssigned, { createdAt = BASE_DATE, isSelfInflicted = false } = {}) {
+  return { id, championAssigned, createdAt, isSelfInflicted };
 }
 
 // summoner1Id/summoner2Id: 0 por defecto (ningún hechizo real de Riot usa
@@ -501,6 +501,54 @@ function statusOf(result, id) {
 {
   const result = run([], [match("m1", { playedAt: at(1), championPlayed: "Teemo" })], 0, 2);
   assertEqual(result.shieldStreakCount, 2, "sin castigos pendientes: la racha de Misión Escudo sobrevive, a diferencia del contador de incumplimiento");
+}
+
+// --- 30. EXPLOIT (preguntado por el usuario): ganar UNA partida que cumple 3 castigos simultáneos distintos a la vez NO da el Escudo de una — la racha solo suma 1, sin importar cuántos castigos cumplió esa misma partida ---
+{
+  const penalties = [
+    penalty("champ", "Teemo", { createdAt: at(0) }),
+    penalty("spell", "SummonerSmite", { createdAt: at(0) }), // Hoz, id 11
+    penalty("noflash", NO_FLASH_ASSIGNMENT, { createdAt: at(0) }),
+  ];
+  // Una sola partida que cumple los 3 a la vez (Teemo + Hoz + sin Flash) y encima la gana.
+  const matches = [
+    match("m1", {
+      playedAt: at(1),
+      championPlayed: "Teemo",
+      summoner1Id: 11,
+      summoner2Id: 7,
+      win: true,
+    }),
+  ];
+  const result = run(penalties, matches);
+  assertEqual(statusOf(result, "champ"), "completed", "exploit: los 3 castigos se cumplen en la misma partida");
+  assertEqual(statusOf(result, "spell"), "completed", "exploit: los 3 castigos se cumplen en la misma partida");
+  assertEqual(statusOf(result, "noflash"), "completed", "exploit: los 3 castigos se cumplen en la misma partida");
+  assertEqual(result.shieldStreakCount, 1, "exploit: cumplir 3 castigos A LA VEZ en una sola partida ganada solo suma 1 a la racha, no 3");
+  assertEqual(result.shieldsGranted, 0, "exploit: NO se otorga el Escudo de una — hacen falta 3 partidas GANADAS separadas, no una con triple cumplimiento");
+}
+
+// --- 31. EXPLOIT: cumplir/ganar un castigo AUTOINFLIGIDO (rebote/hongo/incumplimiento) no suma a la racha — evita fabricar "partidas de castigo" propias ignorando a propósito los castigos reales (mismo patrón que el exploit de Benimaru con la protección) ---
+{
+  const result = run(
+    [penalty("a", "Teemo", { isSelfInflicted: true })],
+    [match("m1", { playedAt: at(1), championPlayed: "Teemo", win: true })],
+  );
+  assertEqual(statusOf(result, "a"), "completed", "el castigo autoinfligido se cumple igual, eso no cambia");
+  assertEqual(result.shieldStreakCount, 0, "exploit: ganar un castigo autoinfligido NO suma a la racha del Escudo");
+}
+
+// --- 31b. Una partida que cumple un castigo REAL y uno autoinfligido A LA VEZ sí suma (alcanza con que UNO de los cumplidos sea real) ---
+{
+  const penalties = [
+    penalty("real", "Teemo", { createdAt: at(0) }),
+    penalty("auto", NO_FLASH_ASSIGNMENT, { createdAt: at(0), isSelfInflicted: true }),
+  ];
+  const matches = [
+    match("m1", { playedAt: at(1), championPlayed: "Teemo", summoner1Id: 7, summoner2Id: 14, win: true }),
+  ];
+  const result = run(penalties, matches);
+  assertEqual(result.shieldStreakCount, 1, "con al menos un castigo REAL cumplido en la partida, sí suma a la racha aunque también haya cumplido uno autoinfligido de paso");
 }
 
 assertEqual(SHIELD_STREAK_TARGET, 3, "SHIELD_STREAK_TARGET es 3 (Misión Escudo, pedido explícito del usuario)");

@@ -580,7 +580,7 @@ async function checkPenaltyCompliance({
 
   const { data: mangoRows, error: mangoError } = await supabase
     .from("mangos")
-    .select("id, champion_assigned, status, is_noncompliance_penalty")
+    .select("id, champion_assigned, status, is_bounce_back, is_moldy_trash, is_noncompliance_penalty")
     .in(
       "id",
       pendingRows.map((row) => row.mango_id),
@@ -628,6 +628,11 @@ async function checkPenaltyCompliance({
         // que la comparación lexicográfica en processPenaltyMatches sea
         // válida — timestamptz de Supabase no siempre viene en ese formato.
         createdAt: new Date(row.created_at).toISOString(),
+        // Ver el comentario de PendingPenalty.isSelfInflicted en
+        // src/lib/penalty.ts — cumplir/ganar uno de estos tres no debe
+        // sumar a la racha de Misión Escudo.
+        isSelfInflicted:
+          mango.is_bounce_back || mango.is_moldy_trash || mango.is_noncompliance_penalty,
       },
     ];
   });

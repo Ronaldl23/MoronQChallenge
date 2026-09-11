@@ -136,6 +136,18 @@ export interface PendingPenalty {
   championAssigned: string;
   /** Mismo formato normalizado que `playedAt` de PenaltyMatchOutcome — ver esa nota. */
   createdAt: string;
+  /**
+   * true si este castigo es autoinfligido (rebote, hongo, o el que se
+   * otorga por no cumplir otro a tiempo — is_bounce_back/is_moldy_trash/
+   * is_noncompliance_penalty en `mangos`). Cumplirlo/ganarlo NO debe sumar
+   * a la racha de Misión Escudo: si contara igual, ignorar a propósito los
+   * castigos reales para forzar que el sistema otorgue uno autoinfligido
+   * en su lugar (mismo exploit ya reportado una vez — caso Benimaru, ver
+   * noncompliancePenaltyIds en /api/update-rankings) dejaría fabricar
+   * "partidas de castigo" propias sin depender de que alguien más ataque
+   * de verdad, en vez de depender de un ataque real.
+   */
+  isSelfInflicted: boolean;
 }
 
 /** "disqualified" queda solo por compatibilidad con filas viejas de antes de este cambio — processPenaltyMatches ya no lo produce (ver nonComplianceGrants). */
@@ -272,19 +284,31 @@ export function processPenaltyMatches({
       counter = 0; // Ventana fresca para los castigos que queden pendientes.
 
       // Misión Escudo: esta partida SÍ fue "de castigo" (cumplió al menos
-      // uno) — solo acá adentro se toca la racha, nunca en el `else` de
-      // abajo (una partida que no cumplió nada no es "de castigo", ni suma
-      // ni corta, pedido explícito del usuario). Ganarla suma; perderla la
-      // corta a 0 aunque el castigo se haya cumplido igual (cumplir ≠
-      // ganar).
-      if (match.win) {
-        shieldStreak += 1;
-        if (shieldStreak >= SHIELD_STREAK_TARGET) {
-          shieldsGranted += 1;
+      // uno) — pero solo cuenta si ALGUNO de los cumplidos ACÁ es un
+      // castigo REAL (isSelfInflicted=false, alguien te lo mandó de
+      // verdad). Si TODOS los cumplidos en esta partida son autoinfligidos
+      // (rebote/hongo/incumplimiento), no toca la racha para nada — mismo
+      // motivo que excluye estos tres del contador de protección
+      // (noncompliancePenaltyIds en /api/update-rankings, caso Benimaru):
+      // sin este chequeo, alguien podría ignorar a propósito sus castigos
+      // reales para que el sistema le otorgue uno autoinfligido y así
+      // fabricar "partidas de castigo" propias a demanda, en vez de
+      // depender de que alguien más lo ataque de verdad. Cuenta como si
+      // fuera una partida cualquiera (no toca la racha, ni suma ni corta),
+      // igual que el `else` de abajo — nunca antes.
+      const hasRealCompletion = [...oldestByAssignment.values()].some(
+        (p) => !p.isSelfInflicted,
+      );
+      if (hasRealCompletion) {
+        if (match.win) {
+          shieldStreak += 1;
+          if (shieldStreak >= SHIELD_STREAK_TARGET) {
+            shieldsGranted += 1;
+            shieldStreak = 0;
+          }
+        } else {
           shieldStreak = 0;
         }
-      } else {
-        shieldStreak = 0;
       }
     } else {
       counter += 1;
