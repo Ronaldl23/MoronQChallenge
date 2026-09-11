@@ -276,6 +276,52 @@ export async function POST(request: Request) {
       );
     }
 
+    // Gate ATÓMICO real del cupo de castigos recibidos del objetivo — antes
+    // esto era un simple UPDATE sin condición (visto como "best-effort", ni
+    // siquiera bloqueaba el lanzamiento si fallaba), y el único chequeo real
+    // era el SELECT de más arriba (target.penalty_received_count >=
+    // MAX_ACTIVE_PENALTIES), sin ningún lock. Dos lanzamientos de personas
+    // DISTINTAS casi simultáneos al MISMO objetivo podían leer los dos ese
+    // SELECT con el mismo valor (por ej. 2) antes de que cualquiera de los
+    // dos terminara de escribir, pasar los dos ese chequeo, y terminar los
+    // dos acá abajo — resultado real reportado: alguien recibiendo 4
+    // castigos en vez del máximo de 3. Un UPDATE con
+    // WHERE penalty_received_count < MAX_ACTIVE_PENALTIES es atómico a
+    // nivel de fila en Postgres: la escritura concurrente que llega segunda
+    // espera a que la primera termine y vuelve a evaluar el WHERE contra el
+    // valor YA actualizado — si la primera lo dejó en el tope, la segunda no
+    // afecta ninguna fila y se entera de que perdió la carrera, en vez de
+    // las dos pasando igual. Va DESPUÉS de ganar la carrera del mango de
+    // arriba (para no incrementar el contador por un mango que esta misma
+    // request en realidad no logró lanzar) pero ANTES de insertar
+    // penalty_progress (para no dejar un castigo real creado si el
+    // objetivo resulta estar al tope) — si pierde, revierte el mango a
+    // 'in_inventory' para que quien lanzó no se quede sin él.
+    const { data: incrementedRows, error: receivedCountError } = await supabase
+      .from("participants")
+      .update({ penalty_received_count: target.penalty_received_count + 1 })
+      .eq("id", target_participant_id)
+      .lt("penalty_received_count", MAX_ACTIVE_PENALTIES)
+      .select("id");
+    if (receivedCountError) {
+      console.error(
+        "launch: fallo incrementando penalty_received_count del objetivo:",
+        receivedCountError.message,
+      );
+      return NextResponse.json({ error: receivedCountError.message }, { status: 500 });
+    }
+    if ((incrementedRows?.length ?? 0) === 0) {
+      await supabase
+        .from("mangos")
+        .update({ status: "in_inventory" })
+        .eq("id", mango.id)
+        .eq("status", "pending_reveal");
+      return NextResponse.json(
+        { error: `${target.nombre_display} ya alcanzó el máximo de castigos disponibles` },
+        { status: 409 },
+      );
+    }
+
     const { error: penaltyError } = await supabase.from("penalty_progress").insert({
       participant_id: target_participant_id,
       mango_id: mango.id,
@@ -283,20 +329,6 @@ export async function POST(request: Request) {
     if (penaltyError) {
       console.error("launch: fallo insertando penalty_progress:", penaltyError.message);
       return NextResponse.json({ error: penaltyError.message }, { status: 500 });
-    }
-
-    // Best-effort: si esto falla no debe tumbar el lanzamiento en sí (ya se
-    // insertó todo lo real arriba) — en el peor caso el contador queda un
-    // poco atrasado, se sigue igual la próxima vez que le manden otro.
-    const { error: receivedCountError } = await supabase
-      .from("participants")
-      .update({ penalty_received_count: target.penalty_received_count + 1 })
-      .eq("id", target_participant_id);
-    if (receivedCountError) {
-      console.error(
-        "launch: fallo incrementando penalty_received_count del objetivo:",
-        receivedCountError.message,
-      );
     }
 
     return NextResponse.json({ ok: true, targetNombreDisplay: target.nombre_display });

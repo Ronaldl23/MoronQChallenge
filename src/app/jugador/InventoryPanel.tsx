@@ -72,12 +72,27 @@ export function InventoryPanel({
   const router = useRouter();
   const [selectedMangoId, setSelectedMangoId] = useState<string | null>(null);
   const [discardMangoId, setDiscardMangoId] = useState<string | null>(null);
+  // Espejo local de `mangos` para poder sacar uno de la vista al instante
+  // apenas se confirma un lanzamiento/descarte, en vez de esperar a que
+  // router.refresh() vuelva a traer TODA la página (misiones, estadísticas,
+  // el resto de los participantes) para recién ahí notar que ya no está —
+  // router.refresh() se sigue llamando igual (acá abajo) para sincronizar
+  // todo lo demás que sí depende del servidor; este useEffect solo evita
+  // que ese viaje de ida y vuelta sea lo que decide CUÁNDO desaparece el
+  // mango de la pantalla.
+  const [displayedMangos, setDisplayedMangos] = useState(mangos);
+  useEffect(() => {
+    setDisplayedMangos(mangos);
+  }, [mangos]);
 
   function handleClose() {
     setSelectedMangoId(null);
   }
 
   function handleComplete() {
+    if (selectedMangoId) {
+      setDisplayedMangos((prev) => prev.filter((m) => m.id !== selectedMangoId));
+    }
     setSelectedMangoId(null);
     router.refresh();
   }
@@ -87,6 +102,9 @@ export function InventoryPanel({
   }
 
   function handleDiscardComplete() {
+    if (discardMangoId) {
+      setDisplayedMangos((prev) => prev.filter((m) => m.id !== discardMangoId));
+    }
     setDiscardMangoId(null);
     router.refresh();
   }
@@ -103,7 +121,7 @@ export function InventoryPanel({
               : "Pasá el mouse por un mango y hacé click para lanzarlo."}
         </p>
         <div className="mt-4 flex gap-4">
-          {Array.from({ length: MAX_SLOTS }, (_, i) => mangos[i] ?? null).map((mango, i) => {
+          {Array.from({ length: MAX_SLOTS }, (_, i) => displayedMangos[i] ?? null).map((mango, i) => {
             // A partir de discardUnlocksAt ya no se puede lanzar — el
             // click pasa a abrir el modal de "tirar a la basura" en vez
             // del de lanzar, y esto NO respeta launchBlocked: tirar un
