@@ -46,6 +46,41 @@ const getCachedRankOrderEntries = unstable_cache(
 );
 
 /**
+ * Las estadísticas de mangos de ESTA sección ("Lanzados/Recibidos/Rebotados"
+ * + top 5) cuentan TODA la vida del torneo (ver el comentario más abajo,
+ * donde se arman) — a diferencia de las demás consultas de esta página, que
+ * filtran por participantId, estas tres barren mangos/penalty_progress
+ * ENTERAS sin ningún filtro. Con el roster fijo eso hoy es rápido, pero va a
+ * ir pesando más a medida que se acumulen más mangos/castigos durante el
+ * torneo — mismo criterio que rankOrder arriba: es solo para MOSTRAR, así
+ * que se cachea unos segundos en vez de barrer las tablas en cada carga de
+ * esta página.
+ */
+const MANGO_STATS_CACHE_SECONDS = 30;
+const getCachedMangoStatsRows = unstable_cache(
+  async () => {
+    const supabase = createAdminClient();
+    const [{ data: allMangosSent }, { data: allPenalties }, { data: allParticipants }] =
+      await Promise.all([
+        supabase
+          .from("mangos")
+          .select("sent_by_participant_id, status")
+          .not("sent_by_participant_id", "is", null)
+          .eq("is_bounce_back", false),
+        supabase.from("penalty_progress").select("participant_id"),
+        supabase.from("participants").select("id, nombre_display"),
+      ]);
+    return {
+      allMangosSent: allMangosSent ?? [],
+      allPenalties: allPenalties ?? [],
+      allParticipants: allParticipants ?? [],
+    };
+  },
+  ["jugador-mango-stats"],
+  { revalidate: MANGO_STATS_CACHE_SECONDS },
+);
+
+/**
  * mangos/penalty_progress tienen policy pública de SOLO LECTURA desde la
  * Fase 5 (0009_public_read_mango_penalty.sql, para el leaderboard público);
  * quest_progress sigue sin ninguna. Ninguna de las tres tiene policy de
@@ -83,9 +118,8 @@ export default async function JugadorPage() {
   // poder pedirse. Antes también vivían en dos tandas más aparte (pedidas
   // recién después de que esta primera terminara): el cupo de castigos
   // pendientes roster-wide (pendingByTargetResult) y las estadísticas de
-  // mangos de toda la vida del torneo (allMangosSentResult/
-  // allPenaltiesResult/allParticipantsResult) — ninguna de las dos depende
-  // de nada de acá tampoco, así que se unieron al mismo lote.
+  // mangos de toda la vida del torneo (mangoStatsRows) — ninguna de las dos
+  // depende de nada de acá tampoco, así que se unieron al mismo lote.
   const [
     rankOrderEntries,
     participantResult,
@@ -95,9 +129,7 @@ export default async function JugadorPage() {
     pendingPenaltiesResult,
     disqualifiedPenaltyCountResult,
     pendingByTargetResult,
-    allMangosSentResult,
-    allPenaltiesResult,
-    allParticipantsResult,
+    mangoStatsRows,
     championsSpellsResult,
   ] = await Promise.all([
     // Quién ya tiene rango asignado — un participante todavía en placements
@@ -171,14 +203,9 @@ export default async function JugadorPage() {
     // objetivo devolviendo la jugada — no fue una decisión suya, ver
     // /api/jugador/mangos/launch). penalty_progress no distingue normal vs.
     // rebote: "recibido" cuenta las dos cosas por igual, es lo que a uno le
-    // tocó cumplir, venga de donde venga.
-    supabase
-      .from("mangos")
-      .select("sent_by_participant_id, status")
-      .not("sent_by_participant_id", "is", null)
-      .eq("is_bounce_back", false),
-    supabase.from("penalty_progress").select("participant_id"),
-    supabase.from("participants").select("id, nombre_display"),
+    // tocó cumplir, venga de donde venga. Cacheado unos segundos, ver el
+    // comentario de getCachedMangoStatsRows arriba.
+    getCachedMangoStatsRows(),
     // getChampionList()/getSummonerSpellList() están cacheados 1h en el Data
     // Cache de Next (ver src/lib/champions.ts) — el .catch acá preserva el
     // mismo fallback de antes (pool vacío, sin bloquear el resto de la
@@ -284,11 +311,9 @@ export default async function JugadorPage() {
   // misma categoría en cada corrida.
   const tier = tierForRank(rankOrder.get(participantId) ?? null);
 
-  const allMangosSent = allMangosSentResult.data;
-  const allPenalties = allPenaltiesResult.data;
-  const allParticipants = allParticipantsResult.data;
+  const { allMangosSent, allPenalties, allParticipants } = mangoStatsRows;
 
-  const nameById = new Map((allParticipants ?? []).map((p) => [p.id, p.nombre_display]));
+  const nameById = new Map(allParticipants.map((p) => [p.id, p.nombre_display]));
 
   const launchedByParticipant = new Map<string, number>();
   const bouncedByParticipant = new Map<string, number>();
