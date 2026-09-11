@@ -36,12 +36,14 @@ export const TOURNAMENT_END_DATE = addDaysUTC(
 
 /**
  * Fecha en la que se BLOQUEA el Pick'em — deliberadamente separada de
- * TOURNAMENT_START_DATE. El Pick'em es algo casual para la comunidad, no
- * parte del torneo competitivo en sí, así que se le da un margen de 3 días
- * después del inicio real del torneo para quien no llegó a cargar su pick
- * a tiempo. Solo isPickemLocked() (ver src/lib/pickem.ts) usa esta fecha —
- * hasTournamentStarted()/hasTournamentEnded() (src/lib/tournament-schedule.ts),
- * el countdown del header, /participantes y el chat siguen atados a
+ * TOURNAMENT_START_DATE. Se calcula relativa a TOURNAMENT_END_DATE (una
+ * semana antes del cierre del torneo, pedido explícito) en vez de al
+ * inicio: el Pick'em queda abierto durante casi todo el torneo, no solo
+ * los primeros días, y se cierra cuando falta una semana para el
+ * resultado final. Solo isPickemLocked() (ver src/lib/pickem.ts) usa esta
+ * fecha — hasTournamentStarted()/hasTournamentEnded()
+ * (src/lib/tournament-schedule.ts), el countdown del header,
+ * /participantes y el chat siguen atados a
  * TOURNAMENT_START_DATE/TOURNAMENT_END_DATE sin ningún cambio.
  */
-export const PICKEM_LOCK_DATE = addDaysUTC(TOURNAMENT_START_DATE, 3);
+export const PICKEM_LOCK_DATE = addDaysUTC(TOURNAMENT_END_DATE, -7);

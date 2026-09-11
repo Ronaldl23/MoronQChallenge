@@ -14,15 +14,16 @@ export {
 } from "@/lib/pickem-logic";
 
 /**
- * A partir de PICKEM_LOCK_DATE (3 días de gracia después de que arranca el
- * torneo — el Pick'em es algo casual, no parte de la competencia en sí, ver
- * el comentario en src/lib/config.ts) nadie puede guardar/editar su pick —
- * ni jugadores ni invitados, sin excepción (el pedido original es
+ * A partir de PICKEM_LOCK_DATE (una semana antes de que termine el torneo,
+ * ver el comentario en src/lib/config.ts) nadie puede guardar/editar su
+ * pick — ni jugadores ni invitados, sin excepción (el pedido original es
  * explícito: "sin importar si son jugadores o invitados"). Se evalúa
  * server-side en /api/pickem/save (la fuente de verdad real) y también
  * client-side para deshabilitar la UI antes de intentar guardar, mismo
  * criterio que el resto del sitio (la UI es una comodidad, el servidor es
- * quien realmente lo hace cumplir).
+ * quien realmente lo hace cumplir). Independiente de esto, cada quien solo
+ * puede enviar su pick UNA vez — ver el INSERT (no upsert) en
+ * /api/pickem/save.
  */
 export function isPickemLocked(now: number = Date.now()): boolean {
   return isPickemLockedAt(now, PICKEM_LOCK_DATE);

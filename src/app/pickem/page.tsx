@@ -110,14 +110,17 @@ export default async function PickemPage() {
                 {identity.ownerType === "guest" && <PickemGuestLogoutButton />}
               </div>
 
-              {!locked && (
-                <PickemBoard
-                  roster={roster}
-                  initialOrder={savedOrder ?? roster.map((p) => p.id)}
-                />
+              {!locked && !savedOrder && (
+                <PickemBoard roster={roster} initialOrder={roster.map((p) => p.id)} />
               )}
 
-              {locked && savedOrder && (
+              {!locked && savedOrder && (
+                <p className="text-sm text-text-secondary">
+                  Ya enviaste tu Pick&apos;em — no se puede editar.
+                </p>
+              )}
+
+              {savedOrder && (
                 <PickemOrderedList
                   order={savedOrder}
                   participantsById={participantsById}

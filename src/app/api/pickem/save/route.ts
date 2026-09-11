@@ -43,22 +43,30 @@ export async function POST(request: Request) {
 
   const supabase = createAdminClient();
   const updated_at = new Date().toISOString();
+  // Un solo envío por persona, sin ediciones posteriores (pedido explícito:
+  // "cuando mandas tu pickem ya no lo puedes editar") — a diferencia del
+  // upsert de antes, un INSERT simple falla con 23505 (unique violation) si
+  // ya existe una fila para este dueño, que es exactamente la señal que
+  // necesitamos para rechazar el reenvío. La constraint unique sobre
+  // participant_id/guest_id (la misma que antes usaba onConflict) es la que
+  // hace de fuente de verdad real — este chequeo no depende de una lectura
+  // previa que podría pisarse con una carrera entre dos pestañas.
   const { error } =
     identity.ownerType === "participant"
       ? await supabase
           .from("pickem_picks")
-          .upsert(
-            { participant_id: identity.ownerId, predicted_order: validated.order, updated_at },
-            { onConflict: "participant_id" },
-          )
+          .insert({ participant_id: identity.ownerId, predicted_order: validated.order, updated_at })
       : await supabase
           .from("pickem_picks")
-          .upsert(
-            { guest_id: identity.ownerId, predicted_order: validated.order, updated_at },
-            { onConflict: "guest_id" },
-          );
+          .insert({ guest_id: identity.ownerId, predicted_order: validated.order, updated_at });
 
   if (error) {
+    if (error.code === "23505") {
+      return NextResponse.json(
+        { error: "Ya enviaste tu Pick'em — no se puede editar." },
+        { status: 409 },
+      );
+    }
     console.error("Guardar Pick'em falló:", error.message);
     return NextResponse.json({ error: "No se pudo guardar el pick" }, { status: 500 });
   }

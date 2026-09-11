@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   DndContext,
   DragOverlay,
@@ -53,6 +54,7 @@ export function PickemBoard({
     [roster],
   );
 
+  const router = useRouter();
   const [order, setOrder] = useState<string[]>(initialOrder);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [status, setStatus] = useState<SaveStatus>({ type: "idle" });
@@ -94,6 +96,10 @@ export function PickemBoard({
       return;
     }
     setStatus({ type: "saved" });
+    // El envío es único (ver /api/pickem/save) — refresca el Server
+    // Component para que lea el pick recién guardado y muestre la vista de
+    // solo lectura en vez de este tablero editable.
+    router.refresh();
   }
 
   const activeParticipant = activeId ? participantsById.get(activeId) : undefined;
