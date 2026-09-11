@@ -1,3 +1,4 @@
+import { unstable_cache } from "next/cache";
 import { getAuthenticatedParticipantId } from "@/lib/player-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getChampionList, type Champion } from "@/lib/champions";
@@ -16,6 +17,33 @@ import { InventoryPanel } from "./InventoryPanel";
 import type { LaunchTarget } from "./LaunchModal";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * fetchRankOrder hace 3 idas y vueltas SECUENCIALES a Supabase por dentro
+ * (roster completo → snapshots paginados de los últimos 7 días → filas
+ * descalificadas) — es, de lejos, la consulta más pesada de esta página, y
+ * con todo lo demás ya corriendo en un solo Promise.all (ver más abajo),
+ * termina siendo la que marca cuánto tarda la página entera en cargar. Acá
+ * solo se usa para MOSTRAR (rango propio, tier de misiones, "hasRank" de
+ * cada rival en el modal de lanzar) — no para decidir si SE PUEDE lanzar un
+ * mango, eso lo sigue calculando /api/jugador/mangos/launch llamando a
+ * fetchRankOrder directo, sin cache, con el elo real del instante del
+ * click. Por eso se cachea acá nomás (no en src/lib/ranking.ts, que
+ * también usa el cron de /api/update-rankings y las rutas de
+ * lanzar/descartar mango — esos SÍ necesitan el dato fresco de cada vez).
+ * Misma ventana que getLeaderboard (src/lib/leaderboard.ts): ambos dependen
+ * de los mismos snapshots, que solo cambian cuando corre el cron.
+ */
+const RANK_ORDER_CACHE_SECONDS = 30;
+const getCachedRankOrderEntries = unstable_cache(
+  async () => {
+    const supabase = createAdminClient();
+    const rankOrder = await fetchRankOrder(supabase);
+    return [...rankOrder.entries()];
+  },
+  ["jugador-rank-order"],
+  { revalidate: RANK_ORDER_CACHE_SECONDS },
+);
 
 /**
  * mangos/penalty_progress tienen policy pública de SOLO LECTURA desde la
@@ -59,7 +87,7 @@ export default async function JugadorPage() {
   // allPenaltiesResult/allParticipantsResult) — ninguna de las dos depende
   // de nada de acá tampoco, así que se unieron al mismo lote.
   const [
-    rankOrder,
+    rankOrderEntries,
     participantResult,
     mangosResult,
     questsResult,
@@ -79,8 +107,9 @@ export default async function JugadorPage() {
     // inPlacements más abajo, al armar `mangos`). Reusa fetchRankOrder
     // (mismo criterio que ya usa /api/jugador/mangos/launch para el bono
     // anti-bullying, y ya pagina bien más allá del límite de 1000 filas de
-    // Supabase, ver el comentario ahí).
-    fetchRankOrder(supabase),
+    // Supabase, ver el comentario ahí) — cacheado unos segundos acá nomás,
+    // ver el comentario de getCachedRankOrderEntries arriba.
+    getCachedRankOrderEntries(),
     supabase
       .from("participants")
       .select(
@@ -157,6 +186,7 @@ export default async function JugadorPage() {
     Promise.all([getChampionList(), getSummonerSpellList()]).catch(() => null),
   ]);
 
+  const rankOrder = new Map(rankOrderEntries);
   const inPlacements = !rankOrder.has(participantId);
 
   const nombreDisplay = participantResult.data?.nombre_display ?? null;
