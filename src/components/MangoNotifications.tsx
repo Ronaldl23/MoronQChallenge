@@ -110,7 +110,10 @@ export function MangoNotifications({
   useEffect(() => {
     audioRef.current = new Audio("/TomaMango.mp3");
     eventAudioRef.current = new Audio("/NotificacionEvento.mp3");
-    protectAudioRef.current = new Audio("/Protect.mp3");
+    // Subido como "Protect shield hit.mp3" (con espacios) — encodeURI para
+    // que el navegador lo resuelva bien, mismo criterio que "facebook
+    // icono.webp" en src/app/page.tsx.
+    protectAudioRef.current = new Audio(encodeURI("/Protect shield hit.mp3"));
 
     function unlockOne(audio: HTMLAudioElement) {
       return audio
@@ -235,7 +238,7 @@ export function MangoNotifications({
         // lo demás (disqualified, launcher_reveal, un "received" viejo que
         // ya no va a disparar la ruleta, o shield_protected), así que usa el
         // sonido genérico de evento salvo para shield_protected, que tiene
-        // el suyo propio (Protect.mp3) — las dos pueden sonar juntas si el
+        // el suyo propio ("Protect shield hit.mp3") — las dos pueden sonar juntas si el
         // batch trae de ambos tipos a la vez.
         if (freshImmediate.some((n) => n.kind === "shield_protected")) {
           protectAudioRef.current?.play().catch(() => {});
