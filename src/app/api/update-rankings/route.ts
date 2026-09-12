@@ -989,7 +989,25 @@ export async function GET(request: Request) {
     // calcula UNA vez por corrida, no por participante — mismo ranking en
     // vivo que ve el leaderboard público (computeRankOrder), para que "Top
     // 1-10" acá signifique lo mismo que "Top 1-10" en la tabla.
-    const rankOrder = await fetchRankOrder(supabase);
+    //
+    // fetchRankOrder ahora TIRA ante un error real de Supabase (ver el
+    // comentario en src/lib/ranking.ts) en vez de devolver un Map vacío en
+    // silencio — correcto para sus otros callers, pero ACÁ, sin este
+    // try/catch, tumbaría TODO este after() antes de que el loop de abajo
+    // procese a un solo participante: exactamente la clase de corte total
+    // que ya pasó una vez (columnas de Escudo sin migrar, cron entero
+    // fallando). Se degrada a Map vacío como hacía antes — el peor caso es
+    // que esta corrida puntual calcule mal el tier de las misiones por
+    // rango, nunca que deje de actualizar a nadie.
+    let rankOrder = new Map<string, number>();
+    try {
+      rankOrder = await fetchRankOrder(supabase);
+    } catch (err) {
+      console.error(
+        "fetchRankOrder falló en update-rankings, se sigue sin datos de rango para las misiones de esta corrida:",
+        err,
+      );
+    }
 
     for (const participant of participants ?? []) {
       // Se marca ACÁ, antes de hacer nada más — ver el comentario largo en

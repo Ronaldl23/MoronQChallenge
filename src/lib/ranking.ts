@@ -62,9 +62,19 @@ export function computeRankOrder(participants: RankableParticipant[]): Map<strin
 export async function fetchRankOrder(
   supabase: SupabaseClient<Database>,
 ): Promise<Map<string, number>> {
-  const { data: participants } = await supabase
+  const { data: participants, error: participantsError } = await supabase
     .from("participants")
     .select("id, manually_disqualified");
+  // Tira en vez de tratar un error real de Supabase como "todavía no hay
+  // nadie rankeado" (mismo bug que tenía computeLeaderboard, ver el
+  // comentario grande en getLeaderboard/src/lib/leaderboard.ts): esta
+  // función la envuelve getCachedRankOrderEntries en unstable_cache
+  // (src/app/jugador/page.tsx) y un hipo transitorio devuelto como "vacío"
+  // quedaría cacheado como verdad por RANK_ORDER_CACHE_SECONDS, mostrándole
+  // "todavía estás en placements" a todo el mundo en esa ventana.
+  if (participantsError) {
+    throw new Error(`Failed to load participants: ${participantsError.message}`);
+  }
   if (!participants || participants.length === 0) return new Map();
 
   const participantIds = participants.map((p) => p.id);
@@ -86,16 +96,25 @@ export async function fetchRankOrder(
       .gte("created_at", windowStart)
       .order("created_at", { ascending: true })
       .range(from, from + PAGE_SIZE - 1);
-    if (error || !page) break;
+    // Ídem participantsError arriba: un error real de mitad de paginación
+    // no es "ya no hay más páginas", así que tira en vez de cortar en
+    // silencio (antes: `if (error || !page) break;`).
+    if (error) {
+      throw new Error(`Failed to load snapshots: ${error.message}`);
+    }
+    if (!page) break;
     for (const row of page) latestEloByParticipant.set(row.participant_id, row.elo_score);
     if (page.length < PAGE_SIZE) break;
   }
 
-  const { data: disqualifiedRows } = await supabase
+  const { data: disqualifiedRows, error: disqualifiedError } = await supabase
     .from("penalty_progress")
     .select("participant_id")
     .in("participant_id", participantIds)
     .eq("status", "disqualified");
+  if (disqualifiedError) {
+    throw new Error(`Failed to load penalty_progress: ${disqualifiedError.message}`);
+  }
   const penaltyDisqualifiedIds = new Set((disqualifiedRows ?? []).map((r) => r.participant_id));
 
   const rankable: RankableParticipant[] = participants

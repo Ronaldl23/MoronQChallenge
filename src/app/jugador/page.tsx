@@ -36,7 +36,7 @@ export const dynamic = "force-dynamic";
  * de los mismos snapshots, que solo cambian cuando corre el cron.
  */
 const RANK_ORDER_CACHE_SECONDS = 30;
-const getCachedRankOrderEntries = unstable_cache(
+const getCachedRankOrderEntriesUncaught = unstable_cache(
   async () => {
     const supabase = createAdminClient();
     const rankOrder = await fetchRankOrder(supabase);
@@ -45,6 +45,27 @@ const getCachedRankOrderEntries = unstable_cache(
   ["jugador-rank-order"],
   { revalidate: RANK_ORDER_CACHE_SECONDS },
 );
+
+/**
+ * El try/catch queda AFUERA de unstable_cache a propósito — mismo bug real
+ * ya encontrado y arreglado en getLeaderboard (ver el comentario grande en
+ * src/lib/leaderboard.ts): fetchRankOrder ahora tira ante un error real de
+ * Supabase en vez de devolver un Map vacío en silencio, así que si este
+ * catch estuviera DENTRO de unstable_cache, ese "vacío" de emergencia
+ * quedaría cacheado como verdad por RANK_ORDER_CACHE_SECONDS, mostrándole
+ * "todavía estás en placements" a todo el que entrara en esa ventana. Acá
+ * afuera, el catch corre en cada pedido (nunca cacheado) — un hipo
+ * transitorio degrada solo a ESE pedido puntual, y el próximo reintenta
+ * fresco.
+ */
+async function getCachedRankOrderEntries(): Promise<[string, number][]> {
+  try {
+    return await getCachedRankOrderEntriesUncaught();
+  } catch (err) {
+    console.error("getCachedRankOrderEntries: fallo sin cachear, se reintenta en el próximo pedido:", err);
+    return [];
+  }
+}
 
 /**
  * Las estadísticas de mangos de ESTA sección ("Lanzados/Recibidos/Rebotados"
@@ -58,28 +79,58 @@ const getCachedRankOrderEntries = unstable_cache(
  * esta página.
  */
 const MANGO_STATS_CACHE_SECONDS = 30;
-const getCachedMangoStatsRows = unstable_cache(
-  async () => {
+type MangoStatsRows = {
+  allMangosSent: { sent_by_participant_id: string | null; status: string }[];
+  allPenalties: { participant_id: string }[];
+  allParticipants: { id: string; nombre_display: string }[];
+};
+const getCachedMangoStatsRowsUncaught = unstable_cache(
+  async (): Promise<MangoStatsRows> => {
     const supabase = createAdminClient();
-    const [{ data: allMangosSent }, { data: allPenalties }, { data: allParticipants }] =
-      await Promise.all([
-        supabase
-          .from("mangos")
-          .select("sent_by_participant_id, status")
-          .not("sent_by_participant_id", "is", null)
-          .eq("is_bounce_back", false),
-        supabase.from("penalty_progress").select("participant_id"),
-        supabase.from("participants").select("id, nombre_display"),
-      ]);
+    const [mangosSentRes, penaltiesRes, participantsRes] = await Promise.all([
+      supabase
+        .from("mangos")
+        .select("sent_by_participant_id, status")
+        .not("sent_by_participant_id", "is", null)
+        .eq("is_bounce_back", false),
+      supabase.from("penalty_progress").select("participant_id"),
+      supabase.from("participants").select("id, nombre_display"),
+    ]);
+    // Tira ante un error real en vez de tratarlo como "todavía no hay
+    // datos" (mismo bug ya encontrado en getLeaderboard, ver
+    // src/lib/leaderboard.ts) — con las tres coalesceadas a `?? []` sin
+    // chequear `error`, un hipo transitorio de Supabase quedaría cacheado
+    // como "cero mangos/castigos en todo el torneo" por
+    // MANGO_STATS_CACHE_SECONDS. El catch que sí preserva el fallback vacío
+    // vive afuera de unstable_cache, en getCachedMangoStatsRows más abajo.
+    if (mangosSentRes.error) {
+      throw new Error(`Failed to load mangos: ${mangosSentRes.error.message}`);
+    }
+    if (penaltiesRes.error) {
+      throw new Error(`Failed to load penalty_progress: ${penaltiesRes.error.message}`);
+    }
+    if (participantsRes.error) {
+      throw new Error(`Failed to load participants: ${participantsRes.error.message}`);
+    }
     return {
-      allMangosSent: allMangosSent ?? [],
-      allPenalties: allPenalties ?? [],
-      allParticipants: allParticipants ?? [],
+      allMangosSent: mangosSentRes.data ?? [],
+      allPenalties: penaltiesRes.data ?? [],
+      allParticipants: participantsRes.data ?? [],
     };
   },
   ["jugador-mango-stats"],
   { revalidate: MANGO_STATS_CACHE_SECONDS },
 );
+
+/** Mismo patrón try/catch-afuera-de-unstable_cache que getCachedRankOrderEntries arriba. */
+async function getCachedMangoStatsRows(): Promise<MangoStatsRows> {
+  try {
+    return await getCachedMangoStatsRowsUncaught();
+  } catch (err) {
+    console.error("getCachedMangoStatsRows: fallo sin cachear, se reintenta en el próximo pedido:", err);
+    return { allMangosSent: [], allPenalties: [], allParticipants: [] };
+  }
+}
 
 /**
  * mangos/penalty_progress tienen policy pública de SOLO LECTURA desde la

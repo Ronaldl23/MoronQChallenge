@@ -187,8 +187,11 @@ async function computeLeaderboard(limit: number): Promise<Leaderboard> {
     );
 
   if (participantsError) {
-    console.error("Failed to load participants:", participantsError.message);
-    return { entries: [], unrankedEntries: [], lastUpdated: null };
+    // Tira el error en vez de devolver el leaderboard "vacío" de siempre —
+    // ver el comentario grande en getLeaderboard más abajo sobre por qué
+    // importa la diferencia entre las dos acá adentro (esto SÍ está
+    // envuelto en unstable_cache).
+    throw new Error(`Failed to load participants: ${participantsError.message}`);
   }
 
   if (!participants || participants.length === 0) {
@@ -224,8 +227,8 @@ async function computeLeaderboard(limit: number): Promise<Leaderboard> {
       .range(from, from + PAGE_SIZE - 1);
 
     if (snapshotsError) {
-      console.error("Failed to load snapshots:", snapshotsError.message);
-      return { entries: [], unrankedEntries: [], lastUpdated: null };
+      // Ídem participantsError arriba: tira en vez de devolver vacío.
+      throw new Error(`Failed to load snapshots: ${snapshotsError.message}`);
     }
 
     snapshots.push(...(page ?? []));
@@ -462,11 +465,31 @@ async function computeLeaderboard(limit: number): Promise<Leaderboard> {
  * getFinalRankByName en src/lib/pickem.ts) usan el default, para que un
  * llamado futuro con otro límite no reciba la entrada cacheada de uno
  * distinto por error.
+ *
+ * El try/catch queda AFUERA de unstable_cache a propósito — bug real
+ * reportado (el Ranking se veía "Todavía no hay datos" un rato y después
+ * volvía solo): computeLeaderboard antes atrapaba sus propios errores de
+ * Supabase y devolvía el leaderboard vacío de siempre en vez de tirar, así
+ * que ante CUALQUIER hipo transitorio de la base (timeout, rate limit) ese
+ * resultado vacío quedaba CACHEADO como si fuera el real durante los
+ * próximos LEADERBOARD_CACHE_SECONDS — mostrándole "sin datos" a todo el
+ * que entrara en esa ventana, no solo al pedido que falló. Ahora
+ * computeLeaderboard tira en vez de devolver vacío en esos dos casos
+ * (participantsError/snapshotsError), así unstable_cache nunca llega a
+ * cachear un fallo — y este catch de acá afuera, que corre en cada pedido
+ * (nunca cacheado), es lo que le sigue mostrando "sin datos" a ESE único
+ * pedido en vez de romper toda la página, mientras el próximo pedido
+ * reintenta fresco.
  */
 export async function getLeaderboard(limit = 50): Promise<Leaderboard> {
-  return unstable_cache(
-    () => computeLeaderboard(limit),
-    ["leaderboard", String(limit)],
-    { revalidate: LEADERBOARD_CACHE_SECONDS },
-  )();
+  try {
+    return await unstable_cache(
+      () => computeLeaderboard(limit),
+      ["leaderboard", String(limit)],
+      { revalidate: LEADERBOARD_CACHE_SECONDS },
+    )();
+  } catch (err) {
+    console.error("getLeaderboard: fallo sin cachear, se reintenta en el próximo pedido:", err);
+    return { entries: [], unrankedEntries: [], lastUpdated: null };
+  }
 }
