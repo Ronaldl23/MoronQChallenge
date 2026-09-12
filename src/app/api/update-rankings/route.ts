@@ -1240,16 +1240,46 @@ export async function GET(request: Request) {
         // comparando contra sí mismo. `recentHistory` (ascendente) ya trae
         // esta misma fila como su último elemento, así que no hace falta una
         // query aparte solo para esto.
+        //
+        // Paginada explícitamente con .range() — bug real reportado (el
+        // mismo aviso de "ascendió a X" repetido varias veces seguidas en el
+        // chat, mismo problema de fondo ya encontrado y arreglado en
+        // getLeaderboard/fetchRankOrder): con el cron cada 10 minutos,
+        // TREND_WINDOW_DAYS de 7 días junta hasta 1008 snapshots por
+        // participante — pasado el límite de 1000 filas por default de
+        // PostgREST. Sin paginar, un .select() ascendente se corta en las
+        // primeras 1000 (las más VIEJAS), perdiéndose justo las últimas
+        // filas recién insertadas — `.at(-1)` terminaba devolviendo un
+        // snapshot de casi 90 minutos atrás en vez del de la corrida
+        // anterior (10 min), así que tras un cambio de rango real, las
+        // siguientes corridas seguían comparando contra el tier VIEJO y
+        // repetían el mismo aviso hasta que la ventana paginada "alcanzaba"
+        // al cambio real.
         const aegisWindowStart = new Date(
           Date.now() - TREND_WINDOW_DAYS * 24 * 60 * 60 * 1000,
         ).toISOString();
-        const { data: recentHistory } = await supabase
-          .from("snapshots")
-          .select("tier, division, lp, created_at")
-          .eq("participant_id", participant.id)
-          .gte("created_at", aegisWindowStart)
-          .order("created_at", { ascending: true });
-        const previousSnapshot = recentHistory?.at(-1) ?? null;
+        const RECENT_HISTORY_PAGE_SIZE = 1000;
+        const recentHistory: { tier: RankTier; division: RankDivision | null; lp: number; created_at: string }[] = [];
+        for (let from = 0; ; from += RECENT_HISTORY_PAGE_SIZE) {
+          const { data: page, error: recentHistoryError } = await supabase
+            .from("snapshots")
+            .select("tier, division, lp, created_at")
+            .eq("participant_id", participant.id)
+            .gte("created_at", aegisWindowStart)
+            .order("created_at", { ascending: true })
+            .range(from, from + RECENT_HISTORY_PAGE_SIZE - 1);
+          if (recentHistoryError) {
+            console.error(
+              `No se pudo traer el historial reciente de ${participant.nombre_display}:`,
+              recentHistoryError.message,
+            );
+            break;
+          }
+          if (!page) break;
+          recentHistory.push(...page);
+          if (page.length < RECENT_HISTORY_PAGE_SIZE) break;
+        }
+        const previousSnapshot = recentHistory.at(-1) ?? null;
 
         const { error: insertError } = await supabase.from("snapshots").insert({
           participant_id: participant.id,
