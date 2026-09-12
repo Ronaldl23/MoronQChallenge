@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
+import { withFetchRetry } from "./supabase-retry.ts";
 
 /**
  * Mismo valor que TREND_WINDOW_DAYS en src/lib/lp-stats.ts — duplicado a
@@ -62,9 +63,9 @@ export function computeRankOrder(participants: RankableParticipant[]): Map<strin
 export async function fetchRankOrder(
   supabase: SupabaseClient<Database>,
 ): Promise<Map<string, number>> {
-  const { data: participants, error: participantsError } = await supabase
-    .from("participants")
-    .select("id, manually_disqualified");
+  const { data: participants, error: participantsError } = await withFetchRetry(() =>
+    supabase.from("participants").select("id, manually_disqualified"),
+  );
   // Tira en vez de tratar un error real de Supabase como "todavía no hay
   // nadie rankeado" (mismo bug que tenía computeLeaderboard, ver el
   // comentario grande en getLeaderboard/src/lib/leaderboard.ts): esta
@@ -89,13 +90,15 @@ export async function fetchRankOrder(
   const PAGE_SIZE = 1000;
   const latestEloByParticipant = new Map<string, number>();
   for (let from = 0; ; from += PAGE_SIZE) {
-    const { data: page, error } = await supabase
-      .from("snapshots")
-      .select("participant_id, elo_score")
-      .in("participant_id", participantIds)
-      .gte("created_at", windowStart)
-      .order("created_at", { ascending: true })
-      .range(from, from + PAGE_SIZE - 1);
+    const { data: page, error } = await withFetchRetry(() =>
+      supabase
+        .from("snapshots")
+        .select("participant_id, elo_score")
+        .in("participant_id", participantIds)
+        .gte("created_at", windowStart)
+        .order("created_at", { ascending: true })
+        .range(from, from + PAGE_SIZE - 1),
+    );
     // Ídem participantsError arriba: un error real de mitad de paginación
     // no es "ya no hay más páginas", así que tira en vez de cortar en
     // silencio (antes: `if (error || !page) break;`).
@@ -107,11 +110,13 @@ export async function fetchRankOrder(
     if (page.length < PAGE_SIZE) break;
   }
 
-  const { data: disqualifiedRows, error: disqualifiedError } = await supabase
-    .from("penalty_progress")
-    .select("participant_id")
-    .in("participant_id", participantIds)
-    .eq("status", "disqualified");
+  const { data: disqualifiedRows, error: disqualifiedError } = await withFetchRetry(() =>
+    supabase
+      .from("penalty_progress")
+      .select("participant_id")
+      .in("participant_id", participantIds)
+      .eq("status", "disqualified"),
+  );
   if (disqualifiedError) {
     throw new Error(`Failed to load penalty_progress: ${disqualifiedError.message}`);
   }

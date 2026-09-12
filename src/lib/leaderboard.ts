@@ -1,5 +1,6 @@
 import { unstable_cache } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { withFetchRetry } from "@/lib/supabase-retry";
 import { getChampionList, type Champion } from "@/lib/champions";
 import { getSummonerSpellList, type SummonerSpell } from "@/lib/summoner-spells";
 import { resolveAssignedPunishment } from "@/lib/mango-launch";
@@ -180,11 +181,13 @@ async function computeLeaderboard(limit: number): Promise<Leaderboard> {
   // Columnas explícitas, sin login_code: es el código personal de acceso a
   // /jugador, no algo que el leaderboard público deba exponer — se excluye
   // a mano en vez de select("*") aunque el service role sí podría leerlo.
-  const { data: participants, error: participantsError } = await supabase
-    .from("participants")
-    .select(
-      "id, nombre_display, riot_game_name, riot_tag, puuid, region_platform, profile_icon_id, avatar_url, opgg_url, in_game, main_role, aegis_count, manually_disqualified",
-    );
+  const { data: participants, error: participantsError } = await withFetchRetry(() =>
+    supabase
+      .from("participants")
+      .select(
+        "id, nombre_display, riot_game_name, riot_tag, puuid, region_platform, profile_icon_id, avatar_url, opgg_url, in_game, main_role, aegis_count, manually_disqualified",
+      ),
+  );
 
   if (participantsError) {
     // Tira el error en vez de devolver el leaderboard "vacío" de siempre —
@@ -215,16 +218,18 @@ async function computeLeaderboard(limit: number): Promise<Leaderboard> {
   const PAGE_SIZE = 1000;
   const snapshots: Snapshot[] = [];
   for (let from = 0; ; from += PAGE_SIZE) {
-    const { data: page, error: snapshotsError } = await supabase
-      .from("snapshots")
-      .select("*")
-      .in(
-        "participant_id",
-        participants.map((p) => p.id),
-      )
-      .gte("created_at", windowStart)
-      .order("created_at", { ascending: true })
-      .range(from, from + PAGE_SIZE - 1);
+    const { data: page, error: snapshotsError } = await withFetchRetry(() =>
+      supabase
+        .from("snapshots")
+        .select("*")
+        .in(
+          "participant_id",
+          participants.map((p) => p.id),
+        )
+        .gte("created_at", windowStart)
+        .order("created_at", { ascending: true })
+        .range(from, from + PAGE_SIZE - 1),
+    );
 
     if (snapshotsError) {
       // Ídem participantsError arriba: tira en vez de devolver vacío.

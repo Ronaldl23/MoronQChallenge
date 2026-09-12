@@ -9,6 +9,7 @@ import { PENALTY_GAME_LIMIT, SHIELD_STREAK_TARGET } from "@/lib/penalty";
 import { fetchPendingPunishments } from "@/lib/pending-penalties";
 import { isOnline } from "@/lib/presence";
 import { fetchRankOrder } from "@/lib/ranking";
+import { withFetchRetry } from "@/lib/supabase-retry";
 import { Header } from "@/components/Header";
 import { PunishmentIcon } from "@/components/PunishmentIcon";
 import { FixedLogo } from "@/components/FixedLogo";
@@ -88,13 +89,15 @@ const getCachedMangoStatsRowsUncaught = unstable_cache(
   async (): Promise<MangoStatsRows> => {
     const supabase = createAdminClient();
     const [mangosSentRes, penaltiesRes, participantsRes] = await Promise.all([
-      supabase
-        .from("mangos")
-        .select("sent_by_participant_id, status")
-        .not("sent_by_participant_id", "is", null)
-        .eq("is_bounce_back", false),
-      supabase.from("penalty_progress").select("participant_id"),
-      supabase.from("participants").select("id, nombre_display"),
+      withFetchRetry(() =>
+        supabase
+          .from("mangos")
+          .select("sent_by_participant_id, status")
+          .not("sent_by_participant_id", "is", null)
+          .eq("is_bounce_back", false),
+      ),
+      withFetchRetry(() => supabase.from("penalty_progress").select("participant_id")),
+      withFetchRetry(() => supabase.from("participants").select("id, nombre_display")),
     ]);
     // Tira ante un error real en vez de tratarlo como "todavía no hay
     // datos" (mismo bug ya encontrado en getLeaderboard, ver
