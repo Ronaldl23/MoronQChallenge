@@ -70,6 +70,75 @@ function sleep(ms: number) {
 }
 
 /**
+ * Traba para que esta ruta nunca procese dos corridas en paralelo (ver
+ * 0034_cron_lock.sql) — bug real: cron-job.org dispara esta ruta cada 10
+ * minutos, pero con el roster completo (cada participante hace varias
+ * llamadas a Riot con sleeps entre medio, ver RIOT_REQUEST_DELAY_MS) una
+ * corrida puede tardar varios minutos y pisarse con la siguiente. Sin esta
+ * traba, dos corridas superpuestas leen el mismo snapshot "anterior" antes
+ * de que ninguna guarde el suyo, así que las dos detectan el mismo cambio
+ * de rango, publican el mismo mensaje en el chat duplicado, e insertan cada
+ * una su propio snapshot (no solo ensucia el chat, también duplica
+ * filas de snapshots que alimentan LP/tendencias).
+ *
+ * TTL bien por encima de maxDuration (300s) para cubrir toda la corrida con
+ * margen, pero releaseCronLock (abajo) libera el lock apenas termina en vez
+ * de esperar el TTL entero — así una corrida normal no le come tiempo de
+ * espera a la siguiente. Si el proceso se corta de golpe (crash, timeout de
+ * Vercel) sin llegar al finally, el TTL igual expira solo, sin quedar
+ * trabado para siempre.
+ */
+const CRON_LOCK_NAME = "update_rankings";
+const CRON_LOCK_TTL_MS = 6 * 60 * 1000;
+
+async function acquireCronLock(supabase: SupabaseClient<Database>): Promise<boolean> {
+  const nowIso = new Date().toISOString();
+  const lockedUntilIso = new Date(Date.now() + CRON_LOCK_TTL_MS).toISOString();
+
+  // Caso normal: ya existe la fila del lock y está vencida (o nunca se tomó
+  // desde que expiró la corrida anterior) — UPDATE condicional atómico,
+  // mismo idioma ya usado en /api/jugador/mangos/launch para el conteo de
+  // castigos activos: si otra corrida la tomó primero, este UPDATE no
+  // afecta ninguna fila.
+  const { data: updated, error: updateError } = await supabase
+    .from("cron_locks")
+    .update({ locked_until: lockedUntilIso })
+    .eq("name", CRON_LOCK_NAME)
+    .lt("locked_until", nowIso)
+    .select("name");
+  if (updateError) {
+    // Ante un fallo de infraestructura ajeno al lock en sí, mejor dejar
+    // correr la corrida (comportamiento de siempre) que bloquear todo el
+    // cron por un error de esta traba nueva.
+    console.error("acquireCronLock: fallo el UPDATE, se sigue sin traba:", updateError.message);
+    return true;
+  }
+  if (updated && updated.length > 0) return true;
+
+  // Sin fila que actualizar: o es la primera corrida desde que existe la
+  // tabla, o el UPDATE de arriba no matcheó porque otra corrida la tiene
+  // tomada ahora mismo. INSERT distingue los dos casos: si ya existe (23505),
+  // está ocupada de verdad.
+  const { error: insertError } = await supabase
+    .from("cron_locks")
+    .insert({ name: CRON_LOCK_NAME, locked_until: lockedUntilIso });
+  if (!insertError) return true;
+  if (insertError.code === "23505") return false;
+  console.error("acquireCronLock: fallo el INSERT, se sigue sin traba:", insertError.message);
+  return true;
+}
+
+async function releaseCronLock(supabase: SupabaseClient<Database>): Promise<void> {
+  const { error } = await supabase
+    .from("cron_locks")
+    .update({ locked_until: new Date(0).toISOString() })
+    .eq("name", CRON_LOCK_NAME);
+  if (error) {
+    console.error("releaseCronLock: fallo liberando la traba (expira sola por TTL):", error.message);
+  }
+}
+
+/**
  * Intentos totales de riotFetch ante 429 seguidos (el primero + reintentos)
  * antes de darse por vencido. Antes era 1 reintento (2 intentos totales) —
  * con el cron corriendo cada 5 min en vez de 15 (3x más corridas por hora
@@ -970,6 +1039,17 @@ export async function GET(request: Request) {
   // vez acá afuera del loop en vez de una query aparte por participante.
   const trackedPuuids = new Set((participants ?? []).map((p) => p.puuid));
 
+  // Antes de arrancar el trabajo pesado: si otra corrida todavía está en
+  // curso (ver acquireCronLock arriba, bug real de eventos de rango
+  // duplicados en el chat), no se registra el after() de esta invocación —
+  // se responde 200 igual (para que cron-job.org no lo marque como
+  // "failed" y reintente) pero sin tocar nada.
+  const lockAcquired = await acquireCronLock(supabase);
+  if (!lockAcquired) {
+    console.log("update-rankings: corrida salteada, la anterior todavía está en curso");
+    return NextResponse.json({ started: false, skipped: true, reason: "previous_run_in_progress" });
+  }
+
   // El procesamiento real (Riot + Supabase, uno por participante con sleeps
   // entre cada llamada) puede tardar bastante más de lo que un cron externo
   // gratuito está dispuesto a esperar por una respuesta (cron-job.org, por
@@ -979,6 +1059,7 @@ export async function GET(request: Request) {
   // maxDuration de siempre (no cambia cuánto tarda esto en terminar, solo
   // evita que el cliente del cron tenga que quedarse esperando).
   after(async () => {
+    try {
     const results: Array<{
       participant_id: string;
       nombre_display: string;
@@ -1329,6 +1410,13 @@ export async function GET(request: Request) {
     // de la corrida queda en los logs de la función en Vercel, mismo lugar
     // donde ya caían los console.error de los pasos best-effort de arriba.
     console.log(`update-rankings: ${results.length} participantes procesados`, results);
+    } finally {
+      // Se libera apenas termina (éxito o error) en vez de esperar el TTL
+      // completo — así la próxima corrida programada no pierde tiempo de
+      // espera de más. Si el proceso muriera sin llegar acá (timeout duro de
+      // Vercel), el TTL de acquireCronLock igual expira solo.
+      await releaseCronLock(supabase);
+    }
   });
 
   return NextResponse.json({

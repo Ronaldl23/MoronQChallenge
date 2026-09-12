@@ -281,6 +281,17 @@ export type ShowcaseParticipant = {
 };
 
 /**
+ * Traba para que /api/update-rankings nunca corra dos veces en paralelo —
+ * ver 0034_cron_lock.sql y acquireCronLock/releaseCronLock en
+ * src/app/api/update-rankings/route.ts. Sin cara pública, service-role
+ * solamente.
+ */
+export type CronLock = {
+  name: string;
+  locked_until: string;
+};
+
+/**
  * 'user': mensaje escrito por un jugador (el default). 'mango_event' /
  * 'rank_event': fila generada por el servidor (mango revelado, ascenso o
  * descenso de tier/división) — ChatWidget la pinta con un ícono de evento
@@ -541,6 +552,12 @@ export type Database = {
           created_at?: string;
         };
         Update: Partial<Omit<ShowcaseParticipant, "id">>;
+        Relationships: [];
+      };
+      cron_locks: {
+        Row: CronLock;
+        Insert: CronLock;
+        Update: Partial<CronLock>;
         Relationships: [];
       };
       chat_messages: {
