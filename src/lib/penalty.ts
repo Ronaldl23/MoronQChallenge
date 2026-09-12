@@ -108,13 +108,20 @@ export const SHIELD_STREAK_TARGET = 3;
 export interface PenaltyMatchOutcome {
   matchId: string;
   /**
-   * ISO 8601 completo (ej. `new Date(x).toISOString()`) — se compara contra
-   * el `createdAt` más viejo entre los castigos pendientes, para no contar
-   * partidas jugadas ANTES de que existiera NINGÚN castigo. La comparación
-   * es lexicográfica (string < string), así que el caller DEBE normalizar
-   * ambos con el mismo formato — un timestamptz de Postgres tal cual no
-   * siempre coincide (offset "+00:00" en vez de "Z", distinta cantidad de
-   * dígitos decimales).
+   * ISO 8601 completo (ej. `new Date(x).toISOString()`) — DEBE ser cuándo
+   * ARRANCÓ la partida (gameStartTimestamp de match-v5), no cuándo
+   * terminó: se compara contra el `createdAt` más viejo entre los
+   * castigos pendientes para no contar partidas ANTES de que existiera
+   * NINGÚN castigo, y una partida que ya estaba en curso cuando se asignó
+   * el castigo no le dio al jugador ninguna chance real de cumplirlo —
+   * usar el fin de la partida ahí contaba una intentona fallida que el
+   * jugador no tuvo forma de evitar (bug real reportado: jugadores que
+   * creían ir 2/3 en realidad ya iban 3/3 por una partida arrancada antes
+   * de que les cayera el castigo). La comparación es lexicográfica (string
+   * < string), así que el caller DEBE normalizar ambos con el mismo
+   * formato — un timestamptz de Postgres tal cual no siempre coincide
+   * (offset "+00:00" en vez de "Z", distinta cantidad de dígitos
+   * decimales).
    */
   playedAt: string;
   /** Id de campeón (Data Dragon, ej. "Ahri") jugado en esa partida. */

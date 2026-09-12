@@ -162,8 +162,22 @@ interface RiotMatchParticipant {
 interface RiotMatchDetail {
   info: {
     participants: RiotMatchParticipant[];
-    /** Epoch ms — para no contar contra un castigo partidas jugadas antes de que se asignara (Fase 4). */
+    /** Epoch ms — cuándo TERMINÓ la partida. Usado para la correlación de LP (Aegis) y otras señales que necesitan el instante en que el resultado quedó firme. NO usar esto para decidir si una partida "contó" contra un castigo — ver gameStartTimestamp. */
     gameEndTimestamp: number;
+    /**
+     * Epoch ms — cuándo ARRANCÓ la partida. checkPenaltyCompliance usa
+     * esto (no gameEndTimestamp) para decidir si una partida pudo haber
+     * cumplido un castigo: una partida que ya estaba en curso cuando el
+     * castigo se asignó no le daba al jugador ninguna chance real de
+     * jugar el campeón/rol/hechizo pedido — antes se comparaba contra
+     * gameEndTimestamp, así que esa misma partida (arrancada antes del
+     * castigo, terminada después) SÍ se contaba como una intentona fallida
+     * más de la ventana de 3, aunque el jugador no tuviera forma de
+     * saberlo a tiempo. Bug real reportado por varios jugadores: piensan
+     * que van 2/3, en realidad ya venían 3/3 por una partida que ya habían
+     * arrancado antes de que les cayera el castigo.
+     */
+    gameStartTimestamp: number;
     /** Segundos — remakes (alguien se desconectó al arranque) terminan en un puñado de segundos; se ignoran por completo para quests y castigos (ver MIN_MATCH_DURATION_SECONDS). */
     gameDuration: number;
   };
@@ -696,7 +710,11 @@ async function checkPenaltyCompliance({
 
     penaltyMatches.push({
       matchId,
-      playedAt: new Date(match.info.gameEndTimestamp).toISOString(),
+      // gameStartTimestamp, no gameEndTimestamp — ver el comentario en
+      // RiotMatchDetail arriba: una partida que ya estaba en curso cuando
+      // se asignó el castigo no cuenta como una intentona (el jugador no
+      // tuvo forma de saber a tiempo qué le tocaba cumplir).
+      playedAt: new Date(match.info.gameStartTimestamp).toISOString(),
       championPlayed: mp.championName,
       teamPosition: mp.teamPosition,
       summoner1Id: mp.summoner1Id,

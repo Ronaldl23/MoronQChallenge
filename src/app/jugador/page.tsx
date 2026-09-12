@@ -12,6 +12,7 @@ import { fetchRankOrder } from "@/lib/ranking";
 import { Header } from "@/components/Header";
 import { PunishmentIcon } from "@/components/PunishmentIcon";
 import { FixedLogo } from "@/components/FixedLogo";
+import { AutoRefresh } from "@/components/AutoRefresh";
 import { PlayerLoginForm } from "./PlayerLoginForm";
 import { InventoryPanel } from "./InventoryPanel";
 import type { LaunchTarget } from "./LaunchModal";
@@ -498,6 +499,14 @@ function PageShell({
 }) {
   return (
     <div className="flex min-h-screen flex-col">
+      {/* Sin esto, esta página se quedaba con los datos del momento en que
+          se cargó hasta que alguien la recargaba a mano — el contador de
+          "partidas sin cumplir", el inventario, las misiones, todo server-
+          rendered, no vuelve a pedirse solo con el tiempo. El home ya tenía
+          este mismo componente (60s + al volver a la pestaña); acá hacía
+          falta igual, reportado por varios jugadores que veían el contador
+          "trabado" con la pestaña abierta un rato. */}
+      <AutoRefresh />
       <FixedLogo />
       <Header />
       {/* Mismo patrón de pt-44/sm+ que el resto de páginas: le da lugar al logo fixed. */}
