@@ -292,6 +292,20 @@ export type CronLock = {
 };
 
 /**
+ * Historial de diagnóstico de checkPenaltyCompliance — una fila NUEVA por
+ * mensaje en vez de pisar uno solo (ver participants.penalty_check_debug),
+ * para poder reconstruir con certeza qué pasó en un caso puntual reportado
+ * mucho después de que corridas posteriores ya taparían el mensaje viejo.
+ * Ver 0035_penalty_check_log.sql. Sin cara pública, service-role solamente.
+ */
+export type PenaltyCheckLog = {
+  id: string;
+  participant_id: string;
+  created_at: string;
+  message: string;
+};
+
+/**
  * 'user': mensaje escrito por un jugador (el default). 'mango_event' /
  * 'rank_event': fila generada por el servidor (mango revelado, ascenso o
  * descenso de tier/división) — ChatWidget la pinta con un ícono de evento
@@ -559,6 +573,23 @@ export type Database = {
         Insert: CronLock;
         Update: Partial<CronLock>;
         Relationships: [];
+      };
+      penalty_check_log: {
+        Row: PenaltyCheckLog;
+        Insert: Omit<PenaltyCheckLog, "id" | "created_at"> & {
+          id?: string;
+          created_at?: string;
+        };
+        Update: Partial<Omit<PenaltyCheckLog, "id">>;
+        Relationships: [
+          {
+            foreignKeyName: "penalty_check_log_participant_id_fkey";
+            columns: ["participant_id"];
+            isOneToOne: false;
+            referencedRelation: "participants";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       chat_messages: {
         Row: ChatMessage;

@@ -623,13 +623,31 @@ async function checkPenaltyCompliance({
   // una consulta SQL directa en vez de depender de los logs de Vercel (que
   // el usuario no revisa). Best-effort: si esto falla, no debe tumbar el
   // resto del chequeo real.
+  //
+  // ADEMÁS se guarda cada mensaje como fila nueva en penalty_check_log (ver
+  // 0035_penalty_check_log.sql) — bug real reportado: penalty_check_debug
+  // pisado cada corrida hacía imposible reconstruir qué pasó en el momento
+  // exacto de un castigo puntual (caso Juan Ruiz/Veigar) una vez que
+  // corridas posteriores ya habían tapado el mensaje relevante. No cambia
+  // ninguna regla del sistema de castigos, solo agrega más historial para
+  // poder probar (no adivinar) la próxima vez que alguien reporte algo
+  // parecido. Si la tabla todavía no existe (migración no corrida), el
+  // error se loguea y se sigue de largo — igual que el resto de este
+  // chequeo es best-effort.
   async function writeDebug(message: string) {
+    const fullMessage = `${new Date().toISOString()} ${message}`;
     const { error } = await supabase
       .from("participants")
-      .update({ penalty_check_debug: `${new Date().toISOString()} ${message}` })
+      .update({ penalty_check_debug: fullMessage })
       .eq("id", participantId);
     if (error) {
       console.error(`No se pudo guardar penalty_check_debug para ${participantId}:`, error.message);
+    }
+    const { error: logError } = await supabase
+      .from("penalty_check_log")
+      .insert({ participant_id: participantId, message });
+    if (logError) {
+      console.error(`No se pudo guardar penalty_check_log para ${participantId}:`, logError.message);
     }
   }
 
