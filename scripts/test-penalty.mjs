@@ -439,6 +439,48 @@ function statusOf(result, id) {
   assertEqual(result.gamesWithoutCompliance, 0, "remake: tampoco suma al contador (castigo de hechizo)");
 }
 
+// --- 23b. BUG REAL (caso Benimaru/Incendiar): una partida jugada ANTES de que
+// existiera un castigo puntual no debe poder cumplirlo, aunque sea posterior
+// al castigo MÁS VIEJO del grupo (que es lo único que earliestCreatedAt
+// garantiza). Acá "old" (Teemo) ya existía cuando se jugó la partida, pero
+// "new" (Incendiar) recién se creó DESPUÉS de que la partida terminara — la
+// partida llevó Incendiar pero no debe poder cumplir "new" retroactivamente. ---
+{
+  const penalties = [
+    penalty("old", "Teemo", { createdAt: at(0) }),
+    penalty("new", "SummonerDot", { createdAt: at(2) }), // Incendiar, id 14 — creado 2h después de la base
+  ];
+  // Partida jugada 1h después de la base: posterior a "old" (0h) pero ANTERIOR a "new" (2h).
+  const matches = [
+    match("m1", { playedAt: at(1), championPlayed: "Ahri", summoner1Id: 14, summoner2Id: 4 }),
+  ];
+  const result = run(penalties, matches);
+  assertEqual(
+    statusOf(result, "new"),
+    "pending",
+    "bug Incendiar: partida jugada ANTES de que existiera el castigo no lo cumple, aunque llevó el hechizo pedido",
+  );
+  assertEqual(statusOf(result, "old"), "pending", "bug Incendiar: tampoco jugó Teemo, ese sigue pendiente igual");
+  assertEqual(
+    result.gamesWithoutCompliance,
+    1,
+    "bug Incendiar: la partida sí cuenta como intento fallido (es posterior al castigo más viejo del grupo)",
+  );
+}
+
+// --- 23c. Contraparte de 23b: una partida jugada DESPUÉS de que el castigo puntual existiera sí lo cumple normalmente ---
+{
+  const penalties = [
+    penalty("old", "Teemo", { createdAt: at(0) }),
+    penalty("new", "SummonerDot", { createdAt: at(2) }),
+  ];
+  const matches = [
+    match("m1", { playedAt: at(3), championPlayed: "Ahri", summoner1Id: 14, summoner2Id: 4 }),
+  ];
+  const result = run(penalties, matches);
+  assertEqual(statusOf(result, "new"), "completed", "bug Incendiar (contraparte): partida posterior al castigo sí lo cumple");
+}
+
 // --- 24. Misión Escudo: ganar una partida de castigo suma a la racha, sin llegar todavía al Escudo ---
 {
   const result = run(

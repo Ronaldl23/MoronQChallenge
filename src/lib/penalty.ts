@@ -265,7 +265,20 @@ export function processPenaltyMatches({
     // Partida jugada antes de que existiera NINGÚN castigo pendiente: no cuenta ni a favor ni en contra.
     if (match.playedAt < earliestCreatedAt) continue;
 
-    const compliant = stillPending.filter((p) => isCompliant(p.championAssigned, match));
+    // match.playedAt >= earliestCreatedAt (chequeado arriba) solo garantiza
+    // que la partida es posterior al castigo MÁS VIEJO del grupo — no a
+    // CADA UNO. Bug real reportado (caso Benimaru/Incendiar): una partida
+    // que ya había TERMINADO se usó para cumplir un castigo de Incendiar
+    // que recién le asignaron DESPUÉS de que la partida terminara, solo
+    // porque para ese entonces ya tenía otro castigo más viejo pendiente
+    // que sí hacía válida la partida a nivel de grupo. Cada castigo
+    // necesita su PROPIO chequeo de fecha: una partida solo puede cumplir
+    // un castigo puntual si arrancó en o después de que ESE castigo
+    // existiera, sin importar que otro más viejo del mismo grupo sí lo
+    // permitiera.
+    const compliant = stillPending.filter(
+      (p) => match.playedAt >= p.createdAt && isCompliant(p.championAssigned, match),
+    );
 
     if (compliant.length > 0) {
       // Si hay más de un castigo pendiente con el MISMO championAssigned
