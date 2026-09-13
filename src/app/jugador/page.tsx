@@ -557,7 +557,7 @@ function PageShell({
           se cargó hasta que alguien la recargaba a mano — el contador de
           "partidas sin cumplir", el inventario, las misiones, todo server-
           rendered, no vuelve a pedirse solo con el tiempo. El home ya tenía
-          este mismo componente (60s + al volver a la pestaña); acá hacía
+          este mismo componente (30s + al volver a la pestaña); acá hacía
           falta igual, reportado por varios jugadores que veían el contador
           "trabado" con la pestaña abierta un rato. */}
       <AutoRefresh />

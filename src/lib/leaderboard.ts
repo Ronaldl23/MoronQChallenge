@@ -161,12 +161,15 @@ export interface Leaderboard {
 /**
  * Segundos que se cachea el resultado calculado de getLeaderboard() (ver
  * más abajo) — se eligió bien por debajo de la cadencia real del cron
- * (~15min, /api/update-rankings) para no notarse como "desactualizado",
- * pero suficiente para que AutoRefresh.tsx (cada 60s, UNA petición por
- * pestaña abierta) no dispare un recálculo completo — varias consultas a
- * Supabase en cascada, más Data Dragon si hay castigos pendientes — por
- * cada pestaña de cada visitante. Con esto, todas las pestañas que pidan
- * la página dentro de la misma ventana de 30s comparten un solo cálculo.
+ * (~10min, /api/update-rankings) para no notarse como "desactualizado",
+ * pero suficiente para que AutoRefresh.tsx (cada 30s, UNA petición por
+ * pestaña abierta — mismo valor que este cache, para que el peor caso sea
+ * "hasta 1 minuto" entre un cambio real del cron y que se vea en pantalla
+ * solo, sin F5) no dispare un recálculo completo en cada tick — varias
+ * consultas a Supabase en cascada, más Data Dragon si hay castigos
+ * pendientes — por cada pestaña de cada visitante. Con esto, todas las
+ * pestañas que pidan la página dentro de la misma ventana de 30s comparten
+ * un solo cálculo.
  */
 const LEADERBOARD_CACHE_SECONDS = 30;
 

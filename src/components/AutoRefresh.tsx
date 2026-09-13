@@ -15,7 +15,7 @@ import { useRouter } from "next/navigation";
  * "corriendo" en teoría. Volver a la pestaña fuerza un dato fresco de una,
  * sin esperar al próximo tick del intervalo.
  */
-export function AutoRefresh({ intervalMs = 60_000 }: { intervalMs?: number }) {
+export function AutoRefresh({ intervalMs = 30_000 }: { intervalMs?: number }) {
   const router = useRouter();
 
   useEffect(() => {
