@@ -94,7 +94,15 @@ const getCachedMangoStatsRowsUncaught = unstable_cache(
           .from("mangos")
           .select("sent_by_participant_id, status")
           .not("sent_by_participant_id", "is", null)
-          .eq("is_bounce_back", false),
+          .eq("is_bounce_back", false)
+          // Mismo motivo que is_bounce_back=false (ver el comentario más
+          // abajo, donde se arman estas stats): un reflejo de Escudo tampoco
+          // fue una decisión del dueño del Escudo — sent_by_participant_id
+          // ahí queda en él, no en quien de verdad lanzó, así que sin este
+          // filtro se le sumaba como "mango lanzado" algo que en realidad
+          // solo reflejó automáticamente. Bug real encontrado junto con el
+          // de chat_messages_type_check (0036_chat_shield_event_type.sql).
+          .eq("is_shield_reflection", false),
       ),
       withFetchRetry(() => supabase.from("penalty_progress").select("participant_id")),
       withFetchRetry(() => supabase.from("participants").select("id, nombre_display")),
