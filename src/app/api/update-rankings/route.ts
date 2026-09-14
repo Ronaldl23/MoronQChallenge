@@ -173,6 +173,52 @@ async function riotFetch(url: string, apiKey: string, attempt = 1): Promise<Resp
   return riotFetch(url, apiKey, attempt + 1);
 }
 
+/**
+ * Barrido liviano de "en partida" (spectator-v5) para TODO el roster,
+ * SEPARADO del loop pesado de rango/misiones/castigos más abajo — bug real
+ * reportado: antes, in_game solo se actualizaba cuando la rotación justa
+ * (last_update_attempted_at, ver 0031_last_update_attempted_at.sql) llegaba
+ * a ESE participante puntual dentro del loop pesado. Con un roster grande o
+ * una corrida que se atrasa, alguien podía quedar mostrado "en partida" (o
+ * "no en partida") bastante más desactualizado de lo que la cadencia del
+ * cron (~10min) dejaría suponer — el jugador ya había terminado su partida
+ * hacía rato y la página seguía sin enterarse. Acá se hace UNA sola llamada
+ * liviana a Riot por participante (nada de summoner/league/match-v5), para
+ * TODOS, siempre, antes de arrancar el loop pesado — así "en partida" queda
+ * como mucho tan desactualizado como la propia cadencia del cron, sin
+ * depender de en qué parte de la rotación esté cada uno. El loop pesado ya
+ * NO repite este mismo chequeo (ver el comentario ahí).
+ */
+async function refreshInGameStatuses(
+  supabase: SupabaseClient<Database>,
+  participants: { id: string; puuid: string; region_platform: string; nombre_display: string }[],
+  riotApiKey: string,
+): Promise<void> {
+  for (const participant of participants) {
+    const platform = participant.region_platform.toLowerCase();
+    try {
+      const spectatorRes = await riotFetch(
+        `https://${platform}.api.riotgames.com/lol/spectator/v5/active-games/by-summoner/${participant.puuid}`,
+        riotApiKey,
+      );
+      // Mismo criterio que antes: 200 = está jugando, 404 = no está en
+      // partida (respuesta normal). Cualquier otro status (429, 5xx) no
+      // toca in_game — se resuelve solo en la próxima corrida.
+      if (spectatorRes.ok) {
+        await supabase.from("participants").update({ in_game: true }).eq("id", participant.id);
+      } else if (spectatorRes.status === 404) {
+        await supabase.from("participants").update({ in_game: false }).eq("id", participant.id);
+      }
+    } catch (err) {
+      console.error(
+        `refreshInGameStatuses: fallo consultando a ${participant.nombre_display}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+    await sleep(RIOT_REQUEST_DELAY_MS);
+  }
+}
+
 interface RiotLeagueEntry {
   queueType: string;
   tier: string;
@@ -1084,6 +1130,15 @@ export async function GET(request: Request) {
       status: string;
     }> = [];
 
+    // Barrido liviano de "en partida" para TODO el roster, ANTES del loop
+    // pesado de abajo — ver el comentario largo en refreshInGameStatuses.
+    // Best-effort: un fallo acá no debe tumbar el resto de la corrida.
+    try {
+      await refreshInGameStatuses(supabase, participants ?? [], riotApiKey);
+    } catch (err) {
+      console.error("refreshInGameStatuses falló para toda la corrida:", err);
+    }
+
     // Categorías de misiones (ver MissionTier en src/lib/quests.ts): se
     // calcula UNA vez por corrida, no por participante — mismo ranking en
     // vivo que ve el leaderboard público (computeRankOrder), para que "Top
@@ -1153,31 +1208,11 @@ export async function GET(request: Request) {
       // Riot aunque el promedio general esté bien.
       await sleep(RIOT_REQUEST_DELAY_MS);
 
-      // Estado en vivo: best-effort, igual que el ícono. 200 = está jugando,
-      // 404 = no está en partida (respuesta normal, no un error). Cualquier
-      // otro status (429, 5xx) no toca in_game: se resuelve en la próxima
-      // corrida en vez de asumir un estado incorrecto.
-      try {
-        const spectatorRes = await riotFetch(
-          `https://${platform}.api.riotgames.com/lol/spectator/v5/active-games/by-summoner/${participant.puuid}`,
-          riotApiKey,
-        );
-        if (spectatorRes.ok) {
-          await supabase
-            .from("participants")
-            .update({ in_game: true })
-            .eq("id", participant.id);
-        } else if (spectatorRes.status === 404) {
-          await supabase
-            .from("participants")
-            .update({ in_game: false })
-            .eq("id", participant.id);
-        }
-      } catch {
-        // Red caída, etc — no bloquea el resto del update.
-      }
-
-      await sleep(RIOT_REQUEST_DELAY_MS);
+      // Estado en vivo ("en partida"): ya NO se chequea acá — se movió a
+      // refreshInGameStatuses, un barrido aparte para TODO el roster antes
+      // de arrancar este loop (ver ese comentario), en vez de depender de
+      // la rotación justa de este loop pesado. Evita repetir la misma
+      // llamada a Riot dos veces por corrida para el mismo participante.
 
       // Motor de misiones del sistema de Mangos — antes del bloque de
       // league-v4 a propósito: ese bloque tiene `continue` para unranked/error
