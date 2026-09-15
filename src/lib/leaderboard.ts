@@ -50,6 +50,7 @@ type PublicParticipant = Omit<
   | "last_update_attempted_at"
   | "shield_streak_count"
   | "shield_count"
+  | "mango_quests_locked_games_remaining"
 >;
 
 /** Un castigo pendiente o en revisión, en formato listo para mostrar (Fase 5) — mismo shape que el banner de /jugador. */

@@ -63,7 +63,7 @@ export async function GET(request: Request) {
   const supabase = createAdminClient();
   const { data: participants, error: participantsError } = await supabase
     .from("participants")
-    .select("id, puuid, region_platform, nombre_display, penalty_games_without_compliance")
+    .select("id, puuid, region_platform, nombre_display, penalty_games_without_compliance, mango_quests_locked_games_remaining")
     .ilike("nombre_display", nombre);
   if (participantsError) {
     return NextResponse.json({ error: participantsError.message }, { status: 500 });
@@ -147,6 +147,7 @@ export async function GET(request: Request) {
       riotApiKey,
       trackedPuuids,
       tier: missionTier,
+      questsLocked: (participant.mango_quests_locked_games_remaining ?? 0) > 0,
     });
     questsResult = { status: "ok", categoria: missionTier };
   } catch (err) {

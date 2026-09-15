@@ -158,6 +158,17 @@ export type Participant = {
    * quien lo tiene, nunca en el leaderboard público ni en el de nadie más.
    */
   shield_count: number;
+  /**
+   * Bloqueo temporal de misiones/mangos por partida (pedido puntual del
+   * usuario, caso Eduardo tras reiniciar su cuenta) — null = sin bloqueo
+   * (todo el mundo, por default). Un número > 0 = cuántas partidas ranked
+   * reales le faltan para desbloquearse; se descuenta sola en cada corrida
+   * de /api/update-rankings y se limpia sola (null) al llegar a 0. NO
+   * afecta para nada recibir castigos de otros jugadores — solo pausa el
+   * motor de misiones (grantCompletedQuests) para este participante. Ver
+   * 0037_mango_quests_lock.sql.
+   */
+  mango_quests_locked_games_remaining: number | null;
 };
 
 /**
@@ -408,6 +419,7 @@ export type Database = {
           | "last_update_attempted_at"
           | "shield_streak_count"
           | "shield_count"
+          | "mango_quests_locked_games_remaining"
         > & {
           id?: string;
           profile_icon_id?: number | null;
@@ -429,6 +441,7 @@ export type Database = {
           last_update_attempted_at?: string | null;
           shield_streak_count?: number;
           shield_count?: number;
+          mango_quests_locked_games_remaining?: number | null;
         };
         Update: Partial<Omit<Participant, "id">>;
         Relationships: [];

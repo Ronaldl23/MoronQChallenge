@@ -416,6 +416,7 @@ async function grantCompletedQuests({
   referenceRow,
   matches,
   tier,
+  questsLocked = false,
 }: {
   supabase: SupabaseClient<Database>;
   participant: { id: string };
@@ -424,6 +425,17 @@ async function grantCompletedQuests({
   matches: MatchOutcome[];
   /** Categoría ACTUAL del participante — decide los targets/umbral de esta corrida (ver quests.ts) y se persiste en quest_progress.target en cada corrida, para que la UI de /jugador siempre muestre el target vigente aunque no haya partidas nuevas (p.ej. subió/bajó de categoría desde la corrida anterior). */
   tier: MissionTier;
+  /**
+   * Bloqueo temporal puntual (ver participants.mango_quests_locked_games_remaining,
+   * 0037_mango_quests_lock.sql) — con esto en true, el cursor
+   * (last_processed_match_id) SÍ avanza normalmente (para no reevaluar
+   * estas mismas partidas de nuevo una vez desbloqueado), pero
+   * current_progress se mantiene congelado en su valor de ANTES de esta
+   * corrida y no se otorga ningún mango, sin importar qué haya calculado
+   * processNewMatches. Nada de esto toca el sistema de castigos (recibir
+   * mangos de otros jugadores) — motores completamente separados.
+   */
+  questsLocked?: boolean;
 }): Promise<void> {
   const mangoCount = await countMangoInventory(supabase, participant.id);
 
@@ -445,7 +457,7 @@ async function grantCompletedQuests({
       supabase
         .from("quest_progress")
         .update({
-          current_progress: result.progress[questType],
+          current_progress: questsLocked ? progress[questType] : result.progress[questType],
           target: targets[questType],
           last_processed_match_id: lastProcessedMatchId,
           updated_at: updatedAt,
@@ -454,7 +466,7 @@ async function grantCompletedQuests({
     ),
   );
 
-  if (result.grants.length > 0) {
+  if (!questsLocked && result.grants.length > 0) {
     const { error: mangoInsertError } = await supabase.from("mangos").insert(
       result.grants.map(() => ({
         owner_participant_id: participant.id,
@@ -477,12 +489,25 @@ async function grantCompletedQuests({
  * sigue siendo el mismo motor que usa el cron general, solo que llamado
  * fuera de su loop principal.
  */
+export interface ProcessParticipantQuestsResult {
+  signal: AegisMatchSignal;
+  /**
+   * Partidas ranked reales (no remakes) detectadas y procesadas esta
+   * corrida — lo usa el caller para descontar
+   * participants.mango_quests_locked_games_remaining cuando corresponde
+   * (ver 0037_mango_quests_lock.sql). 0 en cualquier camino best-effort
+   * (Riot falló, sin partidas nuevas, etc.).
+   */
+  realMatchesProcessed: number;
+}
+
 export async function processParticipantQuests({
   supabase,
   participant,
   riotApiKey,
   trackedPuuids,
   tier,
+  questsLocked = false,
 }: {
   supabase: SupabaseClient<Database>;
   participant: {
@@ -496,9 +521,11 @@ export async function processParticipantQuests({
   trackedPuuids: Set<string>;
   /** Categoría de dificultad ACTUAL del participante (ver tierForRank en src/lib/quests.ts), calculada UNA vez por corrida en GET a partir del ranking en vivo — decide targets/umbral de las misiones. */
   tier: MissionTier;
-}): Promise<AegisMatchSignal> {
+  /** Ver el comentario de questsLocked en grantCompletedQuests más arriba. */
+  questsLocked?: boolean;
+}): Promise<ProcessParticipantQuestsResult> {
   const continent = platformToContinent(participant.region_platform);
-  if (!continent) return UNKNOWN_AEGIS_SIGNAL;
+  if (!continent) return { signal: UNKNOWN_AEGIS_SIGNAL, realMatchesProcessed: 0 };
 
   const questRows = new Map<QuestType, QuestProgress>(
     await Promise.all(
@@ -518,7 +545,8 @@ export async function processParticipantQuests({
     riotApiKey,
   );
   await sleep(RIOT_REQUEST_DELAY_MS);
-  if (!idsRes.ok) return UNKNOWN_AEGIS_SIGNAL; // best-effort — se reintenta en la próxima corrida
+  // best-effort — se reintenta en la próxima corrida
+  if (!idsRes.ok) return { signal: UNKNOWN_AEGIS_SIGNAL, realMatchesProcessed: 0 };
 
   const recentIds = (await idsRes.json()) as string[];
   const newMatchIds = findNewMatchIds(recentIds, referenceRow.last_processed_match_id).slice(
@@ -534,8 +562,8 @@ export async function processParticipantQuests({
     // se disparaba antes de este fix — la misión quedaba pegada en el
     // target indefinidamente, con el inventario visiblemente vacío, hasta
     // la próxima partida (el bug reportado).
-    await grantCompletedQuests({ supabase, participant, questRows, referenceRow, matches: [], tier });
-    return [];
+    await grantCompletedQuests({ supabase, participant, questRows, referenceRow, matches: [], tier, questsLocked });
+    return { signal: [], realMatchesProcessed: 0 };
   }
 
   const outcomes: MatchOutcome[] = [];
@@ -588,12 +616,15 @@ export async function processParticipantQuests({
     gameEndTimestamp: gameEndTimestamps[i],
     isNonRemakeWin: outcome.win && outcome.gameDurationSeconds >= MIN_MATCH_DURATION_SECONDS,
   }));
+  const realMatchesProcessed = outcomes.filter(
+    (o) => o.gameDurationSeconds >= MIN_MATCH_DURATION_SECONDS,
+  ).length;
 
-  if (outcomes.length === 0) return signal;
+  if (outcomes.length === 0) return { signal, realMatchesProcessed };
 
-  await grantCompletedQuests({ supabase, participant, questRows, referenceRow, matches: outcomes, tier });
+  await grantCompletedQuests({ supabase, participant, questRows, referenceRow, matches: outcomes, tier, questsLocked });
 
-  return signal;
+  return { signal, realMatchesProcessed };
 }
 
 /**
@@ -1163,6 +1194,32 @@ export async function GET(request: Request) {
       );
     }
 
+    // Bloqueo temporal de misiones por partida (0037_mango_quests_lock.sql,
+    // pedido puntual del usuario, caso Eduardo) — consulta APARTE del SELECT
+    // principal de participants de arriba a propósito: ese select es
+    // synchronous y corre ANTES de este after(), así que si esta columna
+    // nueva se hubiera agregado ahí y la migración todavía no corrió,
+    // tumbaría el cron entero — exactamente el incidente real que ya pasó
+    // una vez con las columnas de Escudo. Acá, best-effort: si falla
+    // (migración pendiente), se asume que nadie está bloqueado y el resto
+    // de la corrida sigue exactamente igual que si esta función no existiera.
+    let questsLockedRemainingById = new Map<string, number>();
+    try {
+      const { data: lockedRows, error: lockedError } = await supabase
+        .from("participants")
+        .select("id, mango_quests_locked_games_remaining")
+        .not("mango_quests_locked_games_remaining", "is", null);
+      if (lockedError) throw lockedError;
+      questsLockedRemainingById = new Map(
+        (lockedRows ?? []).map((r) => [r.id, r.mango_quests_locked_games_remaining as number]),
+      );
+    } catch (err) {
+      console.error(
+        "No se pudo leer mango_quests_locked_games_remaining, se sigue sin ningún bloqueo activo:",
+        err,
+      );
+    }
+
     for (const participant of participants ?? []) {
       // Se marca ACÁ, antes de hacer nada más — ver el comentario largo en
       // 0031_last_update_attempted_at.sql sobre por qué al principio y no
@@ -1223,13 +1280,37 @@ export async function GET(request: Request) {
       let aegisSignal: AegisMatchSignal = UNKNOWN_AEGIS_SIGNAL;
       try {
         const tier = tierForRank(rankOrder.get(participant.id) ?? null);
-        aegisSignal = await processParticipantQuests({
+        const lockedRemaining = questsLockedRemainingById.get(participant.id) ?? 0;
+        const questsLocked = lockedRemaining > 0;
+        const { signal, realMatchesProcessed } = await processParticipantQuests({
           supabase,
           participant,
           riotApiKey,
           trackedPuuids,
           tier,
+          questsLocked,
         });
+        aegisSignal = signal;
+
+        // Bloqueo temporal puntual (ver 0037_mango_quests_lock.sql, pedido
+        // explícito del usuario — caso Eduardo tras reiniciar su cuenta):
+        // se descuenta acá, afuera de grantCompletedQuests, para no atarlo
+        // al motor de misiones en sí — cuando llega a 0 se limpia solo
+        // (null) y de ahí en más este participante vuelve a procesarse
+        // normal, sin más intervención manual.
+        if (questsLocked && realMatchesProcessed > 0) {
+          const remaining = Math.max(0, lockedRemaining - realMatchesProcessed);
+          const { error: lockUpdateError } = await supabase
+            .from("participants")
+            .update({ mango_quests_locked_games_remaining: remaining === 0 ? null : remaining })
+            .eq("id", participant.id);
+          if (lockUpdateError) {
+            console.error(
+              `No se pudo descontar mango_quests_locked_games_remaining para ${participant.nombre_display}:`,
+              lockUpdateError.message,
+            );
+          }
+        }
       } catch (err) {
         console.error(
           `Motor de misiones falló para ${participant.nombre_display}:`,
