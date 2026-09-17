@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAuthenticatedParticipantId } from "@/lib/player-auth";
-import { isParticipantDisqualified } from "@/lib/disqualification";
+import { isParticipantDisqualified, isParticipantForFun } from "@/lib/disqualification";
 import { fetchRankOrder } from "@/lib/ranking";
 import { getChampionList } from "@/lib/champions";
 import { getSummonerSpellList } from "@/lib/summoner-spells";
@@ -77,6 +77,15 @@ export async function POST(request: Request) {
     );
   }
 
+  // Modo "For Fun" (ver 0039_for_fun_mode.sql) — no participa del sistema
+  // de Mangos para nada, ni como lanzador ni como objetivo (ver más abajo).
+  if (await isParticipantForFun(supabase, participantId)) {
+    return NextResponse.json(
+      { error: "Estás en modo For Fun — no podés lanzar mangos" },
+      { status: 403 },
+    );
+  }
+
   // MAX_ACTIVE_PENALTIES también bloquea que ÉL MISMO siga lanzando mangos
   // apenas llega al tope (ver canLaunchMango en src/lib/mango-launch.ts) —
   // a propósito, para que tener el tope se sienta como un freno real y no
@@ -147,7 +156,7 @@ export async function POST(request: Request) {
   const { data: target, error: targetError } = await supabase
     .from("participants")
     .select(
-      "id, nombre_display, mango_protection_until, penalty_received_count, shield_count, receives_penalties_while_in_placements",
+      "id, nombre_display, mango_protection_until, penalty_received_count, shield_count, receives_penalties_while_in_placements, for_fun",
     )
     .eq("id", target_participant_id)
     .maybeSingle();
@@ -157,6 +166,18 @@ export async function POST(request: Request) {
   }
   if (!target) {
     return NextResponse.json({ error: "Participante objetivo no encontrado" }, { status: 404 });
+  }
+
+  // Modo "For Fun" (ver 0039_for_fun_mode.sql) — no participa del sistema
+  // de Mangos para nada, ni como lanzador (chequeo arriba) ni como
+  // objetivo. Va ANTES que el Escudo/protección/etc a propósito: así
+  // ningún mango ni Escudo se consume ni tiene ningún efecto secundario
+  // sobre un intento que de entrada no va a ningún lado.
+  if (target.for_fun) {
+    return NextResponse.json(
+      { error: `${target.nombre_display} está en modo For Fun — no se le pueden lanzar mangos` },
+      { status: 409 },
+    );
   }
 
   // Misión Escudo: si el objetivo tiene al menos un Escudo guardado, el

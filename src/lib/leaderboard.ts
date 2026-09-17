@@ -76,6 +76,8 @@ export interface LeaderboardEntry {
   mangoCount: number;
   /** true si tiene AL MENOS UN penalty_progress en status='disqualified' (no cumplió un castigo de mango a tiempo) O si un admin lo descalificó manualmente (participant.manually_disqualified, ver 0019_manual_disqualification.sql) — dos vías independientes, cualquiera de las dos alcanza. */
   isDisqualified: boolean;
+  /** Modo "For Fun" (participant.for_fun, ver 0039_for_fun_mode.sql) — sigue en su posición real del ranking (no afecta el orden), pero queda afuera de la consideración de podio/premios (ver src/app/page.tsx) y no participa del sistema de Mangos. Independiente de isDisqualified. */
+  isForFun: boolean;
   /**
    * Promedio de LP ganado POR VICTORIA (subidas de LP entre snapshots
    * consecutivos del MISMO tier/división, ventana de 7 días, dividido por
@@ -144,6 +146,7 @@ export interface UnrankedLeaderboardEntry {
   pendingPenalties: PendingPenaltySummary[];
   mangoCount: number;
   isDisqualified: boolean;
+  isForFun: boolean;
 }
 
 export interface Leaderboard {
@@ -190,7 +193,7 @@ async function computeLeaderboard(limit: number): Promise<Leaderboard> {
     supabase
       .from("participants")
       .select(
-        "id, nombre_display, riot_game_name, riot_tag, puuid, region_platform, profile_icon_id, avatar_url, opgg_url, in_game, main_role, aegis_count, manually_disqualified",
+        "id, nombre_display, riot_game_name, riot_tag, puuid, region_platform, profile_icon_id, avatar_url, opgg_url, in_game, main_role, aegis_count, manually_disqualified, for_fun",
       ),
   );
 
@@ -390,6 +393,7 @@ async function computeLeaderboard(limit: number): Promise<Leaderboard> {
         mangoCount: mangoCountByParticipant.get(participant.id) ?? 0,
         isDisqualified:
           disqualifiedParticipantIds.has(participant.id) || participant.manually_disqualified,
+        isForFun: participant.for_fun,
       });
       continue;
     }
@@ -424,6 +428,7 @@ async function computeLeaderboard(limit: number): Promise<Leaderboard> {
       mangoCount: mangoCountByParticipant.get(participant.id) ?? 0,
       isDisqualified:
         disqualifiedParticipantIds.has(participant.id) || participant.manually_disqualified,
+      isForFun: participant.for_fun,
     });
   }
 

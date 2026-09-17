@@ -7,6 +7,7 @@ import { ROLE_TO_LANE_SLUG } from "@/lib/lane";
 import { AegisIndicator } from "./AegisIndicator";
 import { CopyRiotIdButton } from "./CopyRiotIdButton";
 import { DisqualifiedBadge } from "./DisqualifiedBadge";
+import { ForFunBadge } from "./ForFunBadge";
 import { MangoCountBadge } from "./MangoCountBadge";
 import { MatchHistory } from "./MatchHistory";
 import { OpggButton } from "./OpggButton";
@@ -222,7 +223,11 @@ export function LeaderboardTable({
                           ddragonVersion={ddragonVersion}
                           size={32}
                         />
-                        {entry.isDisqualified && <DisqualifiedBadge />}
+                        {entry.isDisqualified ? (
+                          <DisqualifiedBadge />
+                        ) : (
+                          entry.isForFun && <ForFunBadge />
+                        )}
                       </div>
                       <div className="min-w-0">
                         <p
@@ -386,7 +391,11 @@ export function LeaderboardTable({
                       ddragonVersion={ddragonVersion}
                       size={32}
                     />
-                    {entry.isDisqualified && <DisqualifiedBadge />}
+                    {entry.isDisqualified ? (
+                      <DisqualifiedBadge />
+                    ) : (
+                      entry.isForFun && <ForFunBadge />
+                    )}
                   </div>
                   <div className="min-w-0">
                     <p

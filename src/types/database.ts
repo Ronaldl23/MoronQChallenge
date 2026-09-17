@@ -180,6 +180,18 @@ export type Participant = {
    * 0038_placements_penalty_exception.sql.
    */
   receives_penalties_while_in_placements: boolean;
+  /**
+   * Modo "For Fun" (pedido explícito del usuario) — jugador que no cumple
+   * las reglas del torneo: sigue viéndose en su posición REAL del ranking
+   * (no se toca effectiveEloScoreForRanking para nada, a diferencia de
+   * manually_disqualified), pero queda afuera de la consideración de
+   * podio/premios (ver src/app/page.tsx) y completamente afuera del
+   * sistema de Mangos — no puede lanzarle a nadie ni que le lancen a él
+   * (ver /api/jugador/mangos/launch). Independiente de
+   * manually_disqualified: ninguno de los dos implica el otro. Ver
+   * 0039_for_fun_mode.sql.
+   */
+  for_fun: boolean;
 };
 
 /**
@@ -432,6 +444,7 @@ export type Database = {
           | "shield_count"
           | "mango_quests_locked_games_remaining"
           | "receives_penalties_while_in_placements"
+          | "for_fun"
         > & {
           id?: string;
           profile_icon_id?: number | null;
@@ -455,6 +468,7 @@ export type Database = {
           shield_count?: number;
           mango_quests_locked_games_remaining?: number | null;
           receives_penalties_while_in_placements?: boolean;
+          for_fun?: boolean;
         };
         Update: Partial<Omit<Participant, "id">>;
         Relationships: [];

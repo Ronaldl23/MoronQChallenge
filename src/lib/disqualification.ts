@@ -30,3 +30,22 @@ export async function isParticipantDisqualified(
   ]);
   return (participant?.manually_disqualified ?? false) || (count ?? 0) > 0;
 }
+
+/**
+ * Modo "For Fun" (participant.for_fun, ver 0039_for_fun_mode.sql) —
+ * independiente de isParticipantDisqualified a propósito (no se mezclan):
+ * un jugador "For Fun" no participa del sistema de Mangos para nada, ni
+ * como lanzador ni como objetivo (ver /api/jugador/mangos/launch), pero
+ * eso no significa que esté descalificado del ranking en sí.
+ */
+export async function isParticipantForFun(
+  supabase: SupabaseClient<Database>,
+  participantId: string,
+): Promise<boolean> {
+  const { data: participant } = await supabase
+    .from("participants")
+    .select("for_fun")
+    .eq("id", participantId)
+    .maybeSingle();
+  return participant?.for_fun ?? false;
+}

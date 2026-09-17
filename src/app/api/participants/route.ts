@@ -65,7 +65,7 @@ export async function GET(request: Request) {
   const supabase = createAdminClient();
   const { data, error } = await supabase
     .from("participants")
-    .select("id, nombre_display, riot_game_name, riot_tag, region_platform")
+    .select("id, nombre_display, riot_game_name, riot_tag, region_platform, for_fun")
     .order("nombre_display", { ascending: true });
 
   if (error) {

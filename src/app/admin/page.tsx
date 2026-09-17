@@ -4,6 +4,7 @@ import { AddParticipantForm } from "./AddParticipantForm";
 import { AddShowcaseParticipantForm } from "./AddShowcaseParticipantForm";
 import { ReplaceParticipantAccountForm } from "./ReplaceParticipantAccountForm";
 import { DisqualifyParticipantForm } from "./DisqualifyParticipantForm";
+import { ForFunToggleForm } from "./ForFunToggleForm";
 import { PenaltyReviewPanel } from "./PenaltyReviewPanel";
 import { PendingPenaltiesPanel } from "./PendingPenaltiesPanel";
 import { PickemAdminPanel } from "./PickemAdminPanel";
@@ -33,6 +34,7 @@ export default async function AdminPage() {
         {authenticated && <AddShowcaseParticipantForm />}
         {authenticated && <ReplaceParticipantAccountForm />}
         {authenticated && <DisqualifyParticipantForm />}
+        {authenticated && <ForFunToggleForm />}
         {authenticated && <PendingPenaltiesPanel />}
         {authenticated && <PenaltyReviewPanel />}
         {authenticated && <PickemAdminPanel />}

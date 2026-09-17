@@ -21,8 +21,13 @@ export default async function Home() {
   const [{ entries, unrankedEntries, lastUpdated }, ddragonVersion] =
     await Promise.all([getLeaderboard(), getDataDragonVersion()]);
   // El podio SOLO mira `entries` (con snapshot/LP real) — nunca
-  // unrankedEntries, aunque haya menos de 3 participantes con rango.
-  const podium = entries.slice(0, 3);
+  // unrankedEntries, aunque haya menos de 3 participantes con rango. Se
+  // excluye a los "For Fun" (participant.for_fun, ver 0039_for_fun_mode.sql)
+  // de la consideración de podio/premios — pedido explícito del usuario —
+  // pero sin tocar su `rank` real ni sacarlos de la tabla completa de abajo
+  // (LeaderboardTable recibe `entries` sin filtrar): siguen viéndose en su
+  // posición real, solo no ocupan un lugar del podio.
+  const podium = entries.filter((entry) => !entry.isForFun).slice(0, 3);
   const hasAnyEntries = entries.length > 0 || unrankedEntries.length > 0;
 
   return (
