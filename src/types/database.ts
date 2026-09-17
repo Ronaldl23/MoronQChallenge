@@ -169,6 +169,17 @@ export type Participant = {
    * 0037_mango_quests_lock.sql.
    */
   mango_quests_locked_games_remaining: number | null;
+  /**
+   * Excepción puntual por jugador (pedido explícito del usuario, caso
+   * Biangelo/Xenøm#Morøn tras cambiar de cuenta) — false (default) = un
+   * participante en placements no puede recibir mangos, como siempre (ver
+   * /api/jugador/mangos/launch). true = puede recibir mangos aunque esté en
+   * placements — para una cuenta recién vinculada con MMR alto, donde
+   * "en placements" es solo administrativo (0 partidas con esa cuenta
+   * todavía), no reflejo real de ser nuevo/débil. Ver
+   * 0038_placements_penalty_exception.sql.
+   */
+  receives_penalties_while_in_placements: boolean;
 };
 
 /**
@@ -420,6 +431,7 @@ export type Database = {
           | "shield_streak_count"
           | "shield_count"
           | "mango_quests_locked_games_remaining"
+          | "receives_penalties_while_in_placements"
         > & {
           id?: string;
           profile_icon_id?: number | null;
@@ -442,6 +454,7 @@ export type Database = {
           shield_streak_count?: number;
           shield_count?: number;
           mango_quests_locked_games_remaining?: number | null;
+          receives_penalties_while_in_placements?: boolean;
         };
         Update: Partial<Omit<Participant, "id">>;
         Relationships: [];

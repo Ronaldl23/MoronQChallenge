@@ -146,7 +146,9 @@ export async function POST(request: Request) {
 
   const { data: target, error: targetError } = await supabase
     .from("participants")
-    .select("id, nombre_display, mango_protection_until, penalty_received_count, shield_count")
+    .select(
+      "id, nombre_display, mango_protection_until, penalty_received_count, shield_count, receives_penalties_while_in_placements",
+    )
     .eq("id", target_participant_id)
     .maybeSingle();
 
@@ -299,7 +301,15 @@ export async function POST(request: Request) {
   // validaciones de esta ruta. rankOrder ya se pidió arriba para el mismo
   // chequeo sobre quien lanza, se reusa acá y para el bono anti-bullying
   // más abajo, sin pedirlo de nuevo.
-  if (!rankOrder.has(target_participant_id)) {
+  //
+  // Excepción puntual (receives_penalties_while_in_placements, ver
+  // 0038_placements_penalty_exception.sql, caso Biangelo/Xenøm#Morøn): una
+  // cuenta recién vinculada puede estar en placements administrativamente
+  // (0 partidas todavía) con un MMR de base alto — no es débil ni nueva, y
+  // bloquearle recibir castigos en ese estado es injusto para el resto. El
+  // bono anti-bullying de abajo simplemente no se aplica en ese caso (sigue
+  // el mismo criterio de "sin rango con el que evaluar" que ya maneja).
+  if (!target.receives_penalties_while_in_placements && !rankOrder.has(target_participant_id)) {
     return NextResponse.json(
       { error: `${target.nombre_display} todavía está en placements — no puede recibir mangos todavía` },
       { status: 409 },
