@@ -299,15 +299,39 @@ export async function POST(request: Request) {
   // los que ya tenía pendientes, terminando con 5+ a la vez. Esto nunca
   // debe pasar: cuántos tiene PENDIENTES ahora mismo (sin importar
   // cuándo los recibió) sigue siendo un tope aparte, siempre activo.
-  const { count: targetPendingCount, error: targetPendingCountError } = await supabase
+  //
+  // Excluye is_noncompliance_penalty e is_moldy_trash a propósito, mismo
+  // criterio que penalty_received_count (ver el comentario de arriba y
+  // discard/route.ts): ninguno de los dos es un castigo que OTRO jugador
+  // le haya mandado a propósito, así que no deberían poder "llenarle" el
+  // cupo de castigos recibibles — bug real reportado: gente con algún
+  // castigo autoinfligido pendiente (por no cumplir a tiempo, o por tirar
+  // un mango podrido) aparecía como "ya alcanzó el máximo" para cualquiera
+  // que quisiera mandarle un castigo de verdad, aunque tuviera menos de
+  // MAX_ACTIVE_PENALTIES castigos REALES pendientes.
+  const { data: targetPendingRows, error: targetPendingError } = await supabase
     .from("penalty_progress")
-    .select("id", { count: "exact", head: true })
+    .select("mango_id")
     .eq("participant_id", target_participant_id)
     .eq("status", "pending");
-  if (targetPendingCountError) {
-    return NextResponse.json({ error: targetPendingCountError.message }, { status: 500 });
+  if (targetPendingError) {
+    return NextResponse.json({ error: targetPendingError.message }, { status: 500 });
   }
-  if ((targetPendingCount ?? 0) >= MAX_ACTIVE_PENALTIES) {
+  const targetPendingMangoIds = (targetPendingRows ?? []).map((row) => row.mango_id);
+  let targetRealPendingCount = 0;
+  if (targetPendingMangoIds.length > 0) {
+    const { data: targetPendingMangos, error: targetPendingMangosError } = await supabase
+      .from("mangos")
+      .select("id, is_noncompliance_penalty, is_moldy_trash")
+      .in("id", targetPendingMangoIds);
+    if (targetPendingMangosError) {
+      return NextResponse.json({ error: targetPendingMangosError.message }, { status: 500 });
+    }
+    targetRealPendingCount = (targetPendingMangos ?? []).filter(
+      (m) => !m.is_noncompliance_penalty && !m.is_moldy_trash,
+    ).length;
+  }
+  if (targetRealPendingCount >= MAX_ACTIVE_PENALTIES) {
     return NextResponse.json(
       { error: `${target.nombre_display} ya alcanzó el máximo de castigos disponibles` },
       { status: 409 },
