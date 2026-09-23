@@ -255,8 +255,15 @@ export default async function JugadorPage() {
     // /api/jugador/mangos/launch): ganar la protección de 8h resetea el
     // acumulado de recibidos a 0, pero eso no debería dejar que le manden 3
     // MÁS encima de otros que ya tenía sin resolver de antes. Se muestra acá
-    // para que LaunchModal refleje el mismo bloqueo real del servidor.
-    supabase.from("penalty_progress").select("participant_id").eq("status", "pending"),
+    // para que LaunchModal refleje el mismo bloqueo real del servidor —
+    // mango_id además de participant_id: is_noncompliance_penalty e
+    // is_moldy_trash se excluyen más abajo (mismo criterio que el chequeo
+    // real en /api/jugador/mangos/launch), ninguno de los dos es un castigo
+    // que otro jugador haya mandado a propósito. Bug real reportado (caso
+    // Jonas): sin esta exclusión, alguien con puros castigos autoinfligidos
+    // pendientes seguía apareciendo acá como "máximo de castigos
+    // disponibles" aunque el servidor ya lo dejara recibir uno nuevo.
+    supabase.from("penalty_progress").select("participant_id, mango_id").eq("status", "pending"),
     // Estadísticas de mangos (apartado nuevo dentro del inventario) — cuentan
     // TODA la vida del torneo, no una ventana de tiempo: cuántos mangos
     // lanzó/recibió cada participante y cuántos de los que lanzó rebotaron,
@@ -372,9 +379,16 @@ export default async function JugadorPage() {
 
   const others = othersResult.data ?? [];
 
-  const pendingByTarget = pendingByTargetResult.data;
+  const pendingByTarget = pendingByTargetResult.data ?? [];
+  const pendingMangoIds = [...new Set(pendingByTarget.map((row) => row.mango_id))];
+  const { data: pendingMangoFlags } = pendingMangoIds.length
+    ? await supabase.from("mangos").select("id, is_noncompliance_penalty, is_moldy_trash").in("id", pendingMangoIds)
+    : { data: [] };
+  const mangoFlagsById = new Map((pendingMangoFlags ?? []).map((m) => [m.id, m]));
   const pendingCountByParticipant = new Map<string, number>();
-  for (const row of pendingByTarget ?? []) {
+  for (const row of pendingByTarget) {
+    const flags = mangoFlagsById.get(row.mango_id);
+    if (flags?.is_noncompliance_penalty || flags?.is_moldy_trash) continue;
     pendingCountByParticipant.set(row.participant_id, (pendingCountByParticipant.get(row.participant_id) ?? 0) + 1);
   }
 
