@@ -29,6 +29,7 @@ import {
   type PunishmentOutcome,
 } from "@/lib/mango-launch";
 import { isProbableAegisProc } from "@/lib/aegis";
+import { isTrackingFrozen } from "@/lib/games-tracking";
 import { computeLpStats, TREND_WINDOW_DAYS } from "@/lib/lp-stats";
 import { correlateLpChanges, correlateSingleMatchLp } from "@/lib/lp-correlation";
 import { platformToContinent } from "@/lib/riot";
@@ -1220,7 +1221,45 @@ export async function GET(request: Request) {
       );
     }
 
+    // Tope de partidas rastreadas (0040_games_tracking_limit.sql, pedido
+    // explícito del usuario) — consulta APARTE del SELECT principal de
+    // participants de arriba, mismo motivo que questsLockedRemainingById
+    // arriba: ese select es síncrono y corre ANTES de este after(), así que
+    // si estas columnas nuevas se hubieran agregado ahí y la migración
+    // todavía no corrió, tumbaría el cron entero para todos (el incidente
+    // real que ya pasó una vez con las columnas de Escudo). Best-effort: si
+    // falla (migración pendiente), se asume que nadie está congelado y el
+    // resto de la corrida sigue exactamente igual que si esta función no
+    // existiera.
+    let trackingById = new Map<string, { tracked: number; unlimited: boolean }>();
+    try {
+      const { data: trackingRows, error: trackingError } = await supabase
+        .from("participants")
+        .select("id, tracked_games_played, unlimited_games_tracking");
+      if (trackingError) throw trackingError;
+      trackingById = new Map(
+        (trackingRows ?? []).map((r) => [r.id, { tracked: r.tracked_games_played, unlimited: r.unlimited_games_tracking }]),
+      );
+    } catch (err) {
+      console.error(
+        "No se pudo leer tracked_games_played/unlimited_games_tracking, se sigue sin ningún congelado activo:",
+        err,
+      );
+    }
+
     for (const participant of participants ?? []) {
+      // Tope de partidas rastreadas: si ya llegó a GAMES_TRACKING_LIMIT (ver
+      // src/lib/games-tracking.ts) sin la excepción manual del admin, no se
+      // le toca NADA esta corrida — ni ícono, ni misiones, ni castigos, ni
+      // snapshot de rango/LP. Va ANTES que todo lo demás del loop
+      // (incluido marcar last_update_attempted_at) a propósito: un
+      // congelado no necesita turno de rotación, nunca hay nada que
+      // procesarle.
+      const tracking = trackingById.get(participant.id);
+      if (tracking && isTrackingFrozen(tracking.tracked, tracking.unlimited)) {
+        continue;
+      }
+
       // Se marca ACÁ, antes de hacer nada más — ver el comentario largo en
       // 0031_last_update_attempted_at.sql sobre por qué al principio y no
       // al final (rotación justa aunque este participante puntual falle o
@@ -1309,6 +1348,28 @@ export async function GET(request: Request) {
               `No se pudo descontar mango_quests_locked_games_remaining para ${participant.nombre_display}:`,
               lockUpdateError.message,
             );
+          }
+        }
+
+        // Tope de partidas rastreadas (0040_games_tracking_limit.sql): suma
+        // las partidas ranked reales de ESTA corrida al acumulado. Se lee
+        // trackingById en vez de participant.tracked_games_played porque
+        // esta columna no está en el SELECT principal síncrono de arriba
+        // (mismo motivo que trackingById en sí, ver ese comentario) — sin
+        // fila en el Map (migración no corrida todavía), no suma nada.
+        if (realMatchesProcessed > 0) {
+          const currentTracked = trackingById.get(participant.id)?.tracked;
+          if (currentTracked !== undefined) {
+            const { error: trackedUpdateError } = await supabase
+              .from("participants")
+              .update({ tracked_games_played: currentTracked + realMatchesProcessed })
+              .eq("id", participant.id);
+            if (trackedUpdateError) {
+              console.error(
+                `No se pudo sumar tracked_games_played para ${participant.nombre_display}:`,
+                trackedUpdateError.message,
+              );
+            }
           }
         }
       } catch (err) {

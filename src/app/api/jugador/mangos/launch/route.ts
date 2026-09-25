@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAuthenticatedParticipantId } from "@/lib/player-auth";
-import { isParticipantDisqualified, isParticipantForFun } from "@/lib/disqualification";
+import { isParticipantDisqualified, isParticipantForFun, isParticipantTrackingFrozen } from "@/lib/disqualification";
+import { isTrackingFrozen } from "@/lib/games-tracking";
 import { fetchRankOrder } from "@/lib/ranking";
 import { getChampionList } from "@/lib/champions";
 import { getSummonerSpellList } from "@/lib/summoner-spells";
@@ -86,6 +87,17 @@ export async function POST(request: Request) {
     );
   }
 
+  // Tope de partidas rastreadas (ver 0040_games_tracking_limit.sql) — llegar
+  // a GAMES_TRACKING_LIMIT congela TODO para este jugador (rango, misiones
+  // y Mangos), no solo la parte del cron. Mismo criterio que For Fun: va
+  // ANTES que cualquier chequeo más caro/con efectos secundarios.
+  if (await isParticipantTrackingFrozen(supabase, participantId)) {
+    return NextResponse.json(
+      { error: "Ya alcanzaste el límite de partidas rastreadas — no podés lanzar mangos" },
+      { status: 403 },
+    );
+  }
+
   // MAX_ACTIVE_PENALTIES también bloquea que ÉL MISMO siga lanzando mangos
   // apenas llega al tope (ver canLaunchMango en src/lib/mango-launch.ts) —
   // a propósito, para que tener el tope se sienta como un freno real y no
@@ -156,7 +168,7 @@ export async function POST(request: Request) {
   const { data: target, error: targetError } = await supabase
     .from("participants")
     .select(
-      "id, nombre_display, mango_protection_until, penalty_received_count, shield_count, receives_penalties_while_in_placements, for_fun",
+      "id, nombre_display, mango_protection_until, penalty_received_count, shield_count, receives_penalties_while_in_placements, for_fun, tracked_games_played, unlimited_games_tracking",
     )
     .eq("id", target_participant_id)
     .maybeSingle();
@@ -176,6 +188,17 @@ export async function POST(request: Request) {
   if (target.for_fun) {
     return NextResponse.json(
       { error: `${target.nombre_display} está en modo For Fun — no se le pueden lanzar mangos` },
+      { status: 409 },
+    );
+  }
+
+  // Tope de partidas rastreadas (ver 0040_games_tracking_limit.sql) — mismo
+  // motivo y misma posición que el chequeo de For Fun de arriba: nada de
+  // Escudo/protección debe tener efecto sobre un intento que de entrada no
+  // va a ningún lado.
+  if (isTrackingFrozen(target.tracked_games_played, target.unlimited_games_tracking)) {
+    return NextResponse.json(
+      { error: `${target.nombre_display} ya alcanzó el límite de partidas rastreadas — no se le pueden lanzar mangos` },
       { status: 409 },
     );
   }

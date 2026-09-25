@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
+import { isTrackingFrozen } from "@/lib/games-tracking";
 
 /**
  * Un participante está descalificado si tiene AL MENOS UN penalty_progress
@@ -48,4 +49,24 @@ export async function isParticipantForFun(
     .eq("id", participantId)
     .maybeSingle();
   return participant?.for_fun ?? false;
+}
+
+/**
+ * Tope de partidas rastreadas (participants.tracked_games_played, ver
+ * 0040_games_tracking_limit.sql) — independiente de isParticipantForFun e
+ * isParticipantDisqualified a propósito, no se mezclan: llegar al tope
+ * congela TODO (rango, misiones y Mangos) salvo que el admin le haya dado
+ * la excepción manual (unlimited_games_tracking).
+ */
+export async function isParticipantTrackingFrozen(
+  supabase: SupabaseClient<Database>,
+  participantId: string,
+): Promise<boolean> {
+  const { data: participant } = await supabase
+    .from("participants")
+    .select("tracked_games_played, unlimited_games_tracking")
+    .eq("id", participantId)
+    .maybeSingle();
+  if (!participant) return false;
+  return isTrackingFrozen(participant.tracked_games_played, participant.unlimited_games_tracking);
 }

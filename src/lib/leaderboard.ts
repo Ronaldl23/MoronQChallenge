@@ -33,7 +33,10 @@ import type { Participant, Snapshot } from "@/types/database";
  * tampoco: Misión Escudo es a propósito invisible para cualquiera que no
  * sea el propio dueño (ver 0033_shield_mission.sql) — ni siquiera el
  * leaderboard debe insinuar quién tiene un Escudo guardado. Ninguno de los
- * trece se pide en el select de abajo.
+ * trece se pide en el select de abajo. tracked_games_played/
+ * unlimited_games_tracking tampoco (ver 0040_games_tracking_limit.sql):
+ * admin-only, el efecto del tope se ve en que el jugador deja de
+ * actualizarse, no en un contador expuesto públicamente.
  */
 type PublicParticipant = Omit<
   Participant,
@@ -52,6 +55,9 @@ type PublicParticipant = Omit<
   | "shield_count"
   | "mango_quests_locked_games_remaining"
   | "receives_penalties_while_in_placements"
+  | "tracked_games_played"
+  | "unlimited_games_tracking"
+  | "created_at"
 >;
 
 /** Un castigo pendiente o en revisión, en formato listo para mostrar (Fase 5) — mismo shape que el banner de /jugador. */

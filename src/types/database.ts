@@ -22,6 +22,8 @@ export type Participant = {
   riot_tag: string;
   puuid: string;
   region_platform: string;
+  /** Cuándo se agregó este participante al torneo — referencia usada por /api/admin/games-tracking-backfill para saber desde cuándo contarle partidas (ver tracked_games_played). */
+  created_at: string;
   /**
    * Ícono de invocador actual (Data Dragon). Null hasta que corre el
    * primer /api/update-rankings para este participante — se actualiza en
@@ -192,6 +194,25 @@ export type Participant = {
    * 0039_for_fun_mode.sql.
    */
   for_fun: boolean;
+  /**
+   * Cuántas partidas ranked reales (no remakes) se le procesaron desde que
+   * entró al torneo (participants.created_at) — arranca en 0 para
+   * participantes nuevos y se suma sola en cada corrida de
+   * /api/update-rankings (ver realMatchesProcessed). Al llegar a
+   * GAMES_TRACKING_LIMIT (ver src/lib/games-tracking.ts) el cron deja de
+   * tocarlo del todo (rango, misiones, Mangos) salvo que tenga
+   * unlimited_games_tracking activo. El roster que ya existía al agregar
+   * esta columna necesita /api/admin/games-tracking-backfill para arrancar
+   * con su valor real en vez de 0. Admin-only, ver 0040_games_tracking_limit.sql.
+   */
+  tracked_games_played: number;
+  /**
+   * Excepción manual del admin (mismo patrón que
+   * receives_penalties_while_in_placements) — true = este jugador nunca se
+   * congela por tracked_games_played, sin importar cuántas partidas
+   * acumule. Ver 0040_games_tracking_limit.sql.
+   */
+  unlimited_games_tracking: boolean;
 };
 
 /**
@@ -445,6 +466,9 @@ export type Database = {
           | "mango_quests_locked_games_remaining"
           | "receives_penalties_while_in_placements"
           | "for_fun"
+          | "tracked_games_played"
+          | "unlimited_games_tracking"
+          | "created_at"
         > & {
           id?: string;
           profile_icon_id?: number | null;
@@ -469,6 +493,9 @@ export type Database = {
           mango_quests_locked_games_remaining?: number | null;
           receives_penalties_while_in_placements?: boolean;
           for_fun?: boolean;
+          tracked_games_played?: number;
+          unlimited_games_tracking?: boolean;
+          created_at?: string;
         };
         Update: Partial<Omit<Participant, "id">>;
         Relationships: [];
