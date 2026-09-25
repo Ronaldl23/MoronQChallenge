@@ -1561,6 +1561,7 @@ export async function GET(request: Request) {
                   isNonRemakeWin: candidate.isNonRemakeWin,
                   lpGained,
                   historicalAvgLpGained,
+                  inPlacements: !rankOrder.has(participant.id),
                 })
               ) {
                 aegisProcs += 1;

@@ -274,6 +274,12 @@ export async function GET(request: Request) {
             isNonRemakeWin: candidate.isNonRemakeWin,
             lpGained,
             historicalAvgLpGained,
+            // Sin inPlacements acá a propósito (default false, ver
+            // src/lib/aegis.ts): este backfill solo revisa una ventana
+            // reciente de partidas (BACKFILL_WINDOW/SINGLE_PARTICIPANT_WINDOW),
+            // en la práctica nunca cae dentro de las placements reales de un
+            // participante ya activo, así que el umbral absoluto se aplica
+            // sin restricción.
           })
         ) {
           aegisFound += 1;
