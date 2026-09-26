@@ -91,7 +91,9 @@ export function ReplaceParticipantAccountForm() {
 
     setStatus({
       type: "success",
-      message: `Cuenta reemplazada: ahora es ${body.participant.riot_game_name}#${body.participant.riot_tag}`,
+      message: body.same_account
+        ? `Es la misma cuenta (mismo puuid) — solo se actualizó el nombre a ${body.participant.riot_game_name}#${body.participant.riot_tag}. Rango, misiones y estadísticas quedaron intactos.`
+        : `Cuenta reemplazada: ahora es ${body.participant.riot_game_name}#${body.participant.riot_tag}. Se reiniciaron snapshots y progreso de misiones (cuenta nueva de verdad).`,
     });
 
     if (list.type === "loaded") {

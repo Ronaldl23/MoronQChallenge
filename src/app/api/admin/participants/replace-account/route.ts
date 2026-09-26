@@ -28,6 +28,18 @@ export const dynamic = "force-dynamic";
  * la cuenta vieja). mangos/penalty_progress/pickem_picks/chat_messages NO
  * se tocan — son historial del PARTICIPANTE en el torneo, no de su cuenta
  * de LoL puntual.
+ *
+ * EXCEPCIÓN (bug real reportado, caso Joseito): si Riot forzó un cambio de
+ * NOMBRE (riot_game_name/riot_tag) sin que la cuenta cambie de verdad — el
+ * puuid resuelto por Riot para el Riot ID nuevo es el MISMO que ya tenía
+ * el participante — no hay ninguna "cuenta vieja" de la que despegarse:
+ * es la misma cuenta de siempre, solo con otro nombre. En ese caso NO se
+ * toca nada de lo de arriba (snapshots, progreso de misiones, ícono,
+ * in_game, aegis_count) — antes este endpoint lo borraba todo igual sin
+ * chequear esto, lo que dejaba al jugador "sin partidas" un rato y
+ * después el cron le reprocesaba sus últimas ~20 partidas como si fueran
+ * nuevas de una (backfill no intencional, mismo patrón que el bug de
+ * reset-quests con Anthony/Biangelo).
  */
 export async function POST(request: Request) {
   if (!(await isAdminAuthenticated(request))) {
@@ -83,7 +95,7 @@ export async function POST(request: Request) {
 
   const { data: existing, error: existingError } = await supabase
     .from("participants")
-    .select("id")
+    .select("id, puuid")
     .eq("id", participant_id)
     .maybeSingle();
 
@@ -124,6 +136,12 @@ export async function POST(request: Request) {
     regionPlatform: platform,
   });
 
+  // Mismo puuid que ya tenía = no es una cuenta distinta, es un cambio de
+  // nombre forzado por Riot sobre la MISMA cuenta — ver el comentario largo
+  // arriba (caso Joseito). Decide si este request touchea o no
+  // snapshots/misiones/ícono/aegis más abajo.
+  const isSameAccount = existing.puuid === account.puuid;
+
   const { data: updated, error: updateError } = await supabase
     .from("participants")
     .update({
@@ -132,9 +150,7 @@ export async function POST(request: Request) {
       puuid: account.puuid,
       region_platform: platform,
       opgg_url: opggUrl,
-      profile_icon_id: null,
-      in_game: false,
-      aegis_count: 0,
+      ...(isSameAccount ? {} : { profile_icon_id: null, in_game: false, aegis_count: 0 }),
     })
     .eq("id", participant_id)
     .select()
@@ -152,6 +168,10 @@ export async function POST(request: Request) {
     }
     console.error("Reemplazo de cuenta falló:", updateError.code, updateError.message);
     return NextResponse.json({ error: updateError.message }, { status: 500 });
+  }
+
+  if (isSameAccount) {
+    return NextResponse.json({ participant: updated, same_account: true });
   }
 
   // Best-effort, en paralelo: ninguno de los dos debe bloquear la
@@ -179,5 +199,5 @@ export async function POST(request: Request) {
     );
   }
 
-  return NextResponse.json({ participant: updated });
+  return NextResponse.json({ participant: updated, same_account: false });
 }
