@@ -102,9 +102,17 @@ const getCachedMangoStatsRowsUncaught = unstable_cache(
           // filtro se le sumaba como "mango lanzado" algo que en realidad
           // solo reflejó automáticamente. Bug real encontrado junto con el
           // de chat_messages_type_check (0036_chat_shield_event_type.sql).
-          .eq("is_shield_reflection", false),
+          .eq("is_shield_reflection", false)
+          // is_noncompliance_penalty/is_moldy_trash: TAMBIÉN autoinfligidos
+          // (sent_by_participant_id queda en uno mismo, ver
+          // nonComplianceGrants en src/lib/penalty.ts y /api/jugador/mangos/discard)
+          // — sin este filtro, "Top lanzadores" contaba castigos que el
+          // jugador se ganó a sí mismo por ignorar uno real como si le
+          // hubiera mandado un mango a alguien. Bug real reportado.
+          .eq("is_noncompliance_penalty", false)
+          .eq("is_moldy_trash", false),
       ),
-      withFetchRetry(() => supabase.from("penalty_progress").select("participant_id")),
+      withFetchRetry(() => supabase.from("penalty_progress").select("participant_id, mango_id")),
       withFetchRetry(() => supabase.from("participants").select("id, nombre_display")),
     ]);
     // Tira ante un error real en vez de tratarlo como "todavía no hay
@@ -123,9 +131,33 @@ const getCachedMangoStatsRowsUncaught = unstable_cache(
     if (participantsRes.error) {
       throw new Error(`Failed to load participants: ${participantsRes.error.message}`);
     }
+
+    // "Top receptores" cuenta castigos que OTRO jugador te mandó — igual que
+    // "Top lanzadores" de arriba, hay que descartar los autoinfligidos
+    // (incumplimiento/hongo): sin esto, un jugador que ignoró sus propios
+    // castigos y se ganó varios por incumplimiento aparecía como si el
+    // resto del roster se la hubiera agarrado con él. Bug real reportado.
+    const penaltyMangoIds = [...new Set((penaltiesRes.data ?? []).map((p) => p.mango_id))];
+    const { data: penaltyMangoFlags, error: penaltyMangoFlagsError } = penaltyMangoIds.length
+      ? await withFetchRetry(() =>
+          supabase
+            .from("mangos")
+            .select("id, is_noncompliance_penalty, is_moldy_trash")
+            .in("id", penaltyMangoIds),
+        )
+      : { data: [], error: null };
+    if (penaltyMangoFlagsError) {
+      throw new Error(`Failed to load mango flags for penalties: ${penaltyMangoFlagsError.message}`);
+    }
+    const penaltyMangoFlagsById = new Map((penaltyMangoFlags ?? []).map((m) => [m.id, m]));
+    const realPenalties = (penaltiesRes.data ?? []).filter((p) => {
+      const flags = penaltyMangoFlagsById.get(p.mango_id);
+      return !flags?.is_noncompliance_penalty && !flags?.is_moldy_trash;
+    });
+
     return {
       allMangosSent: mangosSentRes.data ?? [],
-      allPenalties: penaltiesRes.data ?? [],
+      allPenalties: realPenalties,
       allParticipants: participantsRes.data ?? [],
     };
   },
