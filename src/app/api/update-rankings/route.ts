@@ -30,6 +30,7 @@ import {
 } from "@/lib/mango-launch";
 import { isProbableAegisProc } from "@/lib/aegis";
 import { isTrackingFrozen } from "@/lib/games-tracking";
+import { isFinalStretch } from "@/lib/tournament-schedule";
 import { computeLpStats, TREND_WINDOW_DAYS } from "@/lib/lp-stats";
 import { correlateLpChanges, correlateSingleMatchLp } from "@/lib/lp-correlation";
 import { platformToContinent } from "@/lib/riot";
@@ -1317,66 +1318,74 @@ export async function GET(request: Request) {
       // participante ni tocar a los demás. Sus propias llamadas a Riot ya
       // espacian con sleep(RIOT_REQUEST_DELAY_MS) internamente.
       let aegisSignal: AegisMatchSignal = UNKNOWN_AEGIS_SIGNAL;
-      try {
-        const tier = tierForRank(rankOrder.get(participant.id) ?? null);
-        const lockedRemaining = questsLockedRemainingById.get(participant.id) ?? 0;
-        const questsLocked = lockedRemaining > 0;
-        const { signal, realMatchesProcessed } = await processParticipantQuests({
-          supabase,
-          participant,
-          riotApiKey,
-          trackedPuuids,
-          tier,
-          questsLocked,
-        });
-        aegisSignal = signal;
+      // Recta final (pedido explícito del usuario, ver isFinalStretch en
+      // src/lib/tournament-schedule.ts): el motor de misiones se congela
+      // entero las últimas FINAL_STRETCH_HOURS_BEFORE_END horas del torneo —
+      // nadie completa una misión de último momento ni recibe un mango
+      // nuevo por eso, pareja para todos. El resto del participante (rango/
+      // LP, castigos ya pendientes) sigue procesándose normal más abajo.
+      if (!isFinalStretch()) {
+        try {
+          const tier = tierForRank(rankOrder.get(participant.id) ?? null);
+          const lockedRemaining = questsLockedRemainingById.get(participant.id) ?? 0;
+          const questsLocked = lockedRemaining > 0;
+          const { signal, realMatchesProcessed } = await processParticipantQuests({
+            supabase,
+            participant,
+            riotApiKey,
+            trackedPuuids,
+            tier,
+            questsLocked,
+          });
+          aegisSignal = signal;
 
-        // Bloqueo temporal puntual (ver 0037_mango_quests_lock.sql, pedido
-        // explícito del usuario — caso Eduardo tras reiniciar su cuenta):
-        // se descuenta acá, afuera de grantCompletedQuests, para no atarlo
-        // al motor de misiones en sí — cuando llega a 0 se limpia solo
-        // (null) y de ahí en más este participante vuelve a procesarse
-        // normal, sin más intervención manual.
-        if (questsLocked && realMatchesProcessed > 0) {
-          const remaining = Math.max(0, lockedRemaining - realMatchesProcessed);
-          const { error: lockUpdateError } = await supabase
-            .from("participants")
-            .update({ mango_quests_locked_games_remaining: remaining === 0 ? null : remaining })
-            .eq("id", participant.id);
-          if (lockUpdateError) {
-            console.error(
-              `No se pudo descontar mango_quests_locked_games_remaining para ${participant.nombre_display}:`,
-              lockUpdateError.message,
-            );
-          }
-        }
-
-        // Tope de partidas rastreadas (0040_games_tracking_limit.sql): suma
-        // las partidas ranked reales de ESTA corrida al acumulado. Se lee
-        // trackingById en vez de participant.tracked_games_played porque
-        // esta columna no está en el SELECT principal síncrono de arriba
-        // (mismo motivo que trackingById en sí, ver ese comentario) — sin
-        // fila en el Map (migración no corrida todavía), no suma nada.
-        if (realMatchesProcessed > 0) {
-          const currentTracked = trackingById.get(participant.id)?.tracked;
-          if (currentTracked !== undefined) {
-            const { error: trackedUpdateError } = await supabase
+          // Bloqueo temporal puntual (ver 0037_mango_quests_lock.sql, pedido
+          // explícito del usuario — caso Eduardo tras reiniciar su cuenta):
+          // se descuenta acá, afuera de grantCompletedQuests, para no atarlo
+          // al motor de misiones en sí — cuando llega a 0 se limpia solo
+          // (null) y de ahí en más este participante vuelve a procesarse
+          // normal, sin más intervención manual.
+          if (questsLocked && realMatchesProcessed > 0) {
+            const remaining = Math.max(0, lockedRemaining - realMatchesProcessed);
+            const { error: lockUpdateError } = await supabase
               .from("participants")
-              .update({ tracked_games_played: currentTracked + realMatchesProcessed })
+              .update({ mango_quests_locked_games_remaining: remaining === 0 ? null : remaining })
               .eq("id", participant.id);
-            if (trackedUpdateError) {
+            if (lockUpdateError) {
               console.error(
-                `No se pudo sumar tracked_games_played para ${participant.nombre_display}:`,
-                trackedUpdateError.message,
+                `No se pudo descontar mango_quests_locked_games_remaining para ${participant.nombre_display}:`,
+                lockUpdateError.message,
               );
             }
           }
+
+          // Tope de partidas rastreadas (0040_games_tracking_limit.sql): suma
+          // las partidas ranked reales de ESTA corrida al acumulado. Se lee
+          // trackingById en vez de participant.tracked_games_played porque
+          // esta columna no está en el SELECT principal síncrono de arriba
+          // (mismo motivo que trackingById en sí, ver ese comentario) — sin
+          // fila en el Map (migración no corrida todavía), no suma nada.
+          if (realMatchesProcessed > 0) {
+            const currentTracked = trackingById.get(participant.id)?.tracked;
+            if (currentTracked !== undefined) {
+              const { error: trackedUpdateError } = await supabase
+                .from("participants")
+                .update({ tracked_games_played: currentTracked + realMatchesProcessed })
+                .eq("id", participant.id);
+              if (trackedUpdateError) {
+                console.error(
+                  `No se pudo sumar tracked_games_played para ${participant.nombre_display}:`,
+                  trackedUpdateError.message,
+                );
+              }
+            }
+          }
+        } catch (err) {
+          console.error(
+            `Motor de misiones falló para ${participant.nombre_display}:`,
+            err instanceof Error ? err.message : err,
+          );
         }
-      } catch (err) {
-        console.error(
-          `Motor de misiones falló para ${participant.nombre_display}:`,
-          err instanceof Error ? err.message : err,
-        );
       }
 
       // Independiente del motor de misiones de arriba a propósito — su

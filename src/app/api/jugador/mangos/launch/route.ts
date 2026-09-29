@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getAuthenticatedParticipantId } from "@/lib/player-auth";
 import { isParticipantDisqualified, isParticipantForFun, isParticipantTrackingFrozen } from "@/lib/disqualification";
 import { isTrackingFrozen } from "@/lib/games-tracking";
+import { isFinalStretch } from "@/lib/tournament-schedule";
 import { fetchRankOrder } from "@/lib/ranking";
 import { getChampionList } from "@/lib/champions";
 import { getSummonerSpellList } from "@/lib/summoner-spells";
@@ -61,6 +62,20 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { error: "No podés lanzarte un mango a vos mismo" },
       { status: 400 },
+    );
+  }
+
+  // Recta final del torneo (pedido explícito del usuario, ver
+  // isFinalStretch en src/lib/tournament-schedule.ts) — nadie puede lanzar
+  // NI recibir mangos nuevos en las últimas horas, para que sea pareja
+  // para todos. Va ANTES que cualquier otra cosa, ni siquiera pide la DB:
+  // los castigos que alguien ya tenía pendientes de antes siguen
+  // evaluándose normal por /api/update-rankings, esto solo frena mangos
+  // NUEVOS.
+  if (isFinalStretch()) {
+    return NextResponse.json(
+      { error: "El torneo está en su recta final — el sistema de Mangos ya no acepta lanzamientos nuevos" },
+      { status: 403 },
     );
   }
 

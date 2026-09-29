@@ -10,6 +10,7 @@ import { fetchPendingPunishments } from "@/lib/pending-penalties";
 import { isOnline } from "@/lib/presence";
 import { fetchRankOrder } from "@/lib/ranking";
 import { withFetchRetry } from "@/lib/supabase-retry";
+import { isFinalStretch } from "@/lib/tournament-schedule";
 import { Header } from "@/components/Header";
 import { PunishmentIcon } from "@/components/PunishmentIcon";
 import { FixedLogo } from "@/components/FixedLogo";
@@ -495,6 +496,7 @@ export default async function JugadorPage() {
   // antes se permitía lanzar justo EN el tope para que un rebote propio
   // pudiera sumar un 4to, esa excepción ya no existe).
   const launchBlocked = pendingPenalties.length >= MAX_ACTIVE_PENALTIES || inPlacements;
+  const finalStretch = isFinalStretch();
 
   // Filtra los que todavía están 'pending_reveal': mostrar el castigo acá
   // sería un spoiler y saltearía por completo la ruleta de revelación —
@@ -591,6 +593,7 @@ export default async function JugadorPage() {
           otherParticipants={otherParticipants}
           launchBlocked={launchBlocked}
           inPlacements={inPlacements}
+          finalStretch={finalStretch}
           mangoStats={mangoStats}
         />
       )}

@@ -51,6 +51,7 @@ export function InventoryPanel({
   otherParticipants,
   launchBlocked,
   inPlacements,
+  finalStretch,
   mangoStats,
 }: {
   mangos: InventoryMango[];
@@ -78,6 +79,8 @@ export function InventoryPanel({
   launchBlocked: boolean;
   /** true si todavía no jugó ninguna partida ranked esta temporada — no puede lanzar mangos hasta tener rango (regla confirmada por el usuario, mismo criterio que ya bloquea que se le puedan lanzar a él). Solo para mostrar el motivo puntual del bloqueo; launchBlocked ya incluye este caso. */
   inPlacements: boolean;
+  /** Recta final del torneo (ver isFinalStretch en src/lib/tournament-schedule.ts) — nadie puede lanzar mangos nuevos en las últimas horas. El chequeo real vive en /api/jugador/mangos/launch; esto solo evita un click que de todos modos el servidor va a rechazar. */
+  finalStretch: boolean;
   mangoStats: MangoStatsView;
 }) {
   const tierConfig = MISSION_TIERS[tier];
@@ -126,11 +129,13 @@ export function InventoryPanel({
       <section className="rounded-2xl border border-border-hairline bg-surface p-6">
         <h2 className="font-display text-lg font-semibold text-gold">Inventario de Mangos</h2>
         <p className="mt-1 text-sm text-text-secondary">
-          {inPlacements
-            ? "Todavía estás en placements — no podés lanzar mangos hasta jugar tu primera ranked de la temporada."
-            : launchBlocked
-              ? "Tenés más castigos pendientes de los que se permiten a la vez — no podés lanzar mangos hasta cumplir alguno de los que ya tenés."
-              : "Pasá el mouse por un mango y hacé click para lanzarlo."}
+          {finalStretch
+            ? "El torneo está en su recta final — el sistema de Mangos ya no acepta lanzamientos nuevos. Los castigos que ya tenías pendientes de antes los tenés que cumplir igual."
+            : inPlacements
+              ? "Todavía estás en placements — no podés lanzar mangos hasta jugar tu primera ranked de la temporada."
+              : launchBlocked
+                ? "Tenés más castigos pendientes de los que se permiten a la vez — no podés lanzar mangos hasta cumplir alguno de los que ya tenés."
+                : "Pasá el mouse por un mango y hacé click para lanzarlo."}
         </p>
         <div className="mt-4 flex gap-4">
           {Array.from({ length: MAX_SLOTS }, (_, i) => displayedMangos[i] ?? null).map((mango, i) => {
@@ -153,7 +158,7 @@ export function InventoryPanel({
                   mango
                     ? discardable
                       ? () => setDiscardMangoId(mango.id)
-                      : !launchBlocked
+                      : !launchBlocked && !finalStretch
                         ? () => setSelectedMangoId(mango.id)
                         : undefined
                     : undefined
